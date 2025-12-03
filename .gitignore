@@ -1,0 +1,20 @@
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Debug
+*.log
+
+# Local config
+.env
+.env.local
+
+# tmux-pilot data
+~/.tmux-pilot/
