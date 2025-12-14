@@ -12,7 +12,7 @@ KEYBINDINGS (in picker):
   n          Create new session
   r          Rename session/window
   x          Kill session/window/pane
-  D          Show git diff (workspace only)
+  D          Show git diff (workspace session type only)
   ?          Show this help
   Esc        Close picker
 
@@ -23,11 +23,11 @@ NAVIGATION:
   /          Search
   Tab        Toggle preview
 
-SESSION MODES:
+SESSION TYPES:
 
   [W] Workspace    Git-managed with worktree isolation
                    - Creates separate git worktree
-                   - Shows diff stats
+                   - Shows diff stats from source commit
                    - Branch: tower/<session-name>
 
   [S] Simple       Regular session in any directory
@@ -39,7 +39,7 @@ ICONS:
   📁  Session
   🪟  Window
   ▫   Pane
-  ●   Currently active
+  ●   Active (currently selected)
   ⎇   Git branch
 
 CONFIGURATION (in .tmux.conf):
@@ -63,7 +63,7 @@ CLEANUP:
   Run cleanup.sh to remove orphaned worktrees:
     cleanup.sh --list     List orphaned worktrees
     cleanup.sh            Interactive cleanup
-    cleanup.sh --force    Remove all orphans
+    cleanup.sh --force    Remove all orphaned worktrees
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 EOF

@@ -44,11 +44,18 @@ readonly PREVIEW_LINES=30
 # ============================================================================
 # Input Sanitization
 # ============================================================================
+# These functions handle user input security:
+# - sanitize_name: Removes dangerous characters (prevents command injection)
+# - validate_path_within: Prevents path traversal attacks (e.g., ../../etc/passwd)
+# - normalize_session_name: Converts user input to internal session_id format
+#
+# Processing flow: user_input → sanitize_name → normalize_session_name → session_id
 
 # Sanitize session/branch name to prevent path traversal and command injection
-# Only allows alphanumeric characters, hyphens, and underscores
+# Security: Removes all characters except alphanumeric, hyphen, and underscore
+#           to prevent shell injection and path traversal attacks
 # Arguments:
-#   $1 - Input string to sanitize
+#   $1 - Input string to sanitize (user_input)
 # Returns:
 #   Sanitized string (empty if input is entirely invalid)
 sanitize_name() {
@@ -59,11 +66,13 @@ sanitize_name() {
 }
 
 # Validate that a path is within the expected directory (prevent path traversal)
+# Security: Prevents directory traversal attacks by ensuring resolved path
+#           stays within the allowed base directory
 # Arguments:
 #   $1 - Path to validate
 #   $2 - Expected base directory
 # Returns:
-#   0 if valid, 1 if invalid
+#   0 if valid, 1 if invalid (path escapes base directory)
 validate_path_within() {
     local path="$1"
     local base="$2"
@@ -77,11 +86,12 @@ validate_path_within() {
     [[ "$resolved_path" == "$resolved_base"* ]]
 }
 
-# Normalize session name (replace spaces and dots with underscores)
+# Normalize session name to create session_id
+# Converts sanitized user input to internal tmux session identifier format
 # Arguments:
-#   $1 - Session name
+#   $1 - Sanitized session name
 # Returns:
-#   Normalized session name
+#   Session ID with tower_ prefix (e.g., "tower_my-project")
 normalize_session_name() {
     local name="$1"
     echo "tower_${name}" | tr ' .' '_'
@@ -167,52 +177,53 @@ ensure_metadata_dir() {
 
 # Save session metadata to file
 # Arguments:
-#   $1 - Session name (sanitized)
-#   $2 - Mode (workspace|simple)
-#   $3 - Repository path (optional, for workspace mode)
-#   $4 - Base commit (optional, for workspace mode)
+#   $1 - Session ID (with tower_ prefix)
+#   $2 - Session type (workspace|simple)
+#   $3 - Repository path (optional, for workspace session type)
+#   $4 - Source commit (optional, for workspace session type)
 save_metadata() {
-    local session_name="$1"
-    local mode="$2"
-    local repo_path="${3:-}"
-    local base_commit="${4:-}"
+    local session_id="$1"
+    local session_type="$2"
+    local repository_path="${3:-}"
+    local source_commit="${4:-}"
 
     ensure_metadata_dir
 
-    local metadata_file="${TOWER_METADATA_DIR}/${session_name}.meta"
+    local metadata_file="${TOWER_METADATA_DIR}/${session_id}.meta"
 
     {
-        echo "session_name=${session_name}"
-        echo "mode=${mode}"
+        echo "session_id=${session_id}"
+        echo "session_type=${session_type}"
         echo "created_at=$(date -Iseconds)"
-        echo "repo_path=${repo_path}"
-        echo "base_commit=${base_commit}"
-        echo "worktree_path=${TOWER_WORKTREE_DIR}/${session_name#tower_}"
+        echo "repository_path=${repository_path}"
+        echo "source_commit=${source_commit}"
+        echo "worktree_path=${TOWER_WORKTREE_DIR}/${session_id#tower_}"
     } > "$metadata_file"
 }
 
 # Load session metadata from file
 # Arguments:
-#   $1 - Session name
+#   $1 - Session ID
 # Returns:
-#   Exports variables: META_MODE, META_REPO_PATH, META_BASE_COMMIT, META_WORKTREE_PATH
+#   Exports variables: META_SESSION_TYPE, META_REPOSITORY_PATH, META_SOURCE_COMMIT, META_WORKTREE_PATH
 load_metadata() {
-    local session_name="$1"
-    local metadata_file="${TOWER_METADATA_DIR}/${session_name}.meta"
+    local session_id="$1"
+    local metadata_file="${TOWER_METADATA_DIR}/${session_id}.meta"
 
     # Initialize with empty values
-    META_MODE=""
-    META_REPO_PATH=""
-    META_BASE_COMMIT=""
+    META_SESSION_TYPE=""
+    META_REPOSITORY_PATH=""
+    META_SOURCE_COMMIT=""
     META_WORKTREE_PATH=""
     META_CREATED_AT=""
 
     if [[ -f "$metadata_file" ]]; then
         while IFS='=' read -r key value; do
             case "$key" in
-                mode) META_MODE="$value" ;;
-                repo_path) META_REPO_PATH="$value" ;;
-                base_commit) META_BASE_COMMIT="$value" ;;
+                # Support both old and new key names for backwards compatibility
+                mode|session_type) META_SESSION_TYPE="$value" ;;
+                repo_path|repository_path) META_REPOSITORY_PATH="$value" ;;
+                base_commit|source_commit) META_SOURCE_COMMIT="$value" ;;
                 worktree_path) META_WORKTREE_PATH="$value" ;;
                 created_at) META_CREATED_AT="$value" ;;
             esac
@@ -224,10 +235,10 @@ load_metadata() {
 
 # Delete session metadata file
 # Arguments:
-#   $1 - Session name
+#   $1 - Session ID
 delete_metadata() {
-    local session_name="$1"
-    local metadata_file="${TOWER_METADATA_DIR}/${session_name}.meta"
+    local session_id="$1"
+    local metadata_file="${TOWER_METADATA_DIR}/${session_id}.meta"
 
     if [[ -f "$metadata_file" ]]; then
         rm -f "$metadata_file"
@@ -236,7 +247,7 @@ delete_metadata() {
 
 # List all metadata files
 # Returns:
-#   List of session names with metadata
+#   List of session IDs with metadata
 list_metadata() {
     ensure_metadata_dir
 
@@ -249,17 +260,20 @@ list_metadata() {
 
 # Check if session has metadata
 # Arguments:
-#   $1 - Session name
+#   $1 - Session ID
 # Returns:
 #   0 if exists, 1 if not
 has_metadata() {
-    local session_name="$1"
-    [[ -f "${TOWER_METADATA_DIR}/${session_name}.meta" ]]
+    local session_id="$1"
+    [[ -f "${TOWER_METADATA_DIR}/${session_id}.meta" ]]
 }
 
 # ============================================================================
-# Orphan Detection and Cleanup
+# Orphaned Worktree Detection and Cleanup
 # ============================================================================
+# Orphaned worktrees are worktrees that exist but have no corresponding
+# active tmux session. These can occur when sessions are terminated
+# unexpectedly or when cleanup fails.
 
 # Get list of active tmux sessions
 get_active_sessions() {
@@ -268,58 +282,63 @@ get_active_sessions() {
 
 # Find orphaned worktrees (worktrees without active sessions)
 # Returns:
-#   List of orphaned session names
+#   List of orphaned session IDs
 find_orphaned_worktrees() {
     local active_sessions
     active_sessions=$(get_active_sessions)
 
     for meta_file in "${TOWER_METADATA_DIR}"/*.meta; do
         if [[ -f "$meta_file" ]]; then
-            local session_name
-            session_name=$(basename "$meta_file" .meta)
+            local session_id
+            session_id=$(basename "$meta_file" .meta)
 
             # Check if session is active
-            if ! echo "$active_sessions" | grep -q "^${session_name}$"; then
-                echo "$session_name"
+            if ! echo "$active_sessions" | grep -q "^${session_id}$"; then
+                echo "$session_id"
             fi
         fi
     done
 }
 
-# Cleanup orphaned worktree
+# Remove orphaned worktree and its metadata
 # Arguments:
-#   $1 - Session name
+#   $1 - Session ID
 # Returns:
 #   0 on success, 1 on failure
-cleanup_orphaned_worktree() {
-    local session_name="$1"
+remove_orphaned_worktree() {
+    local session_id="$1"
 
-    if ! load_metadata "$session_name"; then
+    if ! load_metadata "$session_id"; then
         return 1
     fi
 
-    if [[ "$META_MODE" != "workspace" ]]; then
-        # Simple mode - just delete metadata
-        delete_metadata "$session_name"
+    if [[ "$META_SESSION_TYPE" != "workspace" ]]; then
+        # Simple session type - just delete metadata
+        delete_metadata "$session_id"
         return 0
     fi
 
     local worktree_path="$META_WORKTREE_PATH"
-    local repo_path="$META_REPO_PATH"
+    local repository_path="$META_REPOSITORY_PATH"
 
     if [[ -d "$worktree_path" ]]; then
         # Validate path before removal
         if validate_path_within "$worktree_path" "$TOWER_WORKTREE_DIR"; then
-            if [[ -n "$repo_path" ]] && [[ -d "$repo_path" ]]; then
-                git -C "$repo_path" worktree remove "$worktree_path" 2>/dev/null || \
-                git -C "$repo_path" worktree remove --force "$worktree_path" 2>/dev/null || true
+            if [[ -n "$repository_path" ]] && [[ -d "$repository_path" ]]; then
+                git -C "$repository_path" worktree remove "$worktree_path" 2>/dev/null || \
+                git -C "$repository_path" worktree remove --force "$worktree_path" 2>/dev/null || true
             else
-                # Repo not found, remove directory manually
+                # Repository not found, remove directory manually
                 rm -rf "$worktree_path"
             fi
         fi
     fi
 
-    delete_metadata "$session_name"
+    delete_metadata "$session_id"
     return 0
+}
+
+# Alias for backwards compatibility
+cleanup_orphaned_worktree() {
+    remove_orphaned_worktree "$@"
 }

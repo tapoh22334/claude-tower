@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/common.sh"
 
 INPUT="$1"
-IFS=':' read -r type session window pane _ <<< "$INPUT"
+IFS=':' read -r type selected_session selected_window selected_pane _ <<< "$INPUT"
 
 rename_session() {
     local session="$1"
@@ -39,12 +39,12 @@ rename_window() {
     local window="$2"
 
     # Get new name
-    local current_name
-    current_name=$(tmux display-message -t "${session}:${window}" -p '#{window_name}')
+    local current_window_name
+    current_window_name=$(tmux display-message -t "${session}:${window}" -p '#{window_name}')
     local new_name
     new_name=$(echo "" | fzf-tmux -p 50%,20% \
         --print-query \
-        --prompt="New name for window '$current_name': " \
+        --prompt="New name for window '$current_window_name': " \
         --bind="enter:accept-or-print-query" \
     | head -1) || exit 0
 
@@ -56,11 +56,11 @@ rename_window() {
 
 case "$type" in
     session)
-        rename_session "$session"
+        rename_session "$selected_session"
         ;;
 
     window)
-        rename_window "$session" "$window"
+        rename_window "$selected_session" "$selected_window"
         ;;
 
     *)

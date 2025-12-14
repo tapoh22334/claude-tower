@@ -27,7 +27,7 @@ get_session_name() {
 # Create workspace session (git repo)
 create_workspace_session() {
     local name="$1"
-    local repo_path="$CURRENT_DIR"
+    local repository_path="$CURRENT_DIR"
 
     # Sanitize session name to prevent path traversal and command injection
     local sanitized_name
@@ -39,11 +39,11 @@ create_workspace_session() {
 
     printf "%b%s%b\n" "$C_BLUE" "Creating Workspace session: $sanitized_name" "$C_RESET"
 
-    # Get current branch as base
-    local base_branch
-    base_branch=$(git -C "$repo_path" branch --show-current 2>/dev/null || echo "main")
-    local base_commit
-    base_commit=$(git -C "$repo_path" rev-parse HEAD 2>/dev/null)
+    # Get current branch as source
+    local source_branch
+    source_branch=$(git -C "$repository_path" branch --show-current 2>/dev/null || echo "main")
+    local source_commit
+    source_commit=$(git -C "$repository_path" rev-parse HEAD 2>/dev/null)
 
     # Create branch name
     local branch_name="tower/${sanitized_name}"
@@ -64,11 +64,11 @@ create_workspace_session() {
         printf "%b%s%b\n" "$C_YELLOW" "Worktree already exists, using it" "$C_RESET"
     else
         # Create new worktree with new branch
-        if git -C "$repo_path" worktree add -b "$branch_name" "$worktree_path" "$base_commit" 2>/dev/null; then
+        if git -C "$repository_path" worktree add -b "$branch_name" "$worktree_path" "$source_commit" 2>/dev/null; then
             printf "%b%s%b\n" "$C_GREEN" "Created worktree at: $worktree_path" "$C_RESET"
         else
             # Branch might exist, try without -b
-            if git -C "$repo_path" worktree add "$worktree_path" "$branch_name" 2>/dev/null; then
+            if git -C "$repository_path" worktree add "$worktree_path" "$branch_name" 2>/dev/null; then
                 printf "%b%s%b\n" "$C_GREEN" "Using existing branch: $branch_name" "$C_RESET"
             else
                 handle_error "Failed to create worktree"
@@ -78,29 +78,29 @@ create_workspace_session() {
     fi
 
     # Create tmux session in worktree
-    local session_name
-    session_name=$(normalize_session_name "$sanitized_name")
+    local session_id
+    session_id=$(normalize_session_name "$sanitized_name")
 
-    if tmux has-session -t "$session_name" 2>/dev/null; then
+    if tmux has-session -t "$session_id" 2>/dev/null; then
         printf "%b%s%b\n" "$C_YELLOW" "Session exists, switching to it" "$C_RESET"
-        tmux switch-client -t "$session_name"
+        tmux switch-client -t "$session_id"
     else
-        tmux new-session -d -s "$session_name" -c "$worktree_path" "$TOWER_PROGRAM"
+        tmux new-session -d -s "$session_id" -c "$worktree_path" "$TOWER_PROGRAM"
         # Store metadata in tmux options
-        tmux set-option -t "$session_name" @tower_mode "workspace"
-        tmux set-option -t "$session_name" @tower_repo "$repo_path"
-        tmux set-option -t "$session_name" @tower_base "$base_commit"
+        tmux set-option -t "$session_id" @tower_session_type "workspace"
+        tmux set-option -t "$session_id" @tower_repository "$repository_path"
+        tmux set-option -t "$session_id" @tower_source "$source_commit"
         # Save metadata to file for persistence
-        save_metadata "$session_name" "workspace" "$repo_path" "$base_commit"
-        tmux switch-client -t "$session_name"
-        printf "%b%s%b\n" "$C_GREEN" "Switched to new session: $session_name" "$C_RESET"
+        save_metadata "$session_id" "workspace" "$repository_path" "$source_commit"
+        tmux switch-client -t "$session_id"
+        printf "%b%s%b\n" "$C_GREEN" "Switched to new session: $session_id" "$C_RESET"
     fi
 }
 
 # Create simple session (non-git)
 create_simple_session() {
     local name="$1"
-    local dir="$CURRENT_DIR"
+    local working_directory="$CURRENT_DIR"
 
     # Sanitize session name
     local sanitized_name
@@ -112,19 +112,19 @@ create_simple_session() {
 
     printf "%b%s%b\n" "$C_BLUE" "Creating Simple session: $sanitized_name" "$C_RESET"
 
-    local session_name
-    session_name=$(normalize_session_name "$sanitized_name")
+    local session_id
+    session_id=$(normalize_session_name "$sanitized_name")
 
-    if tmux has-session -t "$session_name" 2>/dev/null; then
+    if tmux has-session -t "$session_id" 2>/dev/null; then
         printf "%b%s%b\n" "$C_YELLOW" "Session exists, switching to it" "$C_RESET"
-        tmux switch-client -t "$session_name"
+        tmux switch-client -t "$session_id"
     else
-        tmux new-session -d -s "$session_name" -c "$dir" "$TOWER_PROGRAM"
-        tmux set-option -t "$session_name" @tower_mode "simple"
+        tmux new-session -d -s "$session_id" -c "$working_directory" "$TOWER_PROGRAM"
+        tmux set-option -t "$session_id" @tower_session_type "simple"
         # Save metadata to file for persistence
-        save_metadata "$session_name" "simple"
-        tmux switch-client -t "$session_name"
-        printf "%b%s%b\n" "$C_GREEN" "Switched to new session: $session_name" "$C_RESET"
+        save_metadata "$session_id" "simple"
+        tmux switch-client -t "$session_id"
+        printf "%b%s%b\n" "$C_GREEN" "Switched to new session: $session_id" "$C_RESET"
     fi
 }
 

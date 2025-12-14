@@ -8,29 +8,29 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/common.sh"
 
 INPUT="$1"
-IFS=':' read -r type session window pane _ <<< "$INPUT"
+IFS=':' read -r type selected_session selected_window selected_pane _ <<< "$INPUT"
 
-cleanup_worktree() {
-    local session_name="$1"
+remove_session_worktree() {
+    local session_id="$1"
 
-    # Get stored repo path
-    local repo_path
-    repo_path=$(tmux show-option -t "$session_name" -qv @tower_repo 2>/dev/null || echo "")
+    # Get stored repository path
+    local repository_path
+    repository_path=$(tmux show-option -t "$session_id" -qv @tower_repository 2>/dev/null || echo "")
 
-    if [[ -n "$repo_path" ]]; then
+    if [[ -n "$repository_path" ]]; then
         # Extract name from session (remove tower_ prefix)
-        local name="${session_name#tower_}"
+        local name="${session_id#tower_}"
         local worktree_path="${TOWER_WORKTREE_DIR}/${name}"
 
         if [[ -d "$worktree_path" ]]; then
             # Validate path before removal
             if validate_path_within "$worktree_path" "$TOWER_WORKTREE_DIR"; then
                 # Remove worktree
-                if git -C "$repo_path" worktree remove "$worktree_path" 2>/dev/null; then
+                if git -C "$repository_path" worktree remove "$worktree_path" 2>/dev/null; then
                     handle_info "Removed worktree: $worktree_path"
                 else
                     # Force remove if normal removal fails
-                    git -C "$repo_path" worktree remove --force "$worktree_path" 2>/dev/null || true
+                    git -C "$repository_path" worktree remove --force "$worktree_path" 2>/dev/null || true
                     handle_warning "Force removed worktree: $worktree_path"
                 fi
             else
@@ -42,36 +42,36 @@ cleanup_worktree() {
 
 case "$type" in
     session)
-        if confirm "Kill session '$session'?"; then
-            # Check if it's a workspace session and cleanup
-            local mode
-            mode=$(tmux show-option -t "$session" -qv @tower_mode 2>/dev/null || echo "")
-            if [[ "$mode" == "workspace" ]]; then
-                cleanup_worktree "$session"
+        if confirm "Kill session '$selected_session'?"; then
+            # Check if it's a workspace session type and cleanup
+            local session_type
+            session_type=$(tmux show-option -t "$selected_session" -qv @tower_session_type 2>/dev/null || echo "")
+            if [[ "$session_type" == "workspace" ]]; then
+                remove_session_worktree "$selected_session"
             fi
 
-            tmux kill-session -t "$session"
+            tmux kill-session -t "$selected_session"
             # Delete metadata file
-            delete_metadata "$session"
-            handle_info "Killed session: $session"
+            delete_metadata "$selected_session"
+            handle_info "Killed session: $selected_session"
         fi
         ;;
 
     window)
-        if confirm "Kill window '${session}:${window}'?"; then
-            tmux kill-window -t "${session}:${window}"
-            handle_info "Killed window: ${session}:${window}"
+        if confirm "Kill window '${selected_session}:${selected_window}'?"; then
+            tmux kill-window -t "${selected_session}:${selected_window}"
+            handle_info "Killed window: ${selected_session}:${selected_window}"
         fi
         ;;
 
     pane)
-        if confirm "Kill pane '${session}:${window}.${pane}'?"; then
-            tmux kill-pane -t "${session}:${window}.${pane}"
+        if confirm "Kill pane '${selected_session}:${selected_window}.${selected_pane}'?"; then
+            tmux kill-pane -t "${selected_session}:${selected_window}.${selected_pane}"
             handle_info "Killed pane"
         fi
         ;;
 
     *)
-        handle_error "Unknown target type"
+        handle_error "Unknown selection type"
         ;;
 esac

@@ -28,29 +28,29 @@ EOF
 }
 
 # List orphaned worktrees
-list_orphans() {
+list_orphaned_worktrees() {
     printf "%b━━━ Orphaned Worktrees ━━━%b\n" "$C_HEADER" "$C_RESET"
     echo ""
 
-    local orphans
-    orphans=$(find_orphaned_worktrees)
+    local orphaned_worktrees
+    orphaned_worktrees=$(find_orphaned_worktrees)
 
-    if [[ -z "$orphans" ]]; then
+    if [[ -z "$orphaned_worktrees" ]]; then
         printf "%bNo orphaned worktrees found.%b\n" "$C_GREEN" "$C_RESET"
         return 0
     fi
 
     local count=0
-    while read -r session_name; do
-        if [[ -z "$session_name" ]]; then
+    while read -r session_id; do
+        if [[ -z "$session_id" ]]; then
             continue
         fi
 
         count=$((count + 1))
 
-        if load_metadata "$session_name"; then
-            printf "%b[%d]%b %s\n" "$C_YELLOW" "$count" "$C_RESET" "$session_name"
-            printf "    Mode: %s\n" "$META_MODE"
+        if load_metadata "$session_id"; then
+            printf "%b[%d]%b %s\n" "$C_YELLOW" "$count" "$C_RESET" "$session_id"
+            printf "    Session Type: %s\n" "$META_SESSION_TYPE"
             if [[ -n "$META_WORKTREE_PATH" ]]; then
                 printf "    Worktree: %s\n" "$META_WORKTREE_PATH"
                 if [[ -d "$META_WORKTREE_PATH" ]]; then
@@ -64,54 +64,54 @@ list_orphans() {
             fi
             echo ""
         fi
-    done <<< "$orphans"
+    done <<< "$orphaned_worktrees"
 
     printf "Total: %d orphaned worktree(s)\n" "$count"
     return "$count"
 }
 
-# Cleanup orphans interactively
+# Cleanup orphaned worktrees interactively
 cleanup_interactive() {
-    local orphans
-    orphans=$(find_orphaned_worktrees)
+    local orphaned_worktrees
+    orphaned_worktrees=$(find_orphaned_worktrees)
 
-    if [[ -z "$orphans" ]]; then
+    if [[ -z "$orphaned_worktrees" ]]; then
         printf "%bNo orphaned worktrees found.%b\n" "$C_GREEN" "$C_RESET"
         return 0
     fi
 
-    list_orphans
+    list_orphaned_worktrees
     echo ""
 
     if confirm "Remove all orphaned worktrees?"; then
-        cleanup_all "$orphans"
+        remove_all_orphaned_worktrees "$orphaned_worktrees"
     else
         printf "Cleanup cancelled.\n"
     fi
 }
 
-# Cleanup all orphans
-cleanup_all() {
-    local orphans="$1"
+# Remove all orphaned worktrees
+remove_all_orphaned_worktrees() {
+    local orphaned_worktrees="$1"
 
     local removed=0
     local failed=0
 
-    while read -r session_name; do
-        if [[ -z "$session_name" ]]; then
+    while read -r session_id; do
+        if [[ -z "$session_id" ]]; then
             continue
         fi
 
-        printf "Cleaning up: %s... " "$session_name"
+        printf "Removing: %s... " "$session_id"
 
-        if cleanup_orphaned_worktree "$session_name"; then
+        if remove_orphaned_worktree "$session_id"; then
             printf "%bOK%b\n" "$C_GREEN" "$C_RESET"
             removed=$((removed + 1))
         else
             printf "%bFailed%b\n" "$C_RED" "$C_RESET"
             failed=$((failed + 1))
         fi
-    done <<< "$orphans"
+    done <<< "$orphaned_worktrees"
 
     echo ""
     printf "Cleanup complete. Removed: %d, Failed: %d\n" "$removed" "$failed"
@@ -119,22 +119,22 @@ cleanup_all() {
 
 # Cleanup with force (no confirmation)
 cleanup_force() {
-    local orphans
-    orphans=$(find_orphaned_worktrees)
+    local orphaned_worktrees
+    orphaned_worktrees=$(find_orphaned_worktrees)
 
-    if [[ -z "$orphans" ]]; then
+    if [[ -z "$orphaned_worktrees" ]]; then
         printf "%bNo orphaned worktrees found.%b\n" "$C_GREEN" "$C_RESET"
         return 0
     fi
 
-    cleanup_all "$orphans"
+    remove_all_orphaned_worktrees "$orphaned_worktrees"
 }
 
 # Main
 main() {
     case "${1:-}" in
         -l|--list)
-            list_orphans
+            list_orphaned_worktrees
             ;;
         -f|--force)
             cleanup_force
