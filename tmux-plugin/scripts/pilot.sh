@@ -1,27 +1,12 @@
 #!/usr/bin/env bash
 # Main session picker with tree view and preview
 
-set -e
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PILOT_DIR="$(dirname "$SCRIPT_DIR")"
 
-# Colors
-C_RESET="\033[0m"
-C_SESSION="\033[1;34m"    # Blue bold
-C_WINDOW="\033[0;36m"     # Cyan
-C_PANE="\033[0;37m"       # Gray
-C_ACTIVE="\033[1;32m"     # Green bold
-C_GIT="\033[0;33m"        # Yellow
-C_DIFF_ADD="\033[0;32m"   # Green
-C_DIFF_DEL="\033[0;31m"   # Red
-
-# Icons
-ICON_SESSION="📁"
-ICON_WINDOW="🪟"
-ICON_PANE="▫"
-ICON_ACTIVE="●"
-ICON_GIT="⎇"
+# Source common library
+# shellcheck source=../lib/common.sh
+source "$SCRIPT_DIR/../lib/common.sh"
 
 # Build tree structure
 build_tree() {
@@ -38,10 +23,12 @@ build_tree() {
         session_path=$(tmux display-message -t "$session" -p '#{pane_current_path}' 2>/dev/null || echo "")
 
         # Check if git repo
-        if [[ -n "$session_path" ]] && git -C "$session_path" rev-parse --git-dir &>/dev/null 2>&1; then
+        if [[ -n "$session_path" ]] && git -C "$session_path" rev-parse --git-dir &>/dev/null; then
             session_mode="W"  # Workspace
-            local branch=$(git -C "$session_path" branch --show-current 2>/dev/null || echo "")
-            local stats=$(git -C "$session_path" diff --numstat 2>/dev/null | awk '{add+=$1; del+=$2} END {if(add>0||del>0) printf "+%d,-%d", add, del}')
+            local branch
+            branch=$(git -C "$session_path" branch --show-current 2>/dev/null || echo "")
+            local stats
+            stats=$(git -C "$session_path" diff --numstat 2>/dev/null | awk '{add+=$1; del+=$2} END {if(add>0||del>0) printf "+%d,-%d", add, del}')
             git_info="${ICON_GIT} ${branch}"
             [[ -n "$stats" ]] && diff_info="$stats"
         else
@@ -53,7 +40,14 @@ build_tree() {
         local active_mark=""
         [[ "$session" == "$current_session" ]] && active_mark="${C_ACTIVE}${ICON_ACTIVE}${C_RESET} "
 
-        echo -e "session:${session}:${ICON_SESSION} ${active_mark}[${session_mode}] ${C_SESSION}${session}${C_RESET}  ${C_GIT}${git_info}${C_RESET} ${C_DIFF_ADD}${diff_info}${C_RESET}"
+        printf "session:%s:%s %s[%s] %b%s%b  %b%s%b %b%s%b\n" \
+            "$session" \
+            "$ICON_SESSION" \
+            "$active_mark" \
+            "$session_mode" \
+            "$C_SESSION" "$session" "$C_RESET" \
+            "$C_GIT" "$git_info" "$C_RESET" \
+            "$C_DIFF_ADD" "$diff_info" "$C_RESET"
 
         # Get windows for this session
         tmux list-windows -t "$session" -F '#{window_index}:#{window_name}:#{window_active}' 2>/dev/null | while read -r window_info; do
@@ -63,7 +57,12 @@ build_tree() {
             local win_mark=""
             [[ "$session" == "$current_session" && "$win_idx" == "$current_window" ]] && win_mark="${C_ACTIVE}${ICON_ACTIVE}${C_RESET}"
 
-            echo -e "window:${session}:${win_idx}:  ├─ ${ICON_WINDOW} ${C_WINDOW}${win_idx}: ${win_name}${C_RESET} ${win_mark}"
+            printf "window:%s:%s:  ├─ %s %b%s: %s%b %s\n" \
+                "$session" \
+                "$win_idx" \
+                "$ICON_WINDOW" \
+                "$C_WINDOW" "$win_idx" "$win_name" "$C_RESET" \
+                "$win_mark"
 
             # Get panes for this window
             tmux list-panes -t "${session}:${win_idx}" -F '#{pane_index}:#{pane_current_command}:#{pane_active}' 2>/dev/null | while read -r pane_info; do
@@ -73,7 +72,13 @@ build_tree() {
                 local pane_mark=""
                 [[ "$session" == "$current_session" && "$win_idx" == "$current_window" && "$pane_idx" == "$current_pane" ]] && pane_mark="${C_ACTIVE}${ICON_ACTIVE}${C_RESET}"
 
-                echo -e "pane:${session}:${win_idx}:${pane_idx}:  │  └─ ${ICON_PANE} ${C_PANE}${pane_idx}: ${pane_cmd}${C_RESET} ${pane_mark}"
+                printf "pane:%s:%s:%s:  │  └─ %s %b%s: %s%b %s\n" \
+                    "$session" \
+                    "$win_idx" \
+                    "$pane_idx" \
+                    "$ICON_PANE" \
+                    "$C_PANE" "$pane_idx" "$pane_cmd" "$C_RESET" \
+                    "$pane_mark"
             done
         done
     done
@@ -88,13 +93,13 @@ handle_selection() {
 
     case "$type" in
         session)
-            tmux switch-client -t "$target_session"
+            tmux switch-client -t "$target_session" || handle_error "Failed to switch to session"
             ;;
         window)
-            tmux switch-client -t "${target_session}:${target_window}"
+            tmux switch-client -t "${target_session}:${target_window}" || handle_error "Failed to switch to window"
             ;;
         pane)
-            tmux switch-client -t "${target_session}:${target_window}.${target_pane}"
+            tmux switch-client -t "${target_session}:${target_window}.${target_pane}" || handle_error "Failed to switch to pane"
             ;;
     esac
 }
@@ -102,10 +107,7 @@ handle_selection() {
 # Main
 main() {
     # Check if fzf is available
-    if ! command -v fzf &>/dev/null; then
-        tmux display-message "Error: fzf is required but not installed"
-        exit 1
-    fi
+    require_command fzf || exit 1
 
     # Build tree and show fzf picker
     local selection

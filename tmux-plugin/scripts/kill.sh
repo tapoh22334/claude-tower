@@ -1,22 +1,14 @@
 #!/usr/bin/env bash
 # Kill session, window, or pane
 
-set -e
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-PILOT_WORKTREE_DIR="${TMUX_PILOT_WORKTREE_DIR:-$HOME/.tmux-pilot/worktrees}"
+# Source common library
+# shellcheck source=../lib/common.sh
+source "$SCRIPT_DIR/../lib/common.sh"
 
 INPUT="$1"
 IFS=':' read -r type session window pane _ <<< "$INPUT"
-
-confirm() {
-    local msg="$1"
-    local result
-    result=$(echo -e "Yes\nNo" | fzf-tmux -p 40%,20% \
-        --header="$msg" \
-        --no-info \
-    ) || echo "No"
-    [[ "$result" == "Yes" ]]
-}
 
 cleanup_worktree() {
     local session_name="$1"
@@ -31,9 +23,19 @@ cleanup_worktree() {
         local worktree_path="${PILOT_WORKTREE_DIR}/${name}"
 
         if [[ -d "$worktree_path" ]]; then
-            # Remove worktree
-            git -C "$repo_path" worktree remove --force "$worktree_path" 2>/dev/null || true
-            tmux display-message "Cleaned up worktree: $worktree_path"
+            # Validate path before removal
+            if validate_path_within "$worktree_path" "$PILOT_WORKTREE_DIR"; then
+                # Remove worktree
+                if git -C "$repo_path" worktree remove "$worktree_path" 2>/dev/null; then
+                    handle_info "Removed worktree: $worktree_path"
+                else
+                    # Force remove if normal removal fails
+                    git -C "$repo_path" worktree remove --force "$worktree_path" 2>/dev/null || true
+                    handle_warning "Force removed worktree: $worktree_path"
+                fi
+            else
+                handle_error "Invalid worktree path, skipping cleanup"
+            fi
         fi
     fi
 }
@@ -49,25 +51,27 @@ case "$type" in
             fi
 
             tmux kill-session -t "$session"
-            tmux display-message "Killed session: $session"
+            # Delete metadata file
+            delete_metadata "$session"
+            handle_info "Killed session: $session"
         fi
         ;;
 
     window)
         if confirm "Kill window '${session}:${window}'?"; then
             tmux kill-window -t "${session}:${window}"
-            tmux display-message "Killed window: ${session}:${window}"
+            handle_info "Killed window: ${session}:${window}"
         fi
         ;;
 
     pane)
         if confirm "Kill pane '${session}:${window}.${pane}'?"; then
             tmux kill-pane -t "${session}:${window}.${pane}"
-            tmux display-message "Killed pane"
+            handle_info "Killed pane"
         fi
         ;;
 
     *)
-        tmux display-message "Unknown target type"
+        handle_error "Unknown target type"
         ;;
 esac

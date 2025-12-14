@@ -1,31 +1,41 @@
 # claude-pilot
 
-A tmux plugin for managing Claude Code sessions with tree-style navigation.
+A tmux plugin for managing Claude Code sessions with tree-style navigation and git worktree integration.
+
+## Table of Contents
+
+- [Features](#features)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Tree View](#tree-view)
+- [Session Modes](#session-modes)
+- [Configuration](#configuration)
+- [Troubleshooting](#troubleshooting)
+- [License](#license)
 
 ## Features
 
 - **Tree View**: See all sessions, windows, and panes in a hierarchical tree
 - **Live Preview**: Preview pane content before switching
-- **Two Session Modes**:
-  - **Workspace** [W]: Git-managed with worktree isolation
-  - **Simple** [S]: Regular sessions for non-git directories
-- **Quick Actions**: New, rename, kill, diff from the picker
+- **Two Session Modes**: [Workspace](#workspace-mode-w) for git repos with worktree isolation, [Simple](#simple-mode-s) for regular directories
+- **Actions**: New, rename, kill, diff from the picker
 
 ## Requirements
 
-- tmux 3.0+
-- fzf
-- git (for workspace mode)
-- Claude CLI (`claude`)
+- **tmux 3.0+** - [Installation guide](https://github.com/tmux/tmux/wiki/Installing)
+- **fzf** - [Installation guide](https://github.com/junegunn/fzf#installation)
+- **git** (for workspace mode) - [Installation guide](https://git-scm.com/downloads)
+- **Claude Code CLI** (`claude`) - [Download](https://claude.ai/code)
 
 ## Installation
 
-### With TPM (recommended)
+### With TPM
 
 Add to your `~/.tmux.conf`:
 
 ```bash
-set -g @plugin 'your-username/claude-pilot'
+set -g @plugin 'claude-pilot/claude-pilot'
 ```
 
 Then press `prefix + I` to install.
@@ -33,7 +43,7 @@ Then press `prefix + I` to install.
 ### Manual
 
 ```bash
-git clone https://github.com/your-username/claude-pilot ~/.tmux/plugins/claude-pilot
+git clone https://github.com/claude-pilot/claude-pilot ~/.tmux/plugins/claude-pilot
 ```
 
 Add to `~/.tmux.conf`:
@@ -48,12 +58,24 @@ Reload config:
 tmux source ~/.tmux.conf
 ```
 
+### Verify Installation
+
+Check if the plugin is loaded:
+
+```bash
+tmux list-keys | grep pilot
+```
+
+You should see key bindings for the pilot plugin.
+
 ## Usage
 
 | Key | Action |
 |-----|--------|
-| `prefix + p` | Open session picker |
-| `prefix + P` | Create new session |
+| `prefix + C` | Open session picker |
+| `prefix + T` | Create new session |
+
+> **Note**: The default tmux prefix key is `Ctrl+b`. If you've customized it, use your prefix instead.
 
 ### In the Picker
 
@@ -96,31 +118,34 @@ tmux source ~/.tmux.conf
 
 ### Workspace Mode [W]
 
-When you create a session in a git repository:
-- Creates a new git worktree at `~/.tmux-pilot/worktrees/<name>`
-- Creates a branch `claude-pilot/<name>`
-- Shows diff stats in the tree view
-- Cleans up worktree when session is killed
+For git repositories, automatically:
+
+- Creates git worktree at `~/.tmux-pilot/worktrees/<name>`
+- Creates branch `pilot/<name>`
+- Displays diff stats in tree view
+- Removes worktree on session termination
 
 ### Simple Mode [S]
 
-When you create a session outside a git repository:
-- Just starts the program in the current directory
-- No git integration
+For non-git directories:
+
+- Starts program in current directory without git integration
 
 ## Configuration
 
 Add to `~/.tmux.conf`:
 
 ```bash
-# Change picker key (default: p)
-set -g @pilot-key 'p'
+# Change picker key (default: C)
+set -g @pilot-key 'C'
 
-# Change new session key (default: P)
-set -g @pilot-new-key 'P'
+# Change new session key (default: T)
+set -g @pilot-new-key 'T'
 ```
 
 ### Environment Variables
+
+Add to your shell config (`~/.bashrc`, `~/.zshrc`, etc.):
 
 ```bash
 # Program to run in new sessions (default: claude)
@@ -132,9 +157,72 @@ export TMUX_PILOT_WORKTREE_DIR="$HOME/.tmux-pilot/worktrees"
 
 ### Data Storage
 
-- Sessions metadata: `~/.tmux-pilot/sessions/`
-- Worktrees: `~/.tmux-pilot/worktrees/`
+- **Metadata**: `~/.tmux-pilot/metadata/` - Session info persisted to files
+- **Worktrees**: `~/.tmux-pilot/worktrees/` - Git worktrees for workspace sessions
+
+### Cleanup Orphaned Worktrees
+
+If sessions are terminated abnormally (crash, kill -9, etc.), worktrees may be left behind. Use the cleanup tool:
+
+```bash
+# List orphaned worktrees
+~/.tmux/plugins/claude-pilot/tmux-plugin/scripts/cleanup.sh --list
+
+# Interactive cleanup
+~/.tmux/plugins/claude-pilot/tmux-plugin/scripts/cleanup.sh
+
+# Force cleanup (no confirmation)
+~/.tmux/plugins/claude-pilot/tmux-plugin/scripts/cleanup.sh --force
+```
+
+## Troubleshooting
+
+### Plugin not loading
+
+**Symptoms**: Key bindings don't work after installation
+
+**Solutions**:
+1. Reload tmux config: `tmux source ~/.tmux.conf`
+2. Restart tmux completely: exit all sessions and start tmux again
+3. Check key bindings: `tmux list-keys | grep pilot`
+
+### fzf not found
+
+**Error**: `fzf is required but not installed`
+
+**Solution**: Install fzf and ensure it's in your PATH:
+
+```bash
+# macOS
+brew install fzf
+
+# Ubuntu/Debian
+sudo apt install fzf
+
+# Check installation
+which fzf
+```
+
+### Worktree already exists
+
+**Error**: `fatal: 'pilot/session-name' already exists`
+
+**Solution**: Remove stale worktree manually:
+
+```bash
+git worktree remove ~/.tmux-pilot/worktrees/session-name
+git branch -D pilot/session-name
+```
+
+### Claude CLI not starting
+
+**Symptoms**: Session created but Claude doesn't start
+
+**Solutions**:
+1. Verify Claude CLI is installed: `which claude`
+2. Test Claude manually: `claude`
+3. Check environment variable: `echo $TMUX_PILOT_PROGRAM`
 
 ## License
 
-MIT
+MIT License - see the [LICENSE](LICENSE) file for details.

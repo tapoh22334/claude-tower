@@ -11,7 +11,8 @@ KEYBINDINGS (in picker):
   Enter      Select and switch to item
   n          Create new session
   r          Rename session/window
-  d          Kill session/window/pane
+  x          Kill session/window/pane
+  D          Show git diff (workspace only)
   ?          Show this help
   Esc        Close picker
 
@@ -43,13 +44,26 @@ ICONS:
 
 CONFIGURATION (in .tmux.conf):
 
-  set -g @pilot-key 'p'           # Key to open picker (default: p)
-  set -g @pilot-new-key 'P'       # Key for new session (default: P)
+  set -g @pilot-key 'C'           # Key to open picker (default: C)
+  set -g @pilot-new-key 'T'       # Key for new session (default: T)
 
 ENVIRONMENT VARIABLES:
 
-  TMUX_PILOT_PROGRAM      Program to run (default: claude)
-  TMUX_PILOT_WORKTREE_DIR Worktree storage (default: ~/.tmux-pilot/worktrees)
+  TMUX_PILOT_PROGRAM       Program to run (default: claude)
+  TMUX_PILOT_WORKTREE_DIR  Worktree storage (default: ~/.tmux-pilot/worktrees)
+  TMUX_PILOT_METADATA_DIR  Metadata storage (default: ~/.tmux-pilot/metadata)
+
+DATA STORAGE:
+
+  ~/.tmux-pilot/metadata/   Session metadata files
+  ~/.tmux-pilot/worktrees/  Git worktrees
+
+CLEANUP:
+
+  Run cleanup.sh to remove orphaned worktrees:
+    cleanup.sh --list     List orphaned worktrees
+    cleanup.sh            Interactive cleanup
+    cleanup.sh --force    Remove all orphans
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 EOF

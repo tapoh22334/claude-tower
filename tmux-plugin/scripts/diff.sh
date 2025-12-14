@@ -1,18 +1,14 @@
 #!/usr/bin/env bash
 # Show diff for workspace session
 
-set -e
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Source common library
+# shellcheck source=../lib/common.sh
+source "$SCRIPT_DIR/../lib/common.sh"
 
 INPUT="$1"
 IFS=':' read -r type session _ <<< "$INPUT"
-
-# Colors
-C_RESET="\033[0m"
-C_HEADER="\033[1;36m"
-C_ADD="\033[0;32m"
-C_DEL="\033[0;31m"
-C_HUNK="\033[0;36m"
-C_INFO="\033[0;33m"
 
 # Get session info
 mode=$(tmux show-option -t "$session" -qv @pilot_mode 2>/dev/null || echo "")
@@ -20,38 +16,37 @@ repo=$(tmux show-option -t "$session" -qv @pilot_repo 2>/dev/null || echo "")
 base=$(tmux show-option -t "$session" -qv @pilot_base 2>/dev/null || echo "")
 
 if [[ "$mode" != "workspace" ]]; then
-    echo -e "${C_INFO}Not a workspace session - no diff available${C_RESET}"
+    printf "%b%s%b\n" "$C_INFO" "Not a workspace session - no diff available" "$C_RESET"
     exit 0
 fi
 
 # Get worktree path
-PILOT_WORKTREE_DIR="${TMUX_PILOT_WORKTREE_DIR:-$HOME/.tmux-pilot/worktrees}"
 name="${session#pilot_}"
 worktree_path="${PILOT_WORKTREE_DIR}/${name}"
 
 if [[ ! -d "$worktree_path" ]]; then
-    echo -e "${C_INFO}Worktree not found${C_RESET}"
+    printf "%b%s%b\n" "$C_INFO" "Worktree not found" "$C_RESET"
     exit 0
 fi
 
 # Show header
-echo -e "${C_HEADER}━━━ Diff: $session ━━━${C_RESET}"
+printf "%b━━━ Diff: %s ━━━%b\n" "$C_HEADER" "$session" "$C_RESET"
 echo ""
 
 # Get current branch
 branch=$(git -C "$worktree_path" branch --show-current 2>/dev/null || echo "unknown")
-echo -e "${C_INFO}Branch:${C_RESET} $branch"
-echo -e "${C_INFO}Base:${C_RESET} ${base:0:8}"
+printf "%bBranch:%b %s\n" "$C_INFO" "$C_RESET" "$branch"
+printf "%bBase:%b %s\n" "$C_INFO" "$C_RESET" "${base:0:8}"
 echo ""
 
 # Get stats
 stats=$(git -C "$worktree_path" diff "$base" --stat 2>/dev/null || echo "")
 if [[ -n "$stats" ]]; then
-    echo -e "${C_HEADER}━━━ Stats ━━━${C_RESET}"
+    printf "%b━━━ Stats ━━━%b\n" "$C_HEADER" "$C_RESET"
     echo "$stats"
     echo ""
 fi
 
 # Show diff with colors
-echo -e "${C_HEADER}━━━ Changes ━━━${C_RESET}"
+printf "%b━━━ Changes ━━━%b\n" "$C_HEADER" "$C_RESET"
 git -C "$worktree_path" diff "$base" --color=always 2>/dev/null || echo "(no changes)"
