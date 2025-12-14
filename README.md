@@ -1,4 +1,4 @@
-# claude-pilot
+# claude-tower
 
 A tmux plugin for managing Claude Code sessions with tree-style navigation and git worktree integration.
 
@@ -35,7 +35,7 @@ A tmux plugin for managing Claude Code sessions with tree-style navigation and g
 Add to your `~/.tmux.conf`:
 
 ```bash
-set -g @plugin 'claude-pilot/claude-pilot'
+set -g @plugin 'tapoh22334/claude-tower'
 ```
 
 Then press `prefix + I` to install.
@@ -43,13 +43,13 @@ Then press `prefix + I` to install.
 ### Manual
 
 ```bash
-git clone https://github.com/claude-pilot/claude-pilot ~/.tmux/plugins/claude-pilot
+git clone https://github.com/tapoh22334/claude-tower ~/.tmux/plugins/claude-tower
 ```
 
 Add to `~/.tmux.conf`:
 
 ```bash
-run-shell ~/.tmux/plugins/claude-pilot/tmux-plugin/tmux-pilot.tmux
+run-shell ~/.tmux/plugins/claude-tower/tmux-plugin/claude-tower.tmux
 ```
 
 Reload config:
@@ -63,10 +63,10 @@ tmux source ~/.tmux.conf
 Check if the plugin is loaded:
 
 ```bash
-tmux list-keys | grep pilot
+tmux list-keys | grep tower
 ```
 
-You should see key bindings for the pilot plugin.
+You should see key bindings for the tower plugin.
 
 ## Usage
 
@@ -92,7 +92,7 @@ You should see key bindings for the pilot plugin.
 ## Tree View
 
 ```
-📁 ● [W] project-api  ⎇ pilot/feature-auth +5,-2
+📁 ● [W] project-api  ⎇ tower/feature-auth +5,-2
   ├─ 🪟 0: main ●
   │  └─ ▫ 0: claude ●
   └─ 🪟 1: shell
@@ -120,8 +120,8 @@ You should see key bindings for the pilot plugin.
 
 For git repositories, automatically:
 
-- Creates git worktree at `~/.tmux-pilot/worktrees/<name>`
-- Creates branch `pilot/<name>`
+- Creates git worktree at `~/.claude-tower/worktrees/<name>`
+- Creates branch `tower/<name>`
 - Displays diff stats in tree view
 - Removes worktree on session termination
 
@@ -137,10 +137,10 @@ Add to `~/.tmux.conf`:
 
 ```bash
 # Change picker key (default: C)
-set -g @pilot-key 'C'
+set -g @tower-key 'C'
 
 # Change new session key (default: T)
-set -g @pilot-new-key 'T'
+set -g @tower-new-key 'T'
 ```
 
 ### Environment Variables
@@ -149,16 +149,16 @@ Add to your shell config (`~/.bashrc`, `~/.zshrc`, etc.):
 
 ```bash
 # Program to run in new sessions (default: claude)
-export TMUX_PILOT_PROGRAM="claude"
+export CLAUDE_TOWER_PROGRAM="claude"
 
-# Worktree storage directory (default: ~/.tmux-pilot/worktrees)
-export TMUX_PILOT_WORKTREE_DIR="$HOME/.tmux-pilot/worktrees"
+# Worktree storage directory (default: ~/.claude-tower/worktrees)
+export CLAUDE_TOWER_WORKTREE_DIR="$HOME/.claude-tower/worktrees"
 ```
 
 ### Data Storage
 
-- **Metadata**: `~/.tmux-pilot/metadata/` - Session info persisted to files
-- **Worktrees**: `~/.tmux-pilot/worktrees/` - Git worktrees for workspace sessions
+- **Metadata**: `~/.claude-tower/metadata/` - Session info persisted to files
+- **Worktrees**: `~/.claude-tower/worktrees/` - Git worktrees for workspace sessions
 
 ### Cleanup Orphaned Worktrees
 
@@ -166,13 +166,13 @@ If sessions are terminated abnormally (crash, kill -9, etc.), worktrees may be l
 
 ```bash
 # List orphaned worktrees
-~/.tmux/plugins/claude-pilot/tmux-plugin/scripts/cleanup.sh --list
+~/.tmux/plugins/claude-tower/tmux-plugin/scripts/cleanup.sh --list
 
 # Interactive cleanup
-~/.tmux/plugins/claude-pilot/tmux-plugin/scripts/cleanup.sh
+~/.tmux/plugins/claude-tower/tmux-plugin/scripts/cleanup.sh
 
 # Force cleanup (no confirmation)
-~/.tmux/plugins/claude-pilot/tmux-plugin/scripts/cleanup.sh --force
+~/.tmux/plugins/claude-tower/tmux-plugin/scripts/cleanup.sh --force
 ```
 
 ## Troubleshooting
@@ -184,7 +184,7 @@ If sessions are terminated abnormally (crash, kill -9, etc.), worktrees may be l
 **Solutions**:
 1. Reload tmux config: `tmux source ~/.tmux.conf`
 2. Restart tmux completely: exit all sessions and start tmux again
-3. Check key bindings: `tmux list-keys | grep pilot`
+3. Check key bindings: `tmux list-keys | grep tower`
 
 ### fzf not found
 
@@ -205,13 +205,13 @@ which fzf
 
 ### Worktree already exists
 
-**Error**: `fatal: 'pilot/session-name' already exists`
+**Error**: `fatal: 'tower/session-name' already exists`
 
 **Solution**: Remove stale worktree manually:
 
 ```bash
-git worktree remove ~/.tmux-pilot/worktrees/session-name
-git branch -D pilot/session-name
+git worktree remove ~/.claude-tower/worktrees/session-name
+git branch -D tower/session-name
 ```
 
 ### Claude CLI not starting
@@ -221,7 +221,7 @@ git branch -D pilot/session-name
 **Solutions**:
 1. Verify Claude CLI is installed: `which claude`
 2. Test Claude manually: `claude`
-3. Check environment variable: `echo $TMUX_PILOT_PROGRAM`
+3. Check environment variable: `echo $CLAUDE_TOWER_PROGRAM`
 
 ## License
 

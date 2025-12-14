@@ -16,5 +16,5 @@ Thumbs.db
 .env
 .env.local
 
-# tmux-pilot data
-~/.tmux-pilot/
+# claude-tower data
+~/.claude-tower/

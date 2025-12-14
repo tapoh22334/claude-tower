@@ -15,16 +15,16 @@ cleanup_worktree() {
 
     # Get stored repo path
     local repo_path
-    repo_path=$(tmux show-option -t "$session_name" -qv @pilot_repo 2>/dev/null || echo "")
+    repo_path=$(tmux show-option -t "$session_name" -qv @tower_repo 2>/dev/null || echo "")
 
     if [[ -n "$repo_path" ]]; then
-        # Extract name from session (remove pilot_ prefix)
-        local name="${session_name#pilot_}"
-        local worktree_path="${PILOT_WORKTREE_DIR}/${name}"
+        # Extract name from session (remove tower_ prefix)
+        local name="${session_name#tower_}"
+        local worktree_path="${TOWER_WORKTREE_DIR}/${name}"
 
         if [[ -d "$worktree_path" ]]; then
             # Validate path before removal
-            if validate_path_within "$worktree_path" "$PILOT_WORKTREE_DIR"; then
+            if validate_path_within "$worktree_path" "$TOWER_WORKTREE_DIR"; then
                 # Remove worktree
                 if git -C "$repo_path" worktree remove "$worktree_path" 2>/dev/null; then
                     handle_info "Removed worktree: $worktree_path"
@@ -45,7 +45,7 @@ case "$type" in
         if confirm "Kill session '$session'?"; then
             # Check if it's a workspace session and cleanup
             local mode
-            mode=$(tmux show-option -t "$session" -qv @pilot_mode 2>/dev/null || echo "")
+            mode=$(tmux show-option -t "$session" -qv @tower_mode 2>/dev/null || echo "")
             if [[ "$mode" == "workspace" ]]; then
                 cleanup_worktree "$session"
             fi

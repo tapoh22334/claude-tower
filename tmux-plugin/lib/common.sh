@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Common library for tmux-pilot
+# Common library for claude-tower
 # This file should be sourced by other scripts
 
 # Strict mode
@@ -36,9 +36,9 @@ readonly ICON_GIT="⎇"
 # ============================================================================
 # Configuration
 # ============================================================================
-readonly PILOT_WORKTREE_DIR="${TMUX_PILOT_WORKTREE_DIR:-$HOME/.tmux-pilot/worktrees}"
-readonly PILOT_PROGRAM="${TMUX_PILOT_PROGRAM:-claude}"
-readonly PILOT_METADATA_DIR="${TMUX_PILOT_METADATA_DIR:-$HOME/.tmux-pilot/metadata}"
+readonly TOWER_WORKTREE_DIR="${CLAUDE_TOWER_WORKTREE_DIR:-$HOME/.claude-tower/worktrees}"
+readonly TOWER_PROGRAM="${CLAUDE_TOWER_PROGRAM:-claude}"
+readonly TOWER_METADATA_DIR="${CLAUDE_TOWER_METADATA_DIR:-$HOME/.claude-tower/metadata}"
 readonly PREVIEW_LINES=30
 
 # ============================================================================
@@ -84,7 +84,7 @@ validate_path_within() {
 #   Normalized session name
 normalize_session_name() {
     local name="$1"
-    echo "pilot_${name}" | tr ' .' '_'
+    echo "tower_${name}" | tr ' .' '_'
 }
 
 # ============================================================================
@@ -162,7 +162,7 @@ confirm() {
 
 # Ensure metadata directory exists
 ensure_metadata_dir() {
-    mkdir -p "$PILOT_METADATA_DIR"
+    mkdir -p "$TOWER_METADATA_DIR"
 }
 
 # Save session metadata to file
@@ -179,7 +179,7 @@ save_metadata() {
 
     ensure_metadata_dir
 
-    local metadata_file="${PILOT_METADATA_DIR}/${session_name}.meta"
+    local metadata_file="${TOWER_METADATA_DIR}/${session_name}.meta"
 
     {
         echo "session_name=${session_name}"
@@ -187,7 +187,7 @@ save_metadata() {
         echo "created_at=$(date -Iseconds)"
         echo "repo_path=${repo_path}"
         echo "base_commit=${base_commit}"
-        echo "worktree_path=${PILOT_WORKTREE_DIR}/${session_name#pilot_}"
+        echo "worktree_path=${TOWER_WORKTREE_DIR}/${session_name#tower_}"
     } > "$metadata_file"
 }
 
@@ -198,7 +198,7 @@ save_metadata() {
 #   Exports variables: META_MODE, META_REPO_PATH, META_BASE_COMMIT, META_WORKTREE_PATH
 load_metadata() {
     local session_name="$1"
-    local metadata_file="${PILOT_METADATA_DIR}/${session_name}.meta"
+    local metadata_file="${TOWER_METADATA_DIR}/${session_name}.meta"
 
     # Initialize with empty values
     META_MODE=""
@@ -227,7 +227,7 @@ load_metadata() {
 #   $1 - Session name
 delete_metadata() {
     local session_name="$1"
-    local metadata_file="${PILOT_METADATA_DIR}/${session_name}.meta"
+    local metadata_file="${TOWER_METADATA_DIR}/${session_name}.meta"
 
     if [[ -f "$metadata_file" ]]; then
         rm -f "$metadata_file"
@@ -240,7 +240,7 @@ delete_metadata() {
 list_metadata() {
     ensure_metadata_dir
 
-    for meta_file in "${PILOT_METADATA_DIR}"/*.meta; do
+    for meta_file in "${TOWER_METADATA_DIR}"/*.meta; do
         if [[ -f "$meta_file" ]]; then
             basename "$meta_file" .meta
         fi
@@ -254,7 +254,7 @@ list_metadata() {
 #   0 if exists, 1 if not
 has_metadata() {
     local session_name="$1"
-    [[ -f "${PILOT_METADATA_DIR}/${session_name}.meta" ]]
+    [[ -f "${TOWER_METADATA_DIR}/${session_name}.meta" ]]
 }
 
 # ============================================================================
@@ -273,7 +273,7 @@ find_orphaned_worktrees() {
     local active_sessions
     active_sessions=$(get_active_sessions)
 
-    for meta_file in "${PILOT_METADATA_DIR}"/*.meta; do
+    for meta_file in "${TOWER_METADATA_DIR}"/*.meta; do
         if [[ -f "$meta_file" ]]; then
             local session_name
             session_name=$(basename "$meta_file" .meta)
@@ -309,7 +309,7 @@ cleanup_orphaned_worktree() {
 
     if [[ -d "$worktree_path" ]]; then
         # Validate path before removal
-        if validate_path_within "$worktree_path" "$PILOT_WORKTREE_DIR"; then
+        if validate_path_within "$worktree_path" "$TOWER_WORKTREE_DIR"; then
             if [[ -n "$repo_path" ]] && [[ -d "$repo_path" ]]; then
                 git -C "$repo_path" worktree remove "$worktree_path" 2>/dev/null || \
                 git -C "$repo_path" worktree remove --force "$worktree_path" 2>/dev/null || true

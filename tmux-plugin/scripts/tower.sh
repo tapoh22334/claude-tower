@@ -2,7 +2,7 @@
 # Main session picker with tree view and preview
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PILOT_DIR="$(dirname "$SCRIPT_DIR")"
+TOWER_DIR="$(dirname "$SCRIPT_DIR")"
 
 # Source common library
 # shellcheck source=../lib/common.sh
@@ -118,9 +118,9 @@ main() {
         --header="Enter:select | n:new | r:rename | x:kill | D:diff | ?:help" \
         --preview="$SCRIPT_DIR/preview.sh {}" \
         --preview-window=right:50% \
-        --bind="n:execute($SCRIPT_DIR/new-session.sh)+reload($SCRIPT_DIR/pilot.sh --list)" \
-        --bind="r:execute($SCRIPT_DIR/rename.sh {})+reload($SCRIPT_DIR/pilot.sh --list)" \
-        --bind="x:execute($SCRIPT_DIR/kill.sh {})+reload($SCRIPT_DIR/pilot.sh --list)" \
+        --bind="n:execute($SCRIPT_DIR/new-session.sh)+reload($SCRIPT_DIR/tower.sh --list)" \
+        --bind="r:execute($SCRIPT_DIR/rename.sh {})+reload($SCRIPT_DIR/tower.sh --list)" \
+        --bind="x:execute($SCRIPT_DIR/kill.sh {})+reload($SCRIPT_DIR/tower.sh --list)" \
         --bind="D:preview($SCRIPT_DIR/diff.sh {})" \
         --bind="?:preview($SCRIPT_DIR/help.sh)" \
         --delimiter=':' \

@@ -46,13 +46,13 @@ create_workspace_session() {
     base_commit=$(git -C "$repo_path" rev-parse HEAD 2>/dev/null)
 
     # Create branch name
-    local branch_name="pilot/${sanitized_name}"
+    local branch_name="tower/${sanitized_name}"
 
     # Create worktree directory
-    local worktree_path="${PILOT_WORKTREE_DIR}/${sanitized_name}"
+    local worktree_path="${TOWER_WORKTREE_DIR}/${sanitized_name}"
 
     # Validate worktree path is within expected directory (prevent path traversal)
-    if ! validate_path_within "$worktree_path" "$PILOT_WORKTREE_DIR"; then
+    if ! validate_path_within "$worktree_path" "$TOWER_WORKTREE_DIR"; then
         handle_error "Invalid worktree path"
         return 1
     fi
@@ -85,11 +85,11 @@ create_workspace_session() {
         printf "%b%s%b\n" "$C_YELLOW" "Session exists, switching to it" "$C_RESET"
         tmux switch-client -t "$session_name"
     else
-        tmux new-session -d -s "$session_name" -c "$worktree_path" "$PILOT_PROGRAM"
+        tmux new-session -d -s "$session_name" -c "$worktree_path" "$TOWER_PROGRAM"
         # Store metadata in tmux options
-        tmux set-option -t "$session_name" @pilot_mode "workspace"
-        tmux set-option -t "$session_name" @pilot_repo "$repo_path"
-        tmux set-option -t "$session_name" @pilot_base "$base_commit"
+        tmux set-option -t "$session_name" @tower_mode "workspace"
+        tmux set-option -t "$session_name" @tower_repo "$repo_path"
+        tmux set-option -t "$session_name" @tower_base "$base_commit"
         # Save metadata to file for persistence
         save_metadata "$session_name" "workspace" "$repo_path" "$base_commit"
         tmux switch-client -t "$session_name"
@@ -119,8 +119,8 @@ create_simple_session() {
         printf "%b%s%b\n" "$C_YELLOW" "Session exists, switching to it" "$C_RESET"
         tmux switch-client -t "$session_name"
     else
-        tmux new-session -d -s "$session_name" -c "$dir" "$PILOT_PROGRAM"
-        tmux set-option -t "$session_name" @pilot_mode "simple"
+        tmux new-session -d -s "$session_name" -c "$dir" "$TOWER_PROGRAM"
+        tmux set-option -t "$session_name" @tower_mode "simple"
         # Save metadata to file for persistence
         save_metadata "$session_name" "simple"
         tmux switch-client -t "$session_name"

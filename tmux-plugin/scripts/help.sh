@@ -3,7 +3,7 @@
 
 cat << 'EOF'
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  tmux-pilot - Session/Window/Pane Manager
+  claude-tower - Session/Window/Pane Manager
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 KEYBINDINGS (in picker):
@@ -28,7 +28,7 @@ SESSION MODES:
   [W] Workspace    Git-managed with worktree isolation
                    - Creates separate git worktree
                    - Shows diff stats
-                   - Branch: pilot/<session-name>
+                   - Branch: tower/<session-name>
 
   [S] Simple       Regular session in any directory
                    - No git integration
@@ -44,19 +44,19 @@ ICONS:
 
 CONFIGURATION (in .tmux.conf):
 
-  set -g @pilot-key 'C'           # Key to open picker (default: C)
-  set -g @pilot-new-key 'T'       # Key for new session (default: T)
+  set -g @tower-key 'C'           # Key to open picker (default: C)
+  set -g @tower-new-key 'T'       # Key for new session (default: T)
 
 ENVIRONMENT VARIABLES:
 
-  TMUX_PILOT_PROGRAM       Program to run (default: claude)
-  TMUX_PILOT_WORKTREE_DIR  Worktree storage (default: ~/.tmux-pilot/worktrees)
-  TMUX_PILOT_METADATA_DIR  Metadata storage (default: ~/.tmux-pilot/metadata)
+  CLAUDE_TOWER_PROGRAM       Program to run (default: claude)
+  CLAUDE_TOWER_WORKTREE_DIR  Worktree storage (default: ~/.claude-tower/worktrees)
+  CLAUDE_TOWER_METADATA_DIR  Metadata storage (default: ~/.claude-tower/metadata)
 
 DATA STORAGE:
 
-  ~/.tmux-pilot/metadata/   Session metadata files
-  ~/.tmux-pilot/worktrees/  Git worktrees
+  ~/.claude-tower/metadata/   Session metadata files
+  ~/.claude-tower/worktrees/  Git worktrees
 
 CLEANUP:
 
