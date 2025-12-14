@@ -18,3 +18,9 @@ Thumbs.db
 
 # claude-tower data
 ~/.claude-tower/
+
+# Test dependencies (installed via git clone)
+tests/bats/
+
+# Test temporary files
+tests/tmp/
