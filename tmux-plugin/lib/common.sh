@@ -6,6 +6,54 @@
 set -euo pipefail
 
 # ============================================================================
+# Error Trap and Debug Mode
+# ============================================================================
+# Enable debug mode with: export CLAUDE_TOWER_DEBUG=1
+readonly TOWER_DEBUG="${CLAUDE_TOWER_DEBUG:-0}"
+
+# Store the calling script name for error messages
+TOWER_SCRIPT_NAME="${TOWER_SCRIPT_NAME:-${BASH_SOURCE[1]:-unknown}}"
+TOWER_SCRIPT_NAME=$(basename "$TOWER_SCRIPT_NAME")
+
+# Error trap handler - called when a command fails
+_tower_error_trap() {
+    local exit_code=$?
+    local line_no="${1:-unknown}"
+    local command="${BASH_COMMAND:-unknown}"
+
+    # Don't trigger on intentional exits
+    [[ "$exit_code" -eq 0 ]] && return 0
+
+    local error_msg="[$TOWER_SCRIPT_NAME:$line_no] Command failed (exit $exit_code): $command"
+
+    if [[ "$TOWER_DEBUG" == "1" ]]; then
+        echo "DEBUG: $error_msg" >&2
+        echo "DEBUG: Stack trace:" >&2
+        local frame=0
+        while caller $frame; do
+            ((frame++))
+        done 2>/dev/null >&2
+    fi
+
+    # Log to file if debug enabled
+    if [[ "$TOWER_DEBUG" == "1" ]]; then
+        local log_file="${CLAUDE_TOWER_METADATA_DIR:-$HOME/.claude-tower/metadata}/tower.log"
+        mkdir -p "$(dirname "$log_file")" 2>/dev/null || true
+        echo "[$(date -Iseconds)] $error_msg" >> "$log_file" 2>/dev/null || true
+    fi
+}
+
+# Set up error trap
+trap '_tower_error_trap ${LINENO}' ERR
+
+# Debug logging function
+debug_log() {
+    [[ "$TOWER_DEBUG" != "1" ]] && return 0
+    local msg="$1"
+    echo "DEBUG: [$TOWER_SCRIPT_NAME] $msg" >&2
+}
+
+# ============================================================================
 # Colors
 # ============================================================================
 readonly C_RESET="\033[0m"
@@ -104,10 +152,20 @@ normalize_session_name() {
 # Display error message to user via tmux and stderr
 # Arguments:
 #   $1 - Error message
+#   $2 - (optional) Exit code to return (default: does not exit)
 handle_error() {
     local msg="$1"
-    echo "Error: $msg" >&2
+    local exit_code="${2:-}"
+    local formatted_msg="${C_RED}Error:${C_RESET} $msg"
+
+    echo -e "$formatted_msg" >&2
     tmux display-message "Error: $msg" 2>/dev/null || true
+
+    debug_log "Error occurred: $msg"
+
+    if [[ -n "$exit_code" ]]; then
+        exit "$exit_code"
+    fi
 }
 
 # Display warning message to user via tmux
@@ -115,8 +173,12 @@ handle_error() {
 #   $1 - Warning message
 handle_warning() {
     local msg="$1"
-    echo "Warning: $msg" >&2
+    local formatted_msg="${C_YELLOW}Warning:${C_RESET} $msg"
+
+    echo -e "$formatted_msg" >&2
     tmux display-message "Warning: $msg" 2>/dev/null || true
+
+    debug_log "Warning: $msg"
 }
 
 # Display info message to user via tmux
@@ -125,11 +187,51 @@ handle_warning() {
 handle_info() {
     local msg="$1"
     tmux display-message "$msg" 2>/dev/null || true
+    debug_log "Info: $msg"
+}
+
+# Display success message
+# Arguments:
+#   $1 - Success message
+handle_success() {
+    local msg="$1"
+    local formatted_msg="${C_GREEN}Success:${C_RESET} $msg"
+
+    echo -e "$formatted_msg"
+    tmux display-message "$msg" 2>/dev/null || true
+
+    debug_log "Success: $msg"
+}
+
+# Graceful error exit with cleanup hint
+# Arguments:
+#   $1 - Error message
+#   $2 - Exit code (default: 1)
+die() {
+    local msg="$1"
+    local exit_code="${2:-1}"
+
+    handle_error "$msg"
+
+    if [[ "$TOWER_DEBUG" == "1" ]]; then
+        echo "DEBUG: Exiting with code $exit_code from ${FUNCNAME[1]:-main}" >&2
+    fi
+
+    exit "$exit_code"
 }
 
 # ============================================================================
 # Dependency Checks
 # ============================================================================
+
+# Installation hints for common missing dependencies
+declare -A INSTALL_HINTS=(
+    [fzf]="Install fzf: https://github.com/junegunn/fzf#installation"
+    [git]="Install git: apt install git / brew install git"
+    [tmux]="Install tmux: apt install tmux / brew install tmux"
+    [claude]="Install Claude Code: https://docs.anthropic.com/en/docs/claude-code"
+    [realpath]="Install coreutils: apt install coreutils / brew install coreutils"
+)
 
 # Check if required command is available
 # Arguments:
@@ -139,9 +241,37 @@ handle_info() {
 require_command() {
     local cmd="$1"
     if ! command -v "$cmd" &>/dev/null; then
-        handle_error "$cmd is required but not installed"
+        local hint="${INSTALL_HINTS[$cmd]:-}"
+        local msg="'$cmd' is required but not installed"
+        [[ -n "$hint" ]] && msg="$msg. $hint"
+        handle_error "$msg"
         return 1
     fi
+    debug_log "Dependency check passed: $cmd"
+    return 0
+}
+
+# Check all required dependencies at once
+# Returns:
+#   0 if all available, 1 if any missing
+require_all_dependencies() {
+    local missing=()
+
+    for cmd in fzf git tmux; do
+        if ! command -v "$cmd" &>/dev/null; then
+            missing+=("$cmd")
+        fi
+    done
+
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        handle_error "Missing required dependencies: ${missing[*]}"
+        for cmd in "${missing[@]}"; do
+            local hint="${INSTALL_HINTS[$cmd]:-}"
+            [[ -n "$hint" ]] && echo "  - $hint" >&2
+        done
+        return 1
+    fi
+
     return 0
 }
 
@@ -341,4 +471,116 @@ remove_orphaned_worktree() {
 # Alias for backwards compatibility
 cleanup_orphaned_worktree() {
     remove_orphaned_worktree "$@"
+}
+
+# ============================================================================
+# Safe Command Execution
+# ============================================================================
+# Wrappers for commands that might fail, with proper error handling
+
+# Safe tmux command execution with error handling
+# Arguments:
+#   $@ - tmux command and arguments
+# Returns:
+#   0 on success, 1 on failure
+safe_tmux() {
+    local cmd="$1"
+    shift
+
+    debug_log "Executing: tmux $cmd $*"
+
+    if ! tmux "$cmd" "$@" 2>/dev/null; then
+        debug_log "tmux command failed: $cmd $*"
+        return 1
+    fi
+    return 0
+}
+
+# Safe git command execution with error handling
+# Arguments:
+#   $@ - git command and arguments
+# Returns:
+#   0 on success, 1 on failure
+safe_git() {
+    local cmd="$1"
+    shift
+
+    debug_log "Executing: git $cmd $*"
+
+    if ! git "$cmd" "$@" 2>/dev/null; then
+        debug_log "git command failed: $cmd $*"
+        return 1
+    fi
+    return 0
+}
+
+# Execute command with timeout
+# Arguments:
+#   $1 - Timeout in seconds
+#   $@ - Command to execute
+# Returns:
+#   Command exit code or 124 on timeout
+run_with_timeout() {
+    local timeout="$1"
+    shift
+
+    if command -v timeout &>/dev/null; then
+        timeout "$timeout" "$@"
+    else
+        # Fallback if timeout command not available
+        "$@"
+    fi
+}
+
+# ============================================================================
+# Validation Helpers
+# ============================================================================
+
+# Validate session name format
+# Arguments:
+#   $1 - Session name to validate
+# Returns:
+#   0 if valid, 1 if invalid
+validate_session_name() {
+    local name="$1"
+
+    # Must not be empty
+    if [[ -z "$name" ]]; then
+        debug_log "Session name is empty"
+        return 1
+    fi
+
+    # Must not exceed max length
+    if [[ ${#name} -gt 64 ]]; then
+        debug_log "Session name too long: ${#name} > 64"
+        return 1
+    fi
+
+    # Must contain only allowed characters
+    if [[ ! "$name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+        debug_log "Session name contains invalid characters: $name"
+        return 1
+    fi
+
+    return 0
+}
+
+# Check if session exists
+# Arguments:
+#   $1 - Session ID
+# Returns:
+#   0 if exists, 1 if not
+session_exists() {
+    local session_id="$1"
+    tmux has-session -t "$session_id" 2>/dev/null
+}
+
+# Check if worktree exists
+# Arguments:
+#   $1 - Worktree path
+# Returns:
+#   0 if exists, 1 if not
+worktree_exists() {
+    local path="$1"
+    [[ -d "$path" ]] && [[ -f "$path/.git" || -d "$path/.git" ]]
 }

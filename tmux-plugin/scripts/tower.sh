@@ -3,10 +3,13 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TOWER_DIR="$(dirname "$SCRIPT_DIR")"
+TOWER_SCRIPT_NAME="tower.sh"
 
 # Source common library
 # shellcheck source=../lib/common.sh
 source "$SCRIPT_DIR/../lib/common.sh"
+
+debug_log "Starting tower.sh"
 
 # Build tree structure
 build_tree() {
