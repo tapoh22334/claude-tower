@@ -8,9 +8,22 @@ CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/common.sh
 source "$CURRENT_DIR/lib/common.sh" 2>/dev/null || true
 
-# Default key bindings (can be overridden in .tmux.conf)
-TOWER_KEY="${CLAUDE_TOWER_KEY:-C}"
-TOWER_NEW_KEY="${CLAUDE_TOWER_NEW_KEY:-T}"
+# Read key bindings from tmux options (set via @tower-key, @tower-new-key)
+# Falls back to environment variables, then defaults
+get_tmux_option() {
+    local option="$1"
+    local default="$2"
+    local value
+    value=$(tmux show-option -gqv "$option" 2>/dev/null)
+    if [[ -n "$value" ]]; then
+        echo "$value"
+    else
+        echo "$default"
+    fi
+}
+
+TOWER_KEY=$(get_tmux_option "@tower-key" "${CLAUDE_TOWER_KEY:-C}")
+TOWER_NEW_KEY=$(get_tmux_option "@tower-new-key" "${CLAUDE_TOWER_NEW_KEY:-T}")
 
 # Bind keys
 tmux bind-key "$TOWER_KEY" run-shell "$CURRENT_DIR/scripts/tower.sh"
