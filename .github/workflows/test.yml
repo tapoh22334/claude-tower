@@ -1,0 +1,91 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # Unit tests - fast, no external dependencies
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install bats
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bats
+
+      - name: Run unit tests
+        run: ./tests/run_tests.sh --tap
+
+  # Integration tests - with tmux
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bats tmux git
+
+      - name: Run integration tests
+        run: |
+          chmod +x ./tests/run_integration_tests.sh
+          ./tests/run_integration_tests.sh
+
+  # E2E tests - full workflow
+  e2e-tests:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bats tmux git fzf
+
+      - name: Configure git
+        run: |
+          git config --global user.email "test@example.com"
+          git config --global user.name "Test User"
+          git config --global init.defaultBranch main
+
+      - name: Run E2E tests
+        run: |
+          chmod +x ./tests/run_e2e_tests.sh
+          ./tests/run_e2e_tests.sh
+
+  # Docker-based tests (comprehensive)
+  docker-tests:
+    name: Docker Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build test image
+        run: docker build -f Dockerfile.test -t claude-tower-test .
+
+      - name: Run tests in Docker
+        run: docker run --rm claude-tower-test
+
+  # ShellCheck linting
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ShellCheck
+        run: sudo apt-get install -y shellcheck
+
+      - name: Run ShellCheck
+        run: |
+          find tmux-plugin -name "*.sh" -exec shellcheck {} +
+          shellcheck tests/run_tests.sh tests/run_integration_tests.sh tests/run_e2e_tests.sh || true

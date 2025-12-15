@@ -1,0 +1,49 @@
+# Test environment for claude-tower
+# Includes tmux, git, fzf, and bats for comprehensive testing
+
+FROM ubuntu:22.04
+
+# Avoid interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    bash \
+    tmux \
+    git \
+    fzf \
+    coreutils \
+    procps \
+    curl \
+    # For bats
+    bats \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install bats helper libraries
+RUN mkdir -p /opt/bats-libs && \
+    git clone --depth 1 https://github.com/bats-core/bats-support.git /opt/bats-libs/bats-support && \
+    git clone --depth 1 https://github.com/bats-core/bats-assert.git /opt/bats-libs/bats-assert
+
+# Set up test user (non-root for realistic testing)
+RUN useradd -m -s /bin/bash testuser && \
+    mkdir -p /home/testuser/.claude-tower && \
+    chown -R testuser:testuser /home/testuser
+
+# Copy project files
+WORKDIR /app
+COPY --chown=testuser:testuser . .
+
+# Set up git config for tests
+RUN git config --global user.email "test@example.com" && \
+    git config --global user.name "Test User" && \
+    git config --global init.defaultBranch main
+
+USER testuser
+
+# Environment variables for tests
+ENV CLAUDE_TOWER_METADATA_DIR=/home/testuser/.claude-tower/metadata
+ENV CLAUDE_TOWER_WORKTREE_DIR=/home/testuser/.claude-tower/worktrees
+ENV BATS_LIB_PATH=/opt/bats-libs
+
+# Default command: run all tests
+CMD ["./tests/run_tests.sh"]

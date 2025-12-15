@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  # Unit tests - fast, no external dependencies
+  unit-tests:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    command: ["./tests/run_tests.sh"]
+    volumes:
+      - ./tests:/app/tests:ro
+      - ./tmux-plugin:/app/tmux-plugin:ro
+
+  # Integration tests - with tmux server
+  integration-tests:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    command: ["./tests/run_integration_tests.sh"]
+    volumes:
+      - ./tests:/app/tests:ro
+      - ./tmux-plugin:/app/tmux-plugin:ro
+    environment:
+      - CLAUDE_TOWER_DEBUG=1
+
+  # E2E tests - full workflow simulation
+  e2e-tests:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    command: ["./tests/run_e2e_tests.sh"]
+    volumes:
+      - ./tests:/app/tests:ro
+      - ./tmux-plugin:/app/tmux-plugin:ro
+    environment:
+      - CLAUDE_TOWER_DEBUG=1
+
+  # All tests
+  all-tests:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    command: ["bash", "-c", "./tests/run_tests.sh && ./tests/run_integration_tests.sh"]
+    volumes:
+      - ./tests:/app/tests:ro
+      - ./tmux-plugin:/app/tmux-plugin:ro
