@@ -54,7 +54,14 @@ main() {
     fi
 
     # Run integration tests
-    local bats_args=(--pretty)
+    local bats_args=()
+
+    # Use TAP format in CI (no terminal), pretty format locally
+    if [[ -t 1 ]] && [[ -z "${CI:-}" ]]; then
+        bats_args+=(--pretty)
+    else
+        bats_args+=(--tap)
+    fi
 
     if [[ "${CLAUDE_TOWER_DEBUG:-0}" == "1" ]]; then
         bats_args+=(--verbose-run)
