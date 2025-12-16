@@ -64,7 +64,8 @@ setup() {
 
 @test "ensure_metadata_dir: creates parent directories" {
     # Run in subshell with custom CLAUDE_TOWER_METADATA_DIR set before sourcing
-    local deep_dir="${BATS_TEST_TMPDIR}/deep/nested/metadata"
+    # Use BATS_TEST_TMPDIR if available, fallback to /tmp
+    local deep_dir="${BATS_TEST_TMPDIR:-/tmp/bats-$$}/deep/nested/metadata"
     run bash -c "
         export CLAUDE_TOWER_METADATA_DIR='$deep_dir'
         source '$PROJECT_ROOT/tmux-plugin/lib/common.sh' 2>/dev/null
