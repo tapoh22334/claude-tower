@@ -6,43 +6,29 @@
 
 A tmux plugin for managing Claude Code sessions with tree-style navigation and git worktree integration.
 
-## Table of Contents
-
-- [Features](#features)
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [Usage](#usage)
-- [Tree View](#tree-view)
-- [Session Modes](#session-modes)
-- [Configuration](#configuration)
-- [Troubleshooting](#troubleshooting)
-- [License](#license)
-
 ## Features
 
-- **Tree View**: See all sessions, windows, and panes in a hierarchical tree
-- **Live Preview**: Preview pane content before switching
-- **Two Session Modes**: [Workspace](#workspace-mode-w) for git repos with worktree isolation, [Simple](#simple-mode-s) for regular directories
-- **Actions**: New, rename, kill, diff from the picker
+- **Tree View** - Hierarchical view of sessions, windows, and panes
+- **Live Preview** - Preview pane content before switching
+- **Git Worktree Integration** - Automatic branch isolation per session
+- **Quick Actions** - Create, rename, kill sessions from the picker
 
 ## Requirements
 
-- **tmux 3.0+** - [Installation guide](https://github.com/tmux/tmux/wiki/Installing)
-- **fzf** - [Installation guide](https://github.com/junegunn/fzf#installation)
-- **git** (for workspace mode) - [Installation guide](https://git-scm.com/downloads)
-- **Claude Code CLI** (`claude`) - [Download](https://claude.ai/code)
+- tmux 3.0+
+- fzf
+- git
+- Claude Code CLI (`claude`)
 
 ## Installation
 
-### With TPM
-
-Add to your `~/.tmux.conf`:
+### TPM (recommended)
 
 ```bash
 set -g @plugin 'tapoh22334/claude-tower'
 ```
 
-Then press `prefix + I` to install.
+Press `prefix + I` to install.
 
 ### Manual
 
@@ -56,22 +42,6 @@ Add to `~/.tmux.conf`:
 run-shell ~/.tmux/plugins/claude-tower/tmux-plugin/claude-tower.tmux
 ```
 
-Reload config:
-
-```bash
-tmux source ~/.tmux.conf
-```
-
-### Verify Installation
-
-Check if the plugin is loaded:
-
-```bash
-tmux list-keys | grep tower
-```
-
-You should see key bindings for the tower plugin.
-
 ## Usage
 
 | Key | Action |
@@ -79,19 +49,16 @@ You should see key bindings for the tower plugin.
 | `prefix + C` | Open session picker |
 | `prefix + T` | Create new session |
 
-> **Note**: The default tmux prefix key is `Ctrl+b`. If you've customized it, use your prefix instead.
-
-### In the Picker
+### Picker Keybindings
 
 | Key | Action |
 |-----|--------|
-| `Enter` | Select and switch |
+| `Enter` | Switch to selection |
 | `n` | New session |
 | `r` | Rename session |
 | `x` | Kill session |
-| `D` | Show git diff (workspace only) |
-| `?` | Show help |
-| `Esc` | Close |
+| `D` | Show git diff |
+| `?` | Help |
 
 ## Tree View
 
@@ -106,127 +73,75 @@ You should see key bindings for the tower plugin.
      └─ ▫ 0: claude
 ```
 
-### Icons
-
 | Icon | Meaning |
 |------|---------|
-| 📁 | Session |
-| 🪟 | Window |
-| ▫ | Pane |
-| ● | Active |
-| ⎇ | Git branch |
-| [W] | Workspace mode |
-| [S] | Simple mode |
+| `[W]` | Workspace - git worktree session |
+| `[S]` | Simple - regular session |
+| `●` | Active |
+| `⎇` | Git branch |
 
 ## Session Modes
 
-### Workspace Mode [W]
+### Workspace Mode `[W]`
 
-For git repositories, automatically:
-
-- Creates git worktree at `~/.claude-tower/worktrees/<name>`
+For git repositories:
+- Creates worktree at `~/.claude-tower/worktrees/<name>`
 - Creates branch `tower/<name>`
-- Displays diff stats in tree view
-- Removes worktree on session termination
+- Auto-cleanup on session kill
 
-### Simple Mode [S]
+### Simple Mode `[S]`
 
 For non-git directories:
-
-- Starts program in current directory without git integration
+- Runs in current directory
+- No git integration
 
 ## Configuration
 
-Add to `~/.tmux.conf`:
-
 ```bash
-# Change picker key (default: C)
-set -g @tower-key 'C'
+# ~/.tmux.conf
 
-# Change new session key (default: T)
+# Change keybindings
+set -g @tower-key 'C'
 set -g @tower-new-key 'T'
 ```
 
 ### Environment Variables
 
-Add to your shell config (`~/.bashrc`, `~/.zshrc`, etc.):
-
 ```bash
-# Program to run in new sessions (default: claude)
+# Program to run (default: claude)
 export CLAUDE_TOWER_PROGRAM="claude"
 
-# Worktree storage directory (default: ~/.claude-tower/worktrees)
+# Worktree directory (default: ~/.claude-tower/worktrees)
 export CLAUDE_TOWER_WORKTREE_DIR="$HOME/.claude-tower/worktrees"
-```
 
-### Data Storage
-
-- **Metadata**: `~/.claude-tower/metadata/` - Session info persisted to files
-- **Worktrees**: `~/.claude-tower/worktrees/` - Git worktrees for workspace sessions
-
-### Cleanup Orphaned Worktrees
-
-If sessions are terminated abnormally (crash, kill -9, etc.), worktrees may be left behind. Use the cleanup tool:
-
-```bash
-# List orphaned worktrees
-~/.tmux/plugins/claude-tower/tmux-plugin/scripts/cleanup.sh --list
-
-# Interactive cleanup
-~/.tmux/plugins/claude-tower/tmux-plugin/scripts/cleanup.sh
-
-# Force cleanup (no confirmation)
-~/.tmux/plugins/claude-tower/tmux-plugin/scripts/cleanup.sh --force
+# Enable debug logging
+export CLAUDE_TOWER_DEBUG=1
 ```
 
 ## Troubleshooting
 
 ### Plugin not loading
 
-**Symptoms**: Key bindings don't work after installation
-
-**Solutions**:
-1. Reload tmux config: `tmux source ~/.tmux.conf`
-2. Restart tmux completely: exit all sessions and start tmux again
-3. Check key bindings: `tmux list-keys | grep tower`
-
-### fzf not found
-
-**Error**: `fzf is required but not installed`
-
-**Solution**: Install fzf and ensure it's in your PATH:
-
 ```bash
-# macOS
-brew install fzf
+# Reload config
+tmux source ~/.tmux.conf
 
-# Ubuntu/Debian
-sudo apt install fzf
-
-# Check installation
-which fzf
+# Verify keybindings
+tmux list-keys | grep tower
 ```
 
-### Worktree already exists
+### Orphaned worktrees
 
-**Error**: `fatal: 'tower/session-name' already exists`
-
-**Solution**: Remove stale worktree manually:
+Sessions terminated abnormally may leave worktrees behind:
 
 ```bash
-git worktree remove ~/.claude-tower/worktrees/session-name
-git branch -D tower/session-name
+# List orphans
+~/.tmux/plugins/claude-tower/tmux-plugin/scripts/cleanup.sh --list
+
+# Clean up
+~/.tmux/plugins/claude-tower/tmux-plugin/scripts/cleanup.sh
 ```
-
-### Claude CLI not starting
-
-**Symptoms**: Session created but Claude doesn't start
-
-**Solutions**:
-1. Verify Claude CLI is installed: `which claude`
-2. Test Claude manually: `claude`
-3. Check environment variable: `echo $CLAUDE_TOWER_PROGRAM`
 
 ## License
 
-MIT License - see the [LICENSE](LICENSE) file for details.
+MIT
