@@ -29,8 +29,8 @@ check_bats() {
         return 0
     fi
 
-    # Check for bats-core installed via git
-    if [[ -d "${PROJECT_ROOT}/tests/bats" ]]; then
+    # Check for bats-core installed via git (verify executable exists)
+    if [[ -x "${PROJECT_ROOT}/tests/bats/bin/bats" ]]; then
         export PATH="${PROJECT_ROOT}/tests/bats/bin:$PATH"
         return 0
     fi
