@@ -19,6 +19,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y bats
 
+      - name: Make scripts executable
+        run: chmod +x ./tests/*.sh
+
       - name: Run unit tests
         run: ./tests/run_tests.sh --tap
 
@@ -34,10 +37,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y bats tmux git
 
+      - name: Make scripts executable
+        run: chmod +x ./tests/*.sh
+
       - name: Run integration tests
-        run: |
-          chmod +x ./tests/run_integration_tests.sh
-          ./tests/run_integration_tests.sh
+        run: ./tests/run_integration_tests.sh
 
   # E2E tests - full workflow
   e2e-tests:
@@ -57,10 +61,11 @@ jobs:
           git config --global user.name "Test User"
           git config --global init.defaultBranch main
 
+      - name: Make scripts executable
+        run: chmod +x ./tests/*.sh
+
       - name: Run E2E tests
-        run: |
-          chmod +x ./tests/run_e2e_tests.sh
-          ./tests/run_e2e_tests.sh
+        run: ./tests/run_e2e_tests.sh
 
   # Docker-based tests (comprehensive)
   docker-tests:
@@ -85,7 +90,12 @@ jobs:
       - name: Install ShellCheck
         run: sudo apt-get install -y shellcheck
 
-      - name: Run ShellCheck
+      - name: Run ShellCheck on plugin scripts
         run: |
-          find tmux-plugin -name "*.sh" -exec shellcheck {} +
-          shellcheck tests/run_tests.sh tests/run_integration_tests.sh tests/run_e2e_tests.sh || true
+          # Exclude SC2034 (unused variables) - these are library exports used by sourcing scripts
+          # Exclude SC1091 (not following source) - dynamic paths
+          shellcheck --exclude=SC2034,SC1091 tmux-plugin/lib/*.sh tmux-plugin/scripts/*.sh
+
+      - name: Run ShellCheck on test scripts
+        run: |
+          shellcheck --exclude=SC2034,SC1091 tests/run_tests.sh tests/run_integration_tests.sh tests/run_e2e_tests.sh tests/run_all_tests.sh || true

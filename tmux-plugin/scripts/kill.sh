@@ -73,7 +73,6 @@ case "$type" in
             debug_log "Killing session: $selected_session"
 
             # Check if it's a workspace session type and cleanup
-            local session_type
             session_type=$(tmux show-option -t "$selected_session" -qv @tower_session_type 2>/dev/null || echo "")
             if [[ "$session_type" == "workspace" ]]; then
                 remove_session_worktree "$selected_session"

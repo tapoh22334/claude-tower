@@ -38,7 +38,15 @@ main() {
 
     [[ ! -d "${SCRIPT_DIR}/e2e" ]] && { echo "No E2E tests found"; exit 0; }
 
-    local bats_args=(--pretty)
+    local bats_args=()
+
+    # Use TAP format in CI (no terminal), pretty format locally
+    if [[ -t 1 ]] && [[ -z "${CI:-}" ]]; then
+        bats_args+=(--pretty)
+    else
+        bats_args+=(--tap)
+    fi
+
     [[ "${CLAUDE_TOWER_DEBUG:-0}" == "1" ]] && bats_args+=(--verbose-run)
     bats_args+=("${SCRIPT_DIR}/e2e/"*.bats)
 

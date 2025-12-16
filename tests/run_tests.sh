@@ -29,8 +29,8 @@ check_bats() {
         return 0
     fi
 
-    # Check for bats-core installed via git
-    if [[ -d "${PROJECT_ROOT}/tests/bats" ]]; then
+    # Check for bats-core installed via git (verify executable exists)
+    if [[ -x "${PROJECT_ROOT}/tests/bats/bin/bats" ]]; then
         export PATH="${PROJECT_ROOT}/tests/bats/bin:$PATH"
         return 0
     fi
@@ -134,7 +134,8 @@ main() {
     # Build bats arguments
     local bats_args=()
 
-    if $tap_format; then
+    # Use TAP format if requested, or if no terminal (CI environment)
+    if $tap_format || [[ ! -t 1 ]] || [[ -n "${CI:-}" ]]; then
         bats_args+=(--tap)
     else
         bats_args+=(--pretty)
