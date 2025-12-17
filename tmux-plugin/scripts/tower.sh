@@ -20,7 +20,8 @@ build_tree() {
 
     # Get all sessions
     tmux list-sessions -F '#{session_name}' 2>/dev/null | while read -r session; do
-        local session_path session_type git_branch_display diff_stats
+        local session_path session_type git_branch_display
+        local diff_stats=""
 
         # Get session's current path
         session_path=$(tmux display-message -t "$session" -p '#{pane_current_path}' 2>/dev/null || echo "")
