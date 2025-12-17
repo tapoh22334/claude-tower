@@ -46,9 +46,9 @@ show_session_details() {
         echo ""
     fi
 
-    # Show first pane content
+    # Show first pane content (capture scrollback with -S -)
     printf "%b━━━ Active Pane ━━━%b\n" "$C_HEADER" "$C_RESET"
-    tmux capture-pane -t "$session" -p -e 2>/dev/null | tail -"$PREVIEW_LINES"
+    tmux capture-pane -t "$session" -p -e -S - 2>/dev/null | tail -"$PREVIEW_LINES"
 }
 
 show_window_details() {
@@ -68,9 +68,9 @@ show_window_details() {
     printf "%bPanes:%b %s\n" "$C_INFO" "$C_RESET" "$pane_count"
     echo ""
 
-    # Show pane content
+    # Show pane content (capture scrollback with -S -)
     printf "%b━━━ Pane Content ━━━%b\n" "$C_HEADER" "$C_RESET"
-    tmux capture-pane -t "${session}:${window}" -p -e 2>/dev/null | tail -"$PREVIEW_LINES"
+    tmux capture-pane -t "${session}:${window}" -p -e -S - 2>/dev/null | tail -"$PREVIEW_LINES"
 }
 
 show_pane_details() {
@@ -94,9 +94,9 @@ show_pane_details() {
     printf "%bPID:%b %s\n" "$C_INFO" "$C_RESET" "$pane_pid"
     echo ""
 
-    # Show pane content
+    # Show pane content (capture scrollback with -S -)
     printf "%b━━━ Content ━━━%b\n" "$C_HEADER" "$C_RESET"
-    tmux capture-pane -t "$pane_target" -p -e 2>/dev/null | tail -"$PREVIEW_LINES"
+    tmux capture-pane -t "$pane_target" -p -e -S - 2>/dev/null | tail -"$PREVIEW_LINES"
 }
 
 # Main
