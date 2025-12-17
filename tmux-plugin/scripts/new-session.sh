@@ -87,15 +87,19 @@ create_workspace_session() {
     else
         # Create new worktree with new branch
         local git_output
+
+        start_spinner "Creating worktree..."
+
         if git_output=$(git -C "$repository_path" worktree add -b "$branch_name" "$worktree_path" "$source_commit" 2>&1); then
-            handle_success "Created worktree at: $worktree_path"
+            stop_spinner 0 "Worktree created"
             debug_log "Git output: $git_output"
         else
             debug_log "First worktree attempt failed: $git_output"
             # Branch might exist, try without -b
             if git_output=$(git -C "$repository_path" worktree add "$worktree_path" "$branch_name" 2>&1); then
-                handle_success "Using existing branch: $branch_name"
+                stop_spinner 0 "Using existing branch: $branch_name"
             else
+                stop_spinner 1 "" "Failed to create worktree"
                 handle_error "Failed to create worktree: $git_output"
                 return 1
             fi
@@ -108,13 +112,18 @@ create_workspace_session() {
 
     if session_exists "$session_id"; then
         handle_warning "Session '$session_id' exists, switching to it"
+        start_spinner "Switching to session..."
         if ! safe_tmux switch-client -t "$session_id"; then
+            stop_spinner 1 "" "Failed to switch"
             handle_error "Failed to switch to session: $session_id"
             return 1
         fi
+        stop_spinner 0 "Switched to session"
     else
         debug_log "Creating new tmux session: $session_id"
+        start_spinner "Creating session..."
         if ! tmux new-session -d -s "$session_id" -c "$worktree_path" "$TOWER_PROGRAM"; then
+            stop_spinner 1 "" "Failed to create session"
             handle_error "Failed to create tmux session"
             return 1
         fi
@@ -124,12 +133,15 @@ create_workspace_session() {
         tmux set-option -t "$session_id" @tower_source "$source_commit"
         # Save metadata to file for persistence
         save_metadata "$session_id" "workspace" "$repository_path" "$source_commit"
+        stop_spinner 0 "Session created"
 
+        start_spinner "Switching to session..."
         if ! safe_tmux switch-client -t "$session_id"; then
+            stop_spinner 1 "" "Failed to switch"
             handle_error "Failed to switch to new session"
             return 1
         fi
-        handle_success "Created session: $session_id"
+        stop_spinner 0 "Session: $session_id"
     fi
 }
 
@@ -160,25 +172,33 @@ create_simple_session() {
 
     if session_exists "$session_id"; then
         handle_warning "Session '$session_id' exists, switching to it"
+        start_spinner "Switching to session..."
         if ! safe_tmux switch-client -t "$session_id"; then
+            stop_spinner 1 "" "Failed to switch"
             handle_error "Failed to switch to session: $session_id"
             return 1
         fi
+        stop_spinner 0 "Switched to session"
     else
         debug_log "Creating new tmux session: $session_id"
+        start_spinner "Creating session..."
         if ! tmux new-session -d -s "$session_id" -c "$working_directory" "$TOWER_PROGRAM"; then
+            stop_spinner 1 "" "Failed to create session"
             handle_error "Failed to create tmux session"
             return 1
         fi
         tmux set-option -t "$session_id" @tower_session_type "simple"
         # Save metadata to file for persistence
         save_metadata "$session_id" "simple"
+        stop_spinner 0 "Session created"
 
+        start_spinner "Switching to session..."
         if ! safe_tmux switch-client -t "$session_id"; then
+            stop_spinner 1 "" "Failed to switch"
             handle_error "Failed to switch to new session"
             return 1
         fi
-        handle_success "Created session: $session_id"
+        stop_spinner 0 "Session: $session_id"
     fi
 }
 

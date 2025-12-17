@@ -533,6 +533,109 @@ run_with_timeout() {
 }
 
 # ============================================================================
+# Loading Spinner
+# ============================================================================
+# Visual feedback for long-running operations
+
+# Spinner characters for animation
+readonly SPINNER_CHARS="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+# Global variable to track spinner process
+SPINNER_PID=""
+
+# Start spinner in background
+# Arguments:
+#   $1 - Message to display
+start_spinner() {
+    local msg="${1:-Processing...}"
+
+    # Don't start if already running
+    [[ -n "$SPINNER_PID" ]] && return 0
+
+    # Show initial message in tmux status
+    tmux display-message "⏳ $msg" 2>/dev/null || true
+
+    # Start background spinner process
+    (
+        local i=0
+        local chars_len=${#SPINNER_CHARS}
+        while true; do
+            local char="${SPINNER_CHARS:i%chars_len:1}"
+            printf "\r%s %s " "$char" "$msg" >&2
+            ((i++))
+            sleep 0.1
+        done
+    ) &
+    SPINNER_PID=$!
+    disown "$SPINNER_PID" 2>/dev/null || true
+
+    debug_log "Started spinner (PID: $SPINNER_PID) with message: $msg"
+}
+
+# Stop spinner and show result
+# Arguments:
+#   $1 - Exit status (0 for success, non-zero for error)
+#   $2 - Success message (optional)
+#   $3 - Error message (optional)
+stop_spinner() {
+    local status="${1:-0}"
+    local success_msg="${2:-Done}"
+    local error_msg="${3:-Failed}"
+
+    # Kill spinner process if running
+    if [[ -n "$SPINNER_PID" ]]; then
+        kill "$SPINNER_PID" 2>/dev/null || true
+        wait "$SPINNER_PID" 2>/dev/null || true
+        SPINNER_PID=""
+        # Clear the spinner line
+        printf "\r\033[K" >&2
+    fi
+
+    debug_log "Stopped spinner with status: $status"
+
+    if [[ "$status" -eq 0 ]]; then
+        printf "%b✓ %s%b\n" "$C_GREEN" "$success_msg" "$C_RESET" >&2
+        tmux display-message "✓ $success_msg" 2>/dev/null || true
+    else
+        printf "%b✗ %s%b\n" "$C_RED" "$error_msg" "$C_RESET" >&2
+        tmux display-message "✗ $error_msg" 2>/dev/null || true
+    fi
+}
+
+# Execute command with spinner
+# Arguments:
+#   $1 - Message to display during execution
+#   $2... - Command and arguments to execute
+# Returns:
+#   Command exit code
+with_spinner() {
+    local msg="$1"
+    shift
+
+    start_spinner "$msg"
+
+    local output exit_code
+    output=$("$@" 2>&1)
+    exit_code=$?
+
+    stop_spinner "$exit_code" "$msg" "$msg failed"
+
+    # Output the command output if any
+    [[ -n "$output" ]] && echo "$output"
+
+    return "$exit_code"
+}
+
+# Cleanup spinner on script exit
+_cleanup_spinner() {
+    if [[ -n "$SPINNER_PID" ]]; then
+        kill "$SPINNER_PID" 2>/dev/null || true
+        printf "\r\033[K" >&2
+    fi
+}
+trap _cleanup_spinner EXIT
+
+# ============================================================================
 # Validation Helpers
 # ============================================================================
 
