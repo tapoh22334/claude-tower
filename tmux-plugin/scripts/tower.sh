@@ -133,7 +133,7 @@ main() {
 }
 
 # If called with --list, just output the tree (for reload)
-if [[ "$1" == "--list" ]]; then
+if [[ "${1:-}" == "--list" ]]; then
     build_tree
 else
     main
