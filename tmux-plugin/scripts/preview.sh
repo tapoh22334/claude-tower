@@ -48,8 +48,11 @@ show_session_details() {
 
     # Show first pane content (capture scrollback with -S -)
     # Use explicit :0.0 target to ensure we capture the first window's first pane
+    # Note: Must store in variable first; direct pipe to tail fails in some contexts
     printf "%b━━━ Active Pane ━━━%b\n" "$C_HEADER" "$C_RESET"
-    tmux capture-pane -t "${session}:0.0" -p -e -S - 2>/dev/null | tail -"$PREVIEW_LINES"
+    local pane_content
+    pane_content=$(tmux capture-pane -t "${session}:0.0" -p -e -S - 2>/dev/null)
+    echo "$pane_content" | tail -"$PREVIEW_LINES"
 }
 
 show_window_details() {
@@ -71,8 +74,11 @@ show_window_details() {
 
     # Show pane content (capture scrollback with -S -)
     # Use explicit .0 target to ensure we capture the first pane
+    # Note: Must store in variable first; direct pipe to tail fails in some contexts
     printf "%b━━━ Pane Content ━━━%b\n" "$C_HEADER" "$C_RESET"
-    tmux capture-pane -t "${session}:${window}.0" -p -e -S - 2>/dev/null | tail -"$PREVIEW_LINES"
+    local pane_content
+    pane_content=$(tmux capture-pane -t "${session}:${window}.0" -p -e -S - 2>/dev/null)
+    echo "$pane_content" | tail -"$PREVIEW_LINES"
 }
 
 show_pane_details() {
@@ -97,8 +103,11 @@ show_pane_details() {
     echo ""
 
     # Show pane content (capture scrollback with -S -)
+    # Note: Must store in variable first; direct pipe to tail fails in some contexts
     printf "%b━━━ Content ━━━%b\n" "$C_HEADER" "$C_RESET"
-    tmux capture-pane -t "$pane_target" -p -e -S - 2>/dev/null | tail -"$PREVIEW_LINES"
+    local pane_content
+    pane_content=$(tmux capture-pane -t "$pane_target" -p -e -S - 2>/dev/null)
+    echo "$pane_content" | tail -"$PREVIEW_LINES"
 }
 
 # Main
