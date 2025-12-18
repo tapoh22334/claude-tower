@@ -47,8 +47,9 @@ show_session_details() {
     fi
 
     # Show first pane content (capture scrollback with -S -)
+    # Use explicit :0.0 target to ensure we capture the first window's first pane
     printf "%b━━━ Active Pane ━━━%b\n" "$C_HEADER" "$C_RESET"
-    tmux capture-pane -t "$session" -p -e -S - 2>/dev/null | tail -"$PREVIEW_LINES"
+    tmux capture-pane -t "${session}:0.0" -p -e -S - 2>/dev/null | tail -"$PREVIEW_LINES"
 }
 
 show_window_details() {
@@ -69,8 +70,9 @@ show_window_details() {
     echo ""
 
     # Show pane content (capture scrollback with -S -)
+    # Use explicit .0 target to ensure we capture the first pane
     printf "%b━━━ Pane Content ━━━%b\n" "$C_HEADER" "$C_RESET"
-    tmux capture-pane -t "${session}:${window}" -p -e -S - 2>/dev/null | tail -"$PREVIEW_LINES"
+    tmux capture-pane -t "${session}:${window}.0" -p -e -S - 2>/dev/null | tail -"$PREVIEW_LINES"
 }
 
 show_pane_details() {
