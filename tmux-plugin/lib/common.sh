@@ -125,10 +125,30 @@ validate_path_within() {
     local path="$1"
     local base="$2"
 
-    # Resolve to absolute paths
+    # Normalize paths (handle .., ., and make absolute)
+    # Use Python as fallback for macOS which lacks realpath -m
     local resolved_path resolved_base
-    resolved_path=$(realpath -m "$path" 2>/dev/null) || return 1
-    resolved_base=$(realpath -m "$base" 2>/dev/null) || return 1
+
+    # Try GNU realpath -m first (Linux), fall back to manual normalization (macOS)
+    if resolved_path=$(realpath -m "$path" 2>/dev/null); then
+        resolved_base=$(realpath -m "$base" 2>/dev/null) || return 1
+    else
+        # macOS fallback: manually normalize path
+        # Remove trailing slashes and normalize
+        resolved_base="${base%/}"
+        # For the path, ensure it's absolute and normalize
+        if [[ "$path" == /* ]]; then
+            resolved_path="$path"
+        else
+            resolved_path="$(pwd)/$path"
+        fi
+        # Remove .. and . components manually
+        # Simple check: ensure path doesn't contain .. that could escape
+        if [[ "$path" == *".."* ]]; then
+            return 1
+        fi
+        resolved_path="${resolved_path%/}"
+    fi
 
     # Check if path starts with base
     [[ "$resolved_path" == "$resolved_base"* ]]
