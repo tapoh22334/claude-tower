@@ -22,16 +22,31 @@ get_tmux_option() {
     fi
 }
 
-# Key bindings (configurable via tmux options)
-TOWER_KEY=$(get_tmux_option "@tower-key" "${CLAUDE_TOWER_KEY:-C}")
-TOWER_NEW_KEY=$(get_tmux_option "@tower-new-key" "${CLAUDE_TOWER_NEW_KEY:-T}")
+# Tower prefix key (default: t)
+# Usage: prefix + t, then next key
+TOWER_PREFIX=$(get_tmux_option "@tower-prefix" "${CLAUDE_TOWER_PREFIX:-t}")
 
-# Bind keys
-# prefix + C: Open Navigator (main UI)
-tmux bind-key "$TOWER_KEY" run-shell "$CURRENT_DIR/scripts/tower.sh"
+# Create tower key table
+# prefix + t → enter tower mode, then:
+#   c → Navigator (Claude sessions)
+#   t → New session (Tower new)
+#   n → New session (alias)
+#   l → List sessions
+#   r → Restore sessions
+#   ? → Help
 
-# prefix + T: Create new session (quick access)
-tmux bind-key "$TOWER_NEW_KEY" run-shell "$CURRENT_DIR/scripts/session-new.sh"
+tmux bind-key "$TOWER_PREFIX" switch-client -T tower
+
+# Tower mode bindings
+tmux bind-key -T tower c run-shell "$CURRENT_DIR/scripts/tower.sh"
+tmux bind-key -T tower t run-shell "$CURRENT_DIR/scripts/session-new.sh"
+tmux bind-key -T tower n run-shell "$CURRENT_DIR/scripts/session-new.sh"
+tmux bind-key -T tower l run-shell "$CURRENT_DIR/scripts/session-list.sh pretty"
+tmux bind-key -T tower r run-shell "$CURRENT_DIR/scripts/session-restore.sh --all"
+tmux bind-key -T tower "?" display-message "tower: c=navigator t/n=new l=list r=restore"
+
+# Escape from tower mode (automatic after any key, but explicit Escape too)
+tmux bind-key -T tower Escape switch-client -T prefix
 
 # Set environment variables for scripts
 tmux set-environment -g CLAUDE_TOWER_DIR "$CURRENT_DIR"
@@ -46,4 +61,4 @@ if [[ "$(get_tmux_option "@tower-auto-restore" "0")" == "1" ]]; then
 fi
 
 # Display initialization message
-tmux display-message "claude-tower loaded. Press prefix + $TOWER_KEY to open Navigator" 2>/dev/null || true
+tmux display-message "claude-tower loaded. Press prefix + $TOWER_PREFIX, then c/t/n/l/r/?" 2>/dev/null || true
