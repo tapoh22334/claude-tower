@@ -70,17 +70,24 @@ done
 
 # Interactive mode if no name provided
 if [[ -z "$name" ]]; then
-    # Use fzf for input
-    if command -v fzf &>/dev/null; then
-        name=$(echo "" | fzf-tmux -p 60%,30% \
-            --print-query \
-            --header="Enter session name:" \
-            --prompt="Name: " \
-            --no-info \
-            2>/dev/null | head -1) || true
-    else
-        handle_error "Session name is required (-n NAME)"
-        exit 1
+    # Pure bash input (works in display-popup)
+    echo -e "${C_HEADER}Create New Session${C_RESET}"
+    echo ""
+    echo -e "Session Types:"
+    echo -e "  ${C_GREEN}[S] Simple${C_RESET}    - Volatile, lost on tmux restart"
+    echo -e "  ${C_YELLOW}[W] Worktree${C_RESET}  - Persistent with git worktree"
+    echo ""
+    read -r -p "Session name: " name
+
+    if [[ -z "$name" ]]; then
+        exit 0  # User cancelled
+    fi
+
+    # Ask for type if not specified
+    if [[ "$use_worktree" == "false" ]]; then
+        echo ""
+        read -r -p "Create as worktree? [y/N]: " worktree_choice
+        [[ "$worktree_choice" =~ ^[Yy] ]] && use_worktree=true
     fi
 fi
 

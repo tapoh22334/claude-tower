@@ -277,7 +277,7 @@ require_command() {
 require_all_dependencies() {
     local missing=()
 
-    for cmd in fzf git tmux; do
+    for cmd in git tmux; do
         if ! command -v "$cmd" &>/dev/null; then
             missing+=("$cmd")
         fi
@@ -299,19 +299,30 @@ require_all_dependencies() {
 # Confirmation Dialog
 # ============================================================================
 
-# Show confirmation dialog using fzf
+# Show confirmation dialog using tmux display-menu
 # Arguments:
 #   $1 - Message to display
 # Returns:
 #   0 if confirmed (Yes), 1 if declined (No) or error
 confirm() {
     local msg="$1"
+    local result_file
+    result_file=$(mktemp)
+
+    # Use tmux display-menu for confirmation
+    tmux display-menu -T "$msg" \
+        "Yes" y "run-shell 'echo yes > $result_file'" \
+        "No"  n "run-shell 'echo no > $result_file'" \
+        2>/dev/null
+
+    # Wait briefly for menu result
+    sleep 0.2
+
     local result
-    result=$(echo -e "Yes\nNo" | fzf-tmux -p 40%,20% \
-        --header="$msg" \
-        --no-info \
-    ) || return 1
-    [[ "$result" == "Yes" ]]
+    result=$(cat "$result_file" 2>/dev/null || echo "no")
+    rm -f "$result_file"
+
+    [[ "$result" == "yes" ]]
 }
 
 # ============================================================================

@@ -5,9 +5,10 @@
 
 CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Source common library
-# shellcheck source=lib/common.sh
-source "$CURRENT_DIR/lib/common.sh" 2>/dev/null || true
+# Note: We don't source common.sh here because:
+# 1. It sets strict mode (set -euo pipefail) which affects the plugin context
+# 2. The plugin only needs basic functionality that tmux provides
+# Scripts source common.sh themselves when needed
 
 # Read tmux options with defaults
 get_tmux_option() {
@@ -38,12 +39,13 @@ TOWER_PREFIX=$(get_tmux_option "@tower-prefix" "${CLAUDE_TOWER_PREFIX:-t}")
 tmux bind-key "$TOWER_PREFIX" switch-client -T tower
 
 # Tower mode bindings
-tmux bind-key -T tower c run-shell "$CURRENT_DIR/scripts/tower.sh"
-tmux bind-key -T tower t run-shell "$CURRENT_DIR/scripts/session-new.sh"
-tmux bind-key -T tower n run-shell "$CURRENT_DIR/scripts/session-new.sh"
-tmux bind-key -T tower l run-shell "$CURRENT_DIR/scripts/session-list.sh pretty"
-tmux bind-key -T tower r run-shell "$CURRENT_DIR/scripts/session-restore.sh --all"
-tmux bind-key -T tower "?" display-message "tower: c=navigator t/n=new l=list r=restore"
+# Use display-popup for interactive TUI scripts (requires tmux 3.2+)
+tmux bind-key -T tower c display-popup -E -w 90% -h 90% "$CURRENT_DIR/scripts/navigator.sh"
+tmux bind-key -T tower t display-popup -E -w 60% -h 40% "$CURRENT_DIR/scripts/session-new.sh"
+tmux bind-key -T tower n display-popup -E -w 60% -h 40% "$CURRENT_DIR/scripts/session-new.sh"
+tmux bind-key -T tower l display-popup -E -w 80% -h 60% "$CURRENT_DIR/scripts/session-list.sh pretty"
+tmux bind-key -T tower r run-shell -b "$CURRENT_DIR/scripts/session-restore.sh --all"
+tmux bind-key -T tower '?' display-message "tower: c=navigator t/n=new l=list r=restore"
 
 # Escape from tower mode (automatic after any key, but explicit Escape too)
 tmux bind-key -T tower Escape switch-client -T prefix

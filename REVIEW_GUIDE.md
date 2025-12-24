@@ -63,12 +63,12 @@ Claude Tower is a tmux plugin that provides session management for Claude Code C
 #### Session Creation (High Priority)
 
 - [ ] **[CRITICAL]** Can create Workspace session in git repository
-  - _Verification_: Navigate to git repo, press `prefix + T`, enter session name
+  - _Verification_: Navigate to git repo, press `prefix + t t`, enter session name
   - _Expected_: New tmux session created, worktree created at `~/.claude-tower/worktrees/<name>`
   - _Validation_: Check `git worktree list`, verify branch `tower/<name>` exists
 
 - [ ] **[CRITICAL]** Can create Simple session in non-git directory
-  - _Verification_: Navigate to non-git directory, press `prefix + T`, enter session name
+  - _Verification_: Navigate to non-git directory, press `prefix + t t`, enter session name
   - _Expected_: New tmux session created without worktree
   - _Validation_: Session listed with [S] indicator in tree view
 
@@ -91,7 +91,7 @@ Claude Tower is a tmux plugin that provides session management for Claude Code C
 #### Session Navigation (High Priority)
 
 - [ ] **[CRITICAL]** Tree view displays all sessions correctly
-  - _Verification_: Press `prefix + C`, view tree
+  - _Verification_: Press `prefix + t c`, view tree
   - _Expected_: All sessions shown with correct hierarchy and icons
   - _Validation_: 📁 for sessions, 🪟 for windows, ▫ for panes
 
@@ -376,7 +376,7 @@ Claude Tower is a tmux plugin that provides session management for Claude Code C
 #### Keyboard Shortcuts (High Priority)
 
 - [ ] **[HIGH]** All documented shortcuts work
-  - _Verification_: Test each: `prefix+C`, `prefix+T`, `n`, `r`, `x`, `D`, `?`
+  - _Verification_: Test each: `prefix + t c`, `prefix + t t`, `n`, `r`, `x`, `D`, `?`
   - _Expected_: Each performs documented action
 
 - [ ] **[MEDIUM]** Shortcuts shown in headers
@@ -494,7 +494,7 @@ Claude Tower is a tmux plugin that provides session management for Claude Code C
 #### Response Time (Medium Priority)
 
 - [ ] **[MEDIUM]** Tree view renders in <500ms
-  - _Verification_: Time from `prefix+C` to tree display
+  - _Verification_: Time from `prefix + t c` to tree display
   - _Expected_: Instant or near-instant
 
 - [ ] **[MEDIUM]** Session switching in <200ms
@@ -714,8 +714,8 @@ Claude Tower is a tmux plugin that provides session management for Claude Code C
    - Expected: In git repository root
 
 3. **Create new session**
-   - Press `Ctrl+b` then `T` (or custom prefix)
-   - Expected: fzf prompt appears asking for session name
+   - Press `prefix + t t` (e.g., `Ctrl+b t t` with default prefix)
+   - Expected: Prompt appears asking for session name
 
 4. **Enter session name**
    - Type: `feature-auth`
@@ -743,7 +743,7 @@ Claude Tower is a tmux plugin that provides session management for Claude Code C
    - Expected: File does not exist (isolated in worktree)
 
 8. **View session in tree**
-   - Press `Ctrl+b` then `C`
+   - Press `prefix + t c` (e.g., `Ctrl+b t c`)
    - Expected: Tree shows:
      ```
      📁 ● [W] tower_feature-auth  ⎇ tower/feature-auth
@@ -781,8 +781,8 @@ Claude Tower is a tmux plugin that provides session management for Claude Code C
 **Step-by-Step Actions**:
 
 1. **Open session picker**
-   - Press `Ctrl+b` then `C`
-   - Expected: fzf opens with tree of all 5 sessions
+   - Press `prefix + t c` (e.g., `Ctrl+b t c`)
+   - Expected: Navigator opens with tree of all 5 sessions
 
 2. **Review tree structure**
    - Expected: Tree shows hierarchical view:
@@ -821,7 +821,7 @@ Claude Tower is a tmux plugin that provides session management for Claude Code C
    - Expected: Immediately switched to that exact window
 
 6. **Quick switch back**
-   - Press `Ctrl+b` `C` again
+   - Press `prefix + t c` again
    - Arrow down to `tower_frontend`
    - Press Enter
    - Expected: Switched to frontend session
@@ -954,7 +954,7 @@ Claude Tower is a tmux plugin that provides session management for Claude Code C
    - Expected: `tower_feat1`
 
 2. **Open session picker**
-   - Press `Ctrl+b` then `C`
+   - Press `prefix + t c`
    - Expected: Tree shows current session
 
 3. **Initiate rename**
@@ -1017,7 +1017,7 @@ Claude Tower is a tmux plugin that provides session management for Claude Code C
 **Step-by-Step Actions**:
 
 1. **Open session picker**
-   - Press `Ctrl+b` then `C`
+   - Press `prefix + t c`
    - Expected: Tree shows all sessions including `tower_bugfix-123`
 
 2. **Select session to kill**
@@ -1087,7 +1087,7 @@ Claude Tower is a tmux plugin that provides session management for Claude Code C
    - Verify not git: `git status` → error
 
 2. **Create Simple session**
-   - Press `Ctrl+b` then `T`
+   - Press `prefix + t t`
    - Enter name: `my-scripts`
    - Expected: Message: "Creating Simple session: my-scripts"
    - Success: "Created session: tower_my-scripts"
@@ -1101,7 +1101,7 @@ Claude Tower is a tmux plugin that provides session management for Claude Code C
    - Expected: `my-scripts` directory does not exist
 
 5. **View in tree**
-   - Press `Ctrl+b` `C`
+   - Press `prefix + t c`
    - Expected: Tree shows:
      ```
      📁 [S] tower_my-scripts  (no git)
@@ -1143,7 +1143,7 @@ Claude Tower is a tmux plugin that provides session management for Claude Code C
 **Step-by-Step Actions**:
 
 1. **Test path traversal in session name**
-   - Press `Ctrl+b` `T`
+   - Press `prefix + t t`
    - Enter: `../../../../etc/passwd`
    - Expected: Sanitized to `etcpasswd`, session created safely
 
@@ -1204,19 +1204,20 @@ Claude Tower is a tmux plugin that provides session management for Claude Code C
 1. **Create script to generate sessions**
    ```bash
    for i in {1..30}; do
-     tmux send-keys "Ctrl+b" "T"
+     tmux send-keys "prefix" "t" "t"
      sleep 1
      tmux send-keys "session-$i" "Enter"
      sleep 2
    done
    ```
+   (Note: Replace "prefix" with your actual tmux prefix key, e.g., "C-b")
 
 2. **Execute script**
    - Run script
    - Expected: 30 sessions created over ~2 minutes
 
 3. **Open tree view**
-   - Press `Ctrl+b` `C`
+   - Press `prefix + t c`
    - Expected: Tree displays all 30 sessions
    - Check: Scrolling smooth, no lag
 
@@ -1368,8 +1369,9 @@ docker run --rm claude-tower-test ./tests/run_all_tests.sh
 # Helper function for reviewers
 create_test_session() {
   local name="$1"
-  echo "$name" | tmux send-keys "Ctrl+b" "T"
-  tmux send-keys "Enter"
+  tmux send-keys "prefix" "t" "t"  # Replace with your prefix
+  sleep 0.5
+  tmux send-keys "$name" "Enter"
 }
 
 # Create 5 test sessions

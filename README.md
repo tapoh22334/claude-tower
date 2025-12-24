@@ -15,8 +15,7 @@ A tmux plugin for managing Claude Code sessions with tree-style navigation and g
 
 ## Requirements
 
-- tmux 3.0+
-- fzf
+- tmux 3.2+ (for display-popup support)
 - git
 - Claude Code CLI (`claude`)
 
@@ -44,21 +43,36 @@ run-shell ~/.tmux/plugins/claude-tower/tmux-plugin/claude-tower.tmux
 
 ## Usage
 
-| Key | Action |
-|-----|--------|
-| `prefix + C` | Open session picker |
-| `prefix + T` | Create new session |
-
-### Picker Keybindings
+Press `prefix + t` to enter Tower mode, then use one of the following keys:
 
 | Key | Action |
 |-----|--------|
-| `Enter` | Switch to selection |
-| `n` | New session |
-| `r` | Rename session |
-| `x` | Kill session |
-| `D` | Show git diff |
-| `?` | Help |
+| `prefix + t c` | Open Navigator (session picker) |
+| `prefix + t t` | Create new session |
+| `prefix + t n` | Create new session (alias) |
+| `prefix + t l` | List sessions |
+| `prefix + t r` | Restore sessions |
+| `prefix + t ?` | Show help |
+
+### Navigator Keybindings (Vim-style)
+
+| Key | Action |
+|-----|--------|
+| `j` / `↓` | Move down |
+| `k` / `↑` | Move up |
+| `g` | Go to first session |
+| `G` | Go to last session |
+| `5G` | Jump to session 5 (number+G) |
+| `/pattern` | Search sessions |
+| `N` | Next search result |
+| `Enter` | Attach to selected session |
+| `i` | Input mode (send command) |
+| `T` | Tile mode (view all sessions) |
+| `c` | Create new session |
+| `d` | Delete session |
+| `R` | Restart Claude |
+| `?` | Show help |
+| `q` / `Esc` | Exit Navigator |
 
 ## Tree View
 
@@ -100,9 +114,9 @@ For non-git directories:
 ```bash
 # ~/.tmux.conf
 
-# Change keybindings
-set -g @tower-key 'C'
-set -g @tower-new-key 'T'
+# Change tower prefix key (default: t)
+# Usage: prefix + <tower-prefix>, then c/t/n/l/r/?
+set -g @tower-prefix 't'
 ```
 
 ### Environment Variables
@@ -126,9 +140,43 @@ export CLAUDE_TOWER_DEBUG=1
 # Reload config
 tmux source ~/.tmux.conf
 
-# Verify keybindings
+# Verify keybindings are registered
 tmux list-keys | grep tower
+
+# Should show:
+# bind-key -T prefix t switch-client -T tower
+# bind-key -T tower c display-popup ...
+# etc.
 ```
+
+### prefix + t not responding
+
+1. Make sure you've reloaded tmux after installing:
+   ```bash
+   tmux source ~/.tmux.conf
+   ```
+
+2. Check if tower key table exists:
+   ```bash
+   tmux list-keys -T tower
+   ```
+
+3. Verify tmux version (requires 3.2+ for display-popup):
+   ```bash
+   tmux -V
+   ```
+
+### Navigator (prefix + t, c) returns error
+
+1. Check if scripts are executable:
+   ```bash
+   ls -la ~/.tmux/plugins/claude-tower/tmux-plugin/scripts/*.sh
+   ```
+
+2. Test navigator directly:
+   ```bash
+   ~/.tmux/plugins/claude-tower/tmux-plugin/scripts/navigator.sh
+   ```
 
 ### Orphaned worktrees
 

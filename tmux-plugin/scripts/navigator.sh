@@ -26,6 +26,9 @@ source "$SCRIPT_DIR/../lib/common.sh"
 SELECTED_INDEX=0
 SESSIONS=()
 SESSION_IDS=()
+NUM_BUFFER=""        # For number+G jump
+SEARCH_PATTERN=""    # For / search
+SEARCH_MATCHES=()    # Matching indices
 
 # Colors for TUI (no background, just foreground)
 readonly NC=$'\033[0m'
@@ -189,7 +192,17 @@ draw_sidebar() {
 
     # Draw help line
     tput cup "$((TERM_HEIGHT - 2))" 0
-    printf "${DIM}j/k:move  Enter:attach  i:input  t:tile  n:new  d:delete  r:restart  ?:help  q:quit${NC}"
+    printf "${DIM}j/k:move g/G:top/end NG:jump /:search  Enter:attach i:input T:tile c:new d:del R:restart ?:help q:quit${NC}"
+
+    # Show number buffer or search pattern if active
+    tput cup "$((TERM_HEIGHT - 1))" 0
+    if [[ -n "$NUM_BUFFER" ]]; then
+        printf "${YELLOW}%s${NC}${DIM}G${NC}%*s" "$NUM_BUFFER" "$((TERM_WIDTH - ${#NUM_BUFFER} - 1))" ""
+    elif [[ -n "$SEARCH_PATTERN" ]]; then
+        printf "${YELLOW}/%s${NC}%*s" "$SEARCH_PATTERN" "$((TERM_WIDTH - ${#SEARCH_PATTERN} - 1))" ""
+    else
+        printf "%*s" "$TERM_WIDTH" ""
+    fi
 }
 
 # Draw preview pane
@@ -250,6 +263,46 @@ draw_screen() {
     draw_preview
 }
 
+# Search for pattern in sessions
+do_search() {
+    SEARCH_MATCHES=()
+    [[ -z "$SEARCH_PATTERN" ]] && return
+
+    local idx=0
+    for line in "${SESSIONS[@]}"; do
+        if [[ "${line,,}" == *"${SEARCH_PATTERN,,}"* ]]; then
+            SEARCH_MATCHES+=("$idx")
+        fi
+        ((idx++)) || true
+    done
+
+    # Jump to first match
+    if [[ ${#SEARCH_MATCHES[@]} -gt 0 ]]; then
+        SELECTED_INDEX="${SEARCH_MATCHES[0]}"
+    fi
+}
+
+# Find next search match
+next_search_match() {
+    [[ ${#SEARCH_MATCHES[@]} -eq 0 ]] && return
+
+    # Find current position in matches
+    local current_match_idx=0
+    for i in "${!SEARCH_MATCHES[@]}"; do
+        if [[ ${SEARCH_MATCHES[$i]} -eq $SELECTED_INDEX ]]; then
+            current_match_idx=$i
+            break
+        elif [[ ${SEARCH_MATCHES[$i]} -gt $SELECTED_INDEX ]]; then
+            SELECTED_INDEX="${SEARCH_MATCHES[$i]}"
+            return
+        fi
+    done
+
+    # Go to next match (wrap around)
+    local next_idx=$(( (current_match_idx + 1) % ${#SEARCH_MATCHES[@]} ))
+    SELECTED_INDEX="${SEARCH_MATCHES[$next_idx]}"
+}
+
 # Handle input
 handle_input() {
     local key
@@ -259,7 +312,13 @@ handle_input() {
     if [[ "$key" == $'\x1b' ]]; then
         read -rsn2 -t 0.1 key2 || true
         if [[ -z "$key2" ]]; then
-            # Pure Escape key (no sequence) = quit
+            # Pure Escape key - clear buffers or quit
+            if [[ -n "$NUM_BUFFER" || -n "$SEARCH_PATTERN" ]]; then
+                NUM_BUFFER=""
+                SEARCH_PATTERN=""
+                SEARCH_MATCHES=()
+                return 0
+            fi
             return 1
         fi
         key="${key}${key2}"
@@ -269,16 +328,56 @@ handle_input() {
 
     case "$key" in
         j|$'\x1b[B')  # Down
+            NUM_BUFFER=""
             if [[ $count -gt 0 && $SELECTED_INDEX -lt $((count - 1)) ]]; then
                 ((SELECTED_INDEX++)) || true
             fi
             ;;
         k|$'\x1b[A')  # Up
+            NUM_BUFFER=""
             if [[ $SELECTED_INDEX -gt 0 ]]; then
                 ((SELECTED_INDEX--)) || true
             fi
             ;;
+        g)  # Go to top (gg in vim, but single g here)
+            NUM_BUFFER=""
+            SELECTED_INDEX=0
+            ;;
+        G)  # Go to bottom or number+G jump
+            if [[ -n "$NUM_BUFFER" && $count -gt 0 ]]; then
+                local target=$((NUM_BUFFER - 1))  # 1-indexed to 0-indexed
+                [[ $target -lt 0 ]] && target=0
+                [[ $target -ge $count ]] && target=$((count - 1))
+                SELECTED_INDEX=$target
+            elif [[ $count -gt 0 ]]; then
+                SELECTED_INDEX=$((count - 1))
+            fi
+            NUM_BUFFER=""
+            ;;
+        [0-9])  # Number input for jump
+            NUM_BUFFER="${NUM_BUFFER}${key}"
+            # Limit buffer size
+            [[ ${#NUM_BUFFER} -gt 3 ]] && NUM_BUFFER="${NUM_BUFFER:1}"
+            ;;
+        /)  # Start search mode
+            NUM_BUFFER=""
+            SEARCH_PATTERN=""
+            SEARCH_MATCHES=()
+            # Enter search input mode
+            tput cnorm  # Show cursor
+            tput cup "$((TERM_HEIGHT - 1))" 0
+            printf "${YELLOW}/${NC}"
+            stty echo
+            read -r SEARCH_PATTERN
+            stty -echo
+            tput civis  # Hide cursor
+            do_search
+            ;;
+        N)  # Next search result (capital N for simplicity)
+            next_search_match
+            ;;
         ""|$'\n')  # Enter
+            NUM_BUFFER=""
             if [[ $count -gt 0 ]]; then
                 local selected_id="${SESSION_IDS[$SELECTED_INDEX]}"
                 local state
@@ -298,6 +397,7 @@ handle_input() {
             fi
             ;;
         i)  # Input mode
+            NUM_BUFFER=""
             if [[ $count -gt 0 ]]; then
                 local selected_id="${SESSION_IDS[$SELECTED_INDEX]}"
                 tput rmcup
@@ -306,19 +406,22 @@ handle_input() {
                 exit 0
             fi
             ;;
-        t)  # Tile mode
+        T)  # Tile mode (capital T to avoid conflict with session creation prompt)
+            NUM_BUFFER=""
             tput rmcup
             stty echo
             "$SCRIPT_DIR/tile.sh"
             exit 0
             ;;
-        n)  # New session
+        c)  # Create new session (changed from n to c)
+            NUM_BUFFER=""
             tput rmcup
             stty echo
             "$SCRIPT_DIR/session-new.sh"
             exit 0
             ;;
         d)  # Delete session
+            NUM_BUFFER=""
             if [[ $count -gt 0 ]]; then
                 local selected_id="${SESSION_IDS[$SELECTED_INDEX]}"
                 tput rmcup
@@ -328,7 +431,8 @@ handle_input() {
                 exec "$0"
             fi
             ;;
-        r)  # Restart session
+        R)  # Restart session (capital R)
+            NUM_BUFFER=""
             if [[ $count -gt 0 ]]; then
                 local selected_id="${SESSION_IDS[$SELECTED_INDEX]}"
                 restart_session "$selected_id"
@@ -336,6 +440,7 @@ handle_input() {
             fi
             ;;
         "?")  # Help
+            NUM_BUFFER=""
             show_help
             ;;
         q)  # Quit
@@ -355,29 +460,30 @@ show_help() {
   ║               claude-tower Navigator                 ║
   ╠══════════════════════════════════════════════════════╣
   ║                                                      ║
-  ║  Navigation:                                         ║
+  ║  Vim-style Navigation:                               ║
   ║    j / ↓      Move down                              ║
   ║    k / ↑      Move up                                ║
+  ║    g          Go to first session                    ║
+  ║    G          Go to last session                     ║
+  ║    5G         Jump to session 5 (number+G)           ║
+  ║    /pattern   Search sessions                        ║
+  ║    N          Next search result                     ║
   ║    Enter      Attach to selected session             ║
   ║    q / Esc    Exit Navigator                         ║
   ║                                                      ║
   ║  Actions:                                            ║
   ║    i          Input mode (send command)              ║
-  ║    t          Tile mode (view all sessions)          ║
-  ║    n          New session                            ║
+  ║    T          Tile mode (view all sessions)          ║
+  ║    c          Create new session                     ║
   ║    d          Delete session                         ║
-  ║    r          Restart Claude                         ║
+  ║    R          Restart Claude                         ║
   ║    ?          Show this help                         ║
   ║                                                      ║
   ║  Session States:                                     ║
-  ║    ◉ Running  Claude is actively working             ║
-  ║    ▶ Idle     Claude is waiting for input            ║
-  ║    ! Exited   Claude process has exited              ║
-  ║    ○ Dormant  Session needs restoration              ║
+  ║    ◉ Running  ▶ Idle  ! Exited  ○ Dormant            ║
   ║                                                      ║
   ║  Session Types:                                      ║
-  ║    [W] Worktree  Persistent (auto-restores)          ║
-  ║    [S] Simple    Volatile (lost on restart)          ║
+  ║    [W] Worktree (persistent)  [S] Simple (volatile)  ║
   ║                                                      ║
   ║  Press any key to close                              ║
   ╚══════════════════════════════════════════════════════╝

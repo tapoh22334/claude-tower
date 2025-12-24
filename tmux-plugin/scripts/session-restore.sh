@@ -37,16 +37,18 @@ else
         exit 0
     fi
 
-    # Use fzf to select
-    if command -v fzf &>/dev/null; then
-        selected=$(printf '%s\n' "${dormant_sessions[@]}" | fzf-tmux -p 60%,40% \
-            --header="Select session to restore:" \
-            --prompt="Session: " \
-            --no-info) || exit 0
+    # Build tmux display-menu dynamically
+    local menu_items=()
+    local idx=1
+    for sid in "${dormant_sessions[@]}"; do
+        # Menu format: "label" "key" "command"
+        menu_items+=("$sid" "$idx" "run-shell '$SCRIPT_DIR/session-restore.sh tower_$sid'")
+        ((idx++))
+    done
 
-        if [[ -n "$selected" ]]; then
-            restore_session "tower_$selected"
-        fi
+    # Show menu
+    if [[ ${#menu_items[@]} -gt 0 ]]; then
+        tmux display-menu -T "Restore Dormant Session" "${menu_items[@]}" 2>/dev/null
     else
         echo "Dormant sessions:"
         printf '%s\n' "${dormant_sessions[@]}"

@@ -6,8 +6,8 @@
 #
 # Key bindings:
 #   Enter      - Send input to session
-#   Ctrl-[     - Return to Navigator (Vim style)
-#   Esc        - Return to Navigator
+#   Ctrl-C     - Exit input mode
+#   Ctrl-D     - Exit input mode
 
 set -euo pipefail
 
@@ -42,76 +42,47 @@ fi
 
 display_name="${session_id#tower_}"
 
-# Function to capture current session output for preview
-generate_session_preview() {
-    echo -e "${C_HEADER}━━━ $display_name ━━━${C_RESET}"
+# Colors
+readonly NC=$'\033[0m'
+readonly BOLD=$'\033[1m'
+readonly DIM=$'\033[2m'
+readonly CYAN=$'\033[36m'
+readonly YELLOW=$'\033[33m'
+
+# Draw header
+draw_header() {
+    clear
+    echo -e "${BOLD}${CYAN}━━━ Input Mode: $display_name ━━━${NC}"
+    echo -e "${DIM}Enter command and press Enter. Ctrl-C/Ctrl-D to exit.${NC}"
     echo ""
-    tmux capture-pane -t "$session_id" -p -S -20 2>/dev/null | tail -15 || echo "(no output)"
 }
 
-# Input loop using fzf
-run_input_mode() {
-    while true; do
-        # Generate current preview
-        local preview
-        preview=$(generate_session_preview)
-
-        # Get input from user
-        local input
-        input=$(echo "" | fzf-tmux -p 80%,70% \
-            --ansi \
-            --print-query \
-            --header="$(printf '%b' "${C_HEADER}Input Mode${C_RESET} → $display_name │ Enter:send Ctrl-[:exit")" \
-            --prompt=">>> " \
-            --preview="echo '$preview'" \
-            --preview-window='up:60%:wrap' \
-            --no-info \
-            --bind='ctrl-[:abort' \
-            --bind='esc:abort' \
-            2>/dev/null | head -1) || break
-
-        # If input is empty, user pressed Esc or Ctrl-[
-        if [[ -z "$input" ]]; then
-            break
-        fi
-
-        # Send input to session
-        send_to_session "$session_id" "$input"
-
-        # Brief pause to let Claude process
-        sleep 0.3
-    done
-
-    # Return to Navigator
-    "$SCRIPT_DIR/navigator.sh"
+# Show session preview
+show_preview() {
+    echo -e "${DIM}─── Session Output ───${NC}"
+    tmux capture-pane -t "$session_id" -p -S -15 2>/dev/null | tail -12 || echo "(no output)"
+    echo -e "${DIM}──────────────────────${NC}"
+    echo ""
 }
 
-# Alternative: Direct tmux read-line approach
-run_input_mode_simple() {
-    local input=""
+# Main input loop
+main() {
+    trap 'echo ""; exit 0' INT TERM
 
     while true; do
-        # Show current output
-        clear
-        echo -e "${C_HEADER}━━━ Input Mode: $display_name ━━━${C_RESET}"
-        echo -e "${C_INFO}Enter command (Ctrl-C to exit):${C_RESET}"
-        echo ""
-
-        # Show session preview
-        tmux capture-pane -t "$session_id" -p -S -15 2>/dev/null | tail -10 || echo "(no output)"
-
-        echo ""
-        echo -e "${C_HEADER}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}"
+        draw_header
+        show_preview
 
         # Read input
-        read -r -p ">>> " input || break
+        echo -ne "${YELLOW}>>> ${NC}"
+        read -r input || break  # Ctrl-D exits
 
         if [[ -n "$input" ]]; then
             send_to_session "$session_id" "$input"
+            echo -e "${DIM}Sent. Waiting...${NC}"
             sleep 0.5
         fi
     done
 }
 
-# Use fzf-based input mode
-run_input_mode
+main

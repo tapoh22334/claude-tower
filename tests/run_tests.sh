@@ -72,6 +72,7 @@ Test files:
     sanitize        Run sanitization function tests
     metadata        Run metadata function tests
     orphan          Run orphan detection tests
+    navigator       Run navigator function tests
 
 Examples:
     $0                      # Run all tests
@@ -107,7 +108,7 @@ main() {
                 filter="$2"
                 shift 2
                 ;;
-            sanitize|metadata|orphan)
+            sanitize|metadata|orphan|navigator)
                 test_file="test_${1}.bats"
                 shift
                 ;;
