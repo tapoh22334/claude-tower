@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# navigator.sh - Main Navigator UI for claude-tower
-# Provides session selection, preview, and operations using fzf
+# navigator.sh - Sidebar-style Navigator UI for claude-tower
+# Shows session list on left, preview on right
 #
 # Key bindings:
+#   j / ↓     - Move down
+#   k / ↑     - Move up
 #   Enter     - Attach to selected session
 #   i         - Input mode (send command to session)
 #   t         - Switch to Tile mode
@@ -10,7 +12,7 @@
 #   d         - Delete session
 #   r         - Restart Claude in session
 #   ?         - Show help
-#   Esc/q     - Exit
+#   q / Esc   - Exit
 
 set -euo pipefail
 
@@ -20,233 +22,397 @@ TOWER_SCRIPT_NAME="navigator.sh"
 # shellcheck source=../lib/common.sh
 source "$SCRIPT_DIR/../lib/common.sh"
 
-# Check dependencies
-require_command fzf || exit 1
+# Navigator state
+SELECTED_INDEX=0
+SESSIONS=()
+SESSION_IDS=()
 
-# Generate session list for fzf
-# Format: "state_icon type_icon display_name [branch] [diff_stats]|session_id"
-generate_session_list() {
+# Colors for TUI (no background, just foreground)
+readonly NC=$'\033[0m'
+readonly BOLD=$'\033[1m'
+readonly DIM=$'\033[2m'
+readonly REVERSE=$'\033[7m'
+readonly CYAN=$'\033[36m'
+readonly GREEN=$'\033[32m'
+readonly YELLOW=$'\033[33m'
+readonly RED=$'\033[31m'
+readonly BLUE=$'\033[34m'
+
+# Load sessions into arrays
+load_sessions() {
+    SESSIONS=()
+    SESSION_IDS=()
+
     while IFS=':' read -r session_id state type display_name branch diff_stats; do
         [[ -z "$session_id" ]] && continue
 
-        local state_icon type_icon branch_info diff_info line
+        local state_icon type_icon line
         state_icon=$(get_state_icon "$state")
         type_icon=$(get_type_icon "$type")
 
-        branch_info=""
-        [[ -n "$branch" ]] && branch_info=" ${ICON_GIT} $branch"
+        # Build display line
+        line="${state_icon} ${type_icon} ${display_name}"
+        [[ -n "$branch" ]] && line="${line}  ${ICON_GIT} ${branch}"
+        [[ -n "$diff_stats" ]] && line="${line}  ${diff_stats}"
 
-        diff_info=""
-        [[ -n "$diff_stats" ]] && diff_info=" $diff_stats"
-
-        # Format: visible_part|session_id (session_id hidden by fzf delimiter)
-        line=$(printf "%s %s %-25s%s%s" \
-            "$state_icon" "$type_icon" "$display_name" "$branch_info" "$diff_info")
-
-        echo "${line}|${session_id}"
+        SESSIONS+=("$line")
+        SESSION_IDS+=("$session_id")
     done < <(list_all_sessions)
-}
 
-# Preview script for selected session
-generate_preview() {
-    local session_id="$1"
-    [[ -z "$session_id" ]] && return
-
-    local state
-    state=$(get_session_state "$session_id")
-
-    # Header
-    echo -e "${C_HEADER}━━━ Session: ${session_id#tower_} ━━━${C_RESET}"
-    echo ""
-
-    # Show session info
-    local type working_dir
-    type=$(get_session_type "$session_id")
-    echo -e "${C_INFO}Type:${C_RESET} $(get_type_icon "$type") $type"
-    echo -e "${C_INFO}State:${C_RESET} $(get_state_icon "$state") $state"
-
-    if [[ "$state" != "$STATE_DORMANT" ]]; then
-        working_dir=$(tmux display-message -t "$session_id" -p '#{pane_current_path}' 2>/dev/null || echo "")
-        [[ -n "$working_dir" ]] && echo -e "${C_INFO}Dir:${C_RESET} $working_dir"
-    elif load_metadata "$session_id" 2>/dev/null; then
-        echo -e "${C_INFO}Dir:${C_RESET} $META_WORKTREE_PATH"
-    fi
-
-    echo ""
-    echo -e "${C_HEADER}━━━ Output ━━━${C_RESET}"
-    echo ""
-
-    # Show pane content if active
-    if [[ "$state" != "$STATE_DORMANT" ]]; then
-        tmux capture-pane -t "$session_id" -p -S -30 2>/dev/null | tail -25 || echo "(no output)"
-    else
-        echo "(session is dormant - press Enter to restore)"
+    # Adjust selected index if out of bounds
+    local count=${#SESSIONS[@]}
+    if [[ $count -eq 0 ]]; then
+        SELECTED_INDEX=0
+    elif [[ $SELECTED_INDEX -ge $count ]]; then
+        SELECTED_INDEX=$((count - 1))
     fi
 }
 
-# Handle keyboard actions
-handle_action() {
-    local action="$1"
-    local session_id="$2"
+# Get terminal dimensions
+get_dimensions() {
+    TERM_HEIGHT=$(tput lines)
+    TERM_WIDTH=$(tput cols)
 
-    case "$action" in
-        enter|"")
-            # Attach to session
-            if [[ -n "$session_id" ]]; then
-                local state
-                state=$(get_session_state "$session_id")
+    # Calculate pane sizes (left sidebar ~35%, right preview ~65%)
+    SIDEBAR_WIDTH=$((TERM_WIDTH * 35 / 100))
+    [[ $SIDEBAR_WIDTH -lt 30 ]] && SIDEBAR_WIDTH=30
+    [[ $SIDEBAR_WIDTH -gt 50 ]] && SIDEBAR_WIDTH=50
 
-                if [[ "$state" == "$STATE_DORMANT" ]]; then
-                    restore_session "$session_id"
-                fi
-
-                tmux switch-client -t "$session_id" 2>/dev/null || \
-                tmux attach-session -t "$session_id" 2>/dev/null || true
-            fi
-            ;;
-        input)
-            # Switch to input mode
-            if [[ -n "$session_id" ]]; then
-                "$SCRIPT_DIR/input.sh" "$session_id"
-            fi
-            ;;
-        tile)
-            # Switch to tile mode
-            "$SCRIPT_DIR/tile.sh"
-            ;;
-        new)
-            # Create new session
-            "$SCRIPT_DIR/session-new.sh"
-            ;;
-        delete)
-            # Delete session
-            if [[ -n "$session_id" ]]; then
-                "$SCRIPT_DIR/session-delete.sh" "$session_id"
-            fi
-            ;;
-        restart)
-            # Restart session
-            if [[ -n "$session_id" ]]; then
-                restart_session "$session_id"
-            fi
-            ;;
-        help)
-            show_help
-            ;;
-    esac
+    PREVIEW_WIDTH=$((TERM_WIDTH - SIDEBAR_WIDTH - 3))
+    LIST_HEIGHT=$((TERM_HEIGHT - 6))
 }
 
-# Show help in fzf
-show_help() {
-    cat << 'EOF' | fzf-tmux -p 60%,60% \
-        --header="Claude Tower - Help" \
-        --no-info \
-        --prompt="" \
-        --bind="enter:abort,esc:abort,q:abort"
+# Draw a box border
+draw_box() {
+    local x=$1 y=$2 w=$3 h=$4 title="${5:-}"
 
- ╔══════════════════════════════════════════════════════╗
- ║               claude-tower Navigator                 ║
- ╠══════════════════════════════════════════════════════╣
- ║                                                      ║
- ║  Navigation:                                         ║
- ║    j / ↓      Move down                              ║
- ║    k / ↑      Move up                                ║
- ║    Enter      Attach to selected session             ║
- ║    Esc / q    Exit Navigator                         ║
- ║                                                      ║
- ║  Actions:                                            ║
- ║    i          Input mode (send command)              ║
- ║    t          Tile mode (view all sessions)          ║
- ║    n          New session                            ║
- ║    d          Delete session                         ║
- ║    r          Restart Claude                         ║
- ║    ?          Show this help                         ║
- ║                                                      ║
- ║  Session States:                                     ║
- ║    ◉ Running  Claude is actively working             ║
- ║    ▶ Idle     Claude is waiting for input            ║
- ║    ! Exited   Claude process has exited              ║
- ║    ○ Dormant  Session needs restoration              ║
- ║                                                      ║
- ║  Session Types:                                      ║
- ║    [W] Worktree  Persistent (auto-restores)          ║
- ║    [S] Simple    Volatile (lost on restart)          ║
- ║                                                      ║
- ║  Press any key to close                              ║
- ╚══════════════════════════════════════════════════════╝
+    # Top border
+    tput cup "$y" "$x"
+    printf "┌─"
+    [[ -n "$title" ]] && printf " %s " "$title"
+    local title_len=${#title}
+    [[ -n "$title" ]] && title_len=$((title_len + 2))
+    local remaining=$((w - 4 - title_len))
+    printf "%*s" "$remaining" "" | tr ' ' '─'
+    printf "┐"
 
-EOF
+    # Side borders
+    for ((i = 1; i < h - 1; i++)); do
+        tput cup "$((y + i))" "$x"
+        printf "│"
+        tput cup "$((y + i))" "$((x + w - 1))"
+        printf "│"
+    done
+
+    # Bottom border
+    tput cup "$((y + h - 1))" "$x"
+    printf "└"
+    printf "%*s" "$((w - 2))" "" | tr ' ' '─'
+    printf "┘"
 }
 
-# Main fzf interface
-run_navigator() {
-    local preview_cmd="$SCRIPT_DIR/navigator.sh --preview {2}"
+# Draw sidebar with session list
+draw_sidebar() {
+    local x=0 y=0 w=$SIDEBAR_WIDTH h=$((TERM_HEIGHT - 3))
 
-    # Export preview function for subshell
-    export -f generate_preview get_session_state get_session_type get_state_icon get_type_icon
-    export -f load_metadata has_metadata
-    export TOWER_METADATA_DIR TOWER_PROGRAM STATE_DORMANT STATE_RUNNING STATE_IDLE STATE_EXITED
-    export TYPE_WORKTREE TYPE_SIMPLE
-    export ICON_STATE_RUNNING ICON_STATE_IDLE ICON_STATE_EXITED ICON_STATE_DORMANT
-    export ICON_TYPE_WORKTREE ICON_TYPE_SIMPLE ICON_GIT
-    export C_HEADER C_INFO C_RESET
+    draw_box "$x" "$y" "$w" "$h" "Sessions"
 
-    local result
-    result=$(generate_session_list | fzf-tmux -p 90%,80% \
-        --ansi \
-        --delimiter='|' \
-        --with-nth=1 \
-        --preview="$preview_cmd" \
-        --preview-window='right:50%:wrap' \
-        --header="$(printf '%b' "${C_HEADER}Claude Tower${C_RESET} │ i:input t:tile n:new d:delete r:restart ?:help")" \
-        --prompt="Session: " \
-        --pointer="▶" \
-        --marker="●" \
-        --bind='j:down,k:up' \
-        --bind='ctrl-j:down,ctrl-k:up' \
-        --bind='i:execute(echo input {2})+abort' \
-        --bind='t:execute(echo tile)+abort' \
-        --bind='n:execute(echo new)+abort' \
-        --bind='d:execute(echo delete {2})+abort' \
-        --bind='r:execute(echo restart {2})+abort' \
-        --bind='?:execute(echo help)+abort' \
-        --bind='enter:accept' \
-        --bind='esc:abort,q:abort' \
-        --expect='enter' \
-        --no-info \
-        2>/dev/null) || true
+    local count=${#SESSIONS[@]}
+    local visible_start=0
+    local visible_count=$((h - 4))
 
-    # Parse result
-    if [[ -n "$result" ]]; then
-        local key selected_line action session_id
-        key=$(echo "$result" | head -1)
-        selected_line=$(echo "$result" | tail -1)
+    # Scroll if needed
+    if [[ $SELECTED_INDEX -ge $visible_count ]]; then
+        visible_start=$((SELECTED_INDEX - visible_count + 1))
+    fi
 
-        # Check if result is an action command
-        if [[ "$selected_line" =~ ^(input|tile|new|delete|restart|help) ]]; then
-            action=$(echo "$selected_line" | awk '{print $1}')
-            session_id=$(echo "$selected_line" | awk '{print $2}')
-        else
-            action="enter"
-            session_id=$(echo "$selected_line" | awk -F'|' '{print $2}')
+    # Draw session list
+    for ((i = 0; i < visible_count && (visible_start + i) < count; i++)); do
+        local idx=$((visible_start + i))
+        local line="${SESSIONS[$idx]}"
+        local display_width=$((w - 4))
+
+        # Truncate if too long
+        if [[ ${#line} -gt $display_width ]]; then
+            line="${line:0:$((display_width - 1))}…"
         fi
 
-        handle_action "$action" "$session_id"
+        tput cup "$((y + 1 + i))" "$((x + 2))"
 
-        # Reload navigator after actions (except enter and tile)
-        case "$action" in
-            new|delete|restart|help)
-                run_navigator
-                ;;
-        esac
+        if [[ $idx -eq $SELECTED_INDEX ]]; then
+            printf "${REVERSE}%-${display_width}s${NC}" "$line"
+        else
+            printf "%-${display_width}s" "$line"
+        fi
+    done
+
+    # Clear remaining lines
+    for ((i = count - visible_start; i < visible_count; i++)); do
+        tput cup "$((y + 1 + i))" "$((x + 2))"
+        printf "%*s" "$((w - 4))" ""
+    done
+
+    # Draw git info for selected session
+    if [[ $count -gt 0 ]]; then
+        local selected_id="${SESSION_IDS[$SELECTED_INDEX]}"
+        local git_line=""
+
+        # Get working directory and branch
+        local state working_dir branch
+        state=$(get_session_state "$selected_id")
+
+        if [[ "$state" != "$STATE_DORMANT" ]]; then
+            working_dir=$(tmux display-message -t "$selected_id" -p '#{pane_current_path}' 2>/dev/null || echo "")
+        elif load_metadata "$selected_id" 2>/dev/null; then
+            working_dir="$META_WORKTREE_PATH"
+        fi
+
+        if [[ -n "$working_dir" && -d "$working_dir" ]]; then
+            if git -C "$working_dir" rev-parse --git-dir &>/dev/null; then
+                branch=$(git -C "$working_dir" branch --show-current 2>/dev/null || echo "detached")
+                local stats
+                stats=$(git -C "$working_dir" diff --shortstat 2>/dev/null | sed 's/^ *//')
+                git_line="${ICON_GIT} ${branch}"
+                [[ -n "$stats" ]] && git_line="${git_line}  ${stats}"
+            fi
+        fi
+
+        # Draw separator and git info
+        tput cup "$((h - 3))" "$x"
+        printf "├"
+        printf "%*s" "$((w - 2))" "" | tr ' ' '─'
+        printf "┤"
+
+        tput cup "$((h - 2))" "$((x + 2))"
+        printf "${YELLOW}%-$((w - 4))s${NC}" "${git_line:0:$((w - 4))}"
+    fi
+
+    # Draw help line
+    tput cup "$((TERM_HEIGHT - 2))" 0
+    printf "${DIM}j/k:move  Enter:attach  i:input  t:tile  n:new  d:delete  r:restart  ?:help  q:quit${NC}"
+}
+
+# Draw preview pane
+draw_preview() {
+    local x=$((SIDEBAR_WIDTH + 1)) y=0 w=$((TERM_WIDTH - SIDEBAR_WIDTH - 1)) h=$((TERM_HEIGHT - 3))
+
+    draw_box "$x" "$y" "$w" "$h" "Preview"
+
+    local count=${#SESSIONS[@]}
+    if [[ $count -eq 0 ]]; then
+        tput cup "$((y + 2))" "$((x + 2))"
+        printf "${DIM}No sessions. Press 'n' to create one.${NC}"
+        return
+    fi
+
+    local selected_id="${SESSION_IDS[$SELECTED_INDEX]}"
+    local state
+    state=$(get_session_state "$selected_id")
+
+    # Show session info
+    tput cup "$((y + 1))" "$((x + 2))"
+    local type type_icon state_icon
+    type=$(get_session_type "$selected_id")
+    type_icon=$(get_type_icon "$type")
+    state_icon=$(get_state_icon "$state")
+    printf "${CYAN}%s${NC} %s %s  ${DIM}%s${NC}" "$state_icon" "$type_icon" "${selected_id#tower_}" "$state"
+
+    # Show pane content
+    tput cup "$((y + 3))" "$((x + 2))"
+    printf "${DIM}─── Output ───${NC}"
+
+    if [[ "$state" == "$STATE_DORMANT" ]]; then
+        tput cup "$((y + 5))" "$((x + 2))"
+        printf "${YELLOW}Session is dormant. Press Enter to restore.${NC}"
+    else
+        # Capture and display pane content
+        local content_height=$((h - 6))
+        local content_width=$((w - 4))
+        local content
+        content=$(tmux capture-pane -t "$selected_id" -p -S -"$content_height" 2>/dev/null | tail -"$content_height" || echo "(no output)")
+
+        local line_num=0
+        while IFS= read -r line && [[ $line_num -lt $content_height ]]; do
+            tput cup "$((y + 4 + line_num))" "$((x + 2))"
+            # Truncate line and remove problematic characters
+            line="${line:0:$content_width}"
+            printf "%s" "$line"
+            ((line_num++)) || true
+        done <<< "$content"
     fi
 }
 
-# Handle preview mode (called by fzf)
-if [[ "${1:-}" == "--preview" ]]; then
-    generate_preview "$2"
-    exit 0
-fi
+# Draw full screen
+draw_screen() {
+    tput clear
+    get_dimensions
+    draw_sidebar
+    draw_preview
+}
 
-# Main entry point
-run_navigator
+# Handle input
+handle_input() {
+    local key
+    read -rsn1 key
+
+    # Handle escape sequences (arrow keys)
+    if [[ "$key" == $'\x1b' ]]; then
+        read -rsn2 -t 0.1 key2 || true
+        if [[ -z "$key2" ]]; then
+            # Pure Escape key (no sequence) = quit
+            return 1
+        fi
+        key="${key}${key2}"
+    fi
+
+    local count=${#SESSIONS[@]}
+
+    case "$key" in
+        j|$'\x1b[B')  # Down
+            if [[ $count -gt 0 && $SELECTED_INDEX -lt $((count - 1)) ]]; then
+                ((SELECTED_INDEX++)) || true
+            fi
+            ;;
+        k|$'\x1b[A')  # Up
+            if [[ $SELECTED_INDEX -gt 0 ]]; then
+                ((SELECTED_INDEX--)) || true
+            fi
+            ;;
+        ""|$'\n')  # Enter
+            if [[ $count -gt 0 ]]; then
+                local selected_id="${SESSION_IDS[$SELECTED_INDEX]}"
+                local state
+                state=$(get_session_state "$selected_id")
+
+                # Restore terminal before switching
+                tput rmcup
+                stty echo
+
+                if [[ "$state" == "$STATE_DORMANT" ]]; then
+                    restore_session "$selected_id"
+                fi
+
+                tmux switch-client -t "$selected_id" 2>/dev/null || \
+                tmux attach-session -t "$selected_id" 2>/dev/null || true
+                exit 0
+            fi
+            ;;
+        i)  # Input mode
+            if [[ $count -gt 0 ]]; then
+                local selected_id="${SESSION_IDS[$SELECTED_INDEX]}"
+                tput rmcup
+                stty echo
+                "$SCRIPT_DIR/input.sh" "$selected_id"
+                exit 0
+            fi
+            ;;
+        t)  # Tile mode
+            tput rmcup
+            stty echo
+            "$SCRIPT_DIR/tile.sh"
+            exit 0
+            ;;
+        n)  # New session
+            tput rmcup
+            stty echo
+            "$SCRIPT_DIR/session-new.sh"
+            exit 0
+            ;;
+        d)  # Delete session
+            if [[ $count -gt 0 ]]; then
+                local selected_id="${SESSION_IDS[$SELECTED_INDEX]}"
+                tput rmcup
+                stty echo
+                "$SCRIPT_DIR/session-delete.sh" "$selected_id"
+                # Restart navigator
+                exec "$0"
+            fi
+            ;;
+        r)  # Restart session
+            if [[ $count -gt 0 ]]; then
+                local selected_id="${SESSION_IDS[$SELECTED_INDEX]}"
+                restart_session "$selected_id"
+                load_sessions
+            fi
+            ;;
+        "?")  # Help
+            show_help
+            ;;
+        q)  # Quit
+            return 1
+            ;;
+    esac
+
+    return 0
+}
+
+# Show help overlay
+show_help() {
+    tput clear
+    cat << 'EOF'
+
+  ╔══════════════════════════════════════════════════════╗
+  ║               claude-tower Navigator                 ║
+  ╠══════════════════════════════════════════════════════╣
+  ║                                                      ║
+  ║  Navigation:                                         ║
+  ║    j / ↓      Move down                              ║
+  ║    k / ↑      Move up                                ║
+  ║    Enter      Attach to selected session             ║
+  ║    q / Esc    Exit Navigator                         ║
+  ║                                                      ║
+  ║  Actions:                                            ║
+  ║    i          Input mode (send command)              ║
+  ║    t          Tile mode (view all sessions)          ║
+  ║    n          New session                            ║
+  ║    d          Delete session                         ║
+  ║    r          Restart Claude                         ║
+  ║    ?          Show this help                         ║
+  ║                                                      ║
+  ║  Session States:                                     ║
+  ║    ◉ Running  Claude is actively working             ║
+  ║    ▶ Idle     Claude is waiting for input            ║
+  ║    ! Exited   Claude process has exited              ║
+  ║    ○ Dormant  Session needs restoration              ║
+  ║                                                      ║
+  ║  Session Types:                                      ║
+  ║    [W] Worktree  Persistent (auto-restores)          ║
+  ║    [S] Simple    Volatile (lost on restart)          ║
+  ║                                                      ║
+  ║  Press any key to close                              ║
+  ╚══════════════════════════════════════════════════════╝
+
+EOF
+    read -rsn1
+}
+
+# Cleanup on exit
+cleanup() {
+    tput rmcup 2>/dev/null || true
+    tput cnorm 2>/dev/null || true
+    stty echo 2>/dev/null || true
+}
+
+# Main loop
+main() {
+    trap cleanup EXIT
+
+    # Enter alternate screen buffer
+    tput smcup
+    tput civis  # Hide cursor
+    stty -echo
+
+    load_sessions
+    draw_screen
+
+    # Main loop
+    while true; do
+        handle_input || break
+        load_sessions
+        draw_screen
+    done
+
+    cleanup
+}
+
+main
