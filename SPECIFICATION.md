@@ -1,223 +1,302 @@
-# claude-tower 機能仕様書
+# claude-tower 機能仕様書 v2.0
 
 ## 1. 概要
 
 ### 1.1 プロジェクト名
 claude-tower
 
-### 1.2 目的
-Claude Code セッションを効率的に管理するための tmux プラグイン。階層的なツリー表示、ライブプレビュー、Git ワークツリー統合により、複数のプロジェクトを並行して開発する環境を提供する。
+### 1.2 コンセプト
+**並列Claude Codeオーケストレーター**
 
-### 1.3 対象ユーザー
-- Claude Code CLI を使用する開発者
-- tmux をターミナルマルチプレクサとして使用するユーザー
-- 複数のプロジェクトを同時に管理したいユーザー
+複数のClaude Codeセッションを効率的に管理・監視・操作するためのtmuxプラグイン。
+複数プロジェクト・複数ブランチでの並行開発を支援する。
+
+### 1.3 設計哲学
+- **Unix哲学**: tmuxの機能を活用し、足りない部分だけ補う
+- **シンプルな状態モデル**: 最小限の状態で最大の効果
+- **明示的な操作**: 削除は明示的、復元は自動的
 
 ---
 
-## 2. 機能一覧
+## 2. 核となる概念
 
-### 2.1 セッション管理
+### 2.1 claude-tower session
 
-| 機能 | 説明 |
-|------|------|
-| セッション作成 | 新規 tmux セッションを作成し、Claude Code を起動 |
-| セッション切り替え | ツリービューから選択してセッションを切り替え |
-| セッション名変更 | 既存セッションの名前を変更 |
-| セッション削除 | セッションを終了し、関連リソースをクリーンアップ |
-
-### 2.2 セッションタイプ
-
-#### 2.2.1 ワークスペースセッション [W]
-- **対象**: Git リポジトリ内のディレクトリ
-- **特徴**:
-  - Git ワークツリーによる分離環境を自動作成
-  - `tower/<セッション名>` ブランチを自動作成
-  - ソースコミットからの差分表示機能
-  - セッション終了時にワークツリーを自動削除
-- **保存先**: `~/.claude-tower/worktrees/<セッション名>`
-
-#### 2.2.2 シンプルセッション [S]
-- **対象**: 非 Git ディレクトリ
-- **特徴**:
-  - 通常の tmux セッション
-  - Git 統合なし
-  - 軽量な動作
-
-### 2.3 ツリービュー表示
-
-階層構造でセッション・ウィンドウ・ペインを表示:
+セッションの管理単位。メタデータで定義され、tmux session + claude processとして実体化する。
 
 ```
-📁 ● [W] project-api  ⎇ tower/feature-auth +5,-2
-  ├─ 🪟 0: main ●
-  │  └─ ▫ 0: claude ●
-  └─ 🪟 1: shell
-     └─ ▫ 0: zsh
-📁 [S] scripts  (no git)
-  └─ 🪟 0: main
-     └─ ▫ 0: claude
+claude-tower session = メタデータ（定義）
+                     + tmux session（実体、揮発）
+                     + claude process（実体、揮発）
+                     + worktree（オプション、永続）
 ```
 
-**アイコン凡例**:
-| アイコン | 意味 |
-|----------|------|
-| 📁 | セッション |
-| 🪟 | ウィンドウ |
-| ▫ | ペイン |
-| ● | アクティブ（現在選択中） |
-| ⎇ | Git ブランチ |
-| [W] | ワークスペースセッション |
-| [S] | シンプルセッション |
+### 2.2 セッション種別
 
-### 2.4 ライブプレビュー
+| 種別 | 識別子 | 永続性 | 自動復元 | ディレクトリ |
+|------|--------|--------|----------|--------------|
+| **Worktree** | `[W]` | 永続 | あり | 専用worktree |
+| **Simple** | `[S]` | 揮発 | なし | 任意ディレクトリ |
 
-選択中のアイテムについて、以下の情報をリアルタイム表示:
+**Worktreeセッション**:
+- git worktreeによる分離環境
+- メタデータ永続化
+- tmux/システム再起動後も `claude --continue` で復元可能
 
-- **セッション**: 概要、Git ステータス、ペイン内容
-- **ウィンドウ**: レイアウト、ペイン内容
-- **ペイン**: 実行コマンド、パス、PID、ターミナル内容（直近30行）
+**Simpleセッション**:
+- 任意のディレクトリで動作
+- メタデータは揮発（tmux再起動で消失）
+- 軽量な実験・一時作業用
 
-### 2.5 Git 差分表示
+### 2.3 セッション状態
 
-ワークスペースセッションで利用可能:
-- ソースコミットとの差分を表示
-- ファイルごとの追加・削除行数を統計表示
-- カラー付き差分出力
-
-### 2.6 孤立ワークツリーのクリーンアップ
-
-異常終了（クラッシュ、kill -9 等）時に残った孤立ワークツリーを管理:
-- 孤立ワークツリーの一覧表示
-- 対話的クリーンアップ
-- 強制クリーンアップ
+| 状態 | 表示 | 意味 | 対象 |
+|------|------|------|------|
+| **Running** | `◉` | Claude実行中（出力中） | Active |
+| **Idle** | `▶` | Claude入力待ち | Active |
+| **Exited** | `!` | Claudeプロセス終了 | Active |
+| **Dormant** | `○` | 実体なし（復元待ち） | Worktreeのみ |
 
 ---
 
 ## 3. ユーザーインターフェース
 
-### 3.1 キーバインド
+### 3.1 UIモード
 
-#### 3.1.1 プライマリキーバインド
+#### 3.1.1 Navigatorモード（デフォルト）
+
+セッションの選択・操作を行うメインUI。
+
+```
+┌─ Sessions ─────────────────┐┌─ Preview ─────────────────────────────┐
+│ ◉ [W] project-a/feat-login ││                                       │
+│ ▶ [W] project-a/fix-perf   ││  [選択中セッションの出力]              │
+│ ○ [W] project-b/main       ││                                       │
+│ ◉ [S] experiment           ││  user: fix the login bug              │
+│                            ││  assistant: I'll analyze the...       │
+├────────────────────────────┤│                                       │
+│ ⎇ feat-login  +3,-1        ││                                       │
+├────────────────────────────┤│                                       │
+│ i:input  t:tile  d:delete  ││                                       │
+│ n:new    r:restart  ?:help ││                                       │
+└────────────────────────────┘└───────────────────────────────────────┘
+```
+
+**操作**:
+| キー | アクション |
+|------|------------|
+| `j` / `↓` | 次のセッションへ |
+| `k` / `↑` | 前のセッションへ |
+| `Enter` | セッションにアタッチ |
+| `i` | 入力モード（選択セッションに指示） |
+| `t` | Tileモードへ切り替え |
+| `n` | 新規セッション作成 |
+| `d` | セッション削除 |
+| `r` | Claudeプロセス再起動 |
+| `?` | ヘルプ表示 |
+| `q` / `Esc` | 終了 |
+
+#### 3.1.2 入力モード
+
+Navigatorから `i` で遷移。選択中のセッションに指示を送信。
+
+- テキスト入力 → Enter で送信
+- `Ctrl-[` でNavigatorに戻る（Vim風）
+- 送信後も入力モード継続（連続指示可能）
+
+#### 3.1.3 Tileモード
+
+全セッションを並べて監視する観察専用モード。
+
+```
+┌─────────────────────┬─────────────────────┬─────────────────────┐
+│ ◉ project-a/login   │ ▶ project-a/perf    │ ◉ experiment        │
+│                     │                     │                     │
+│ Analyzing the       │ > waiting for input │ Running tests...    │
+│ authentication...   │                     │                     │
+│                     │                     │                     │
+└─────────────────────┴─────────────────────┴─────────────────────┘
+```
+
+**操作**:
+| キー | アクション |
+|------|------------|
+| `Esc` / `q` | Navigatorに戻る |
+| `1-9` | 該当セッションにフォーカス |
+
+### 3.2 キーバインド（tmux）
 
 | キー | アクション |
 |------|------------|
-| `prefix + C` | セッションピッカーを開く |
-| `prefix + T` | 新規セッションを作成 |
-
-#### 3.1.2 ピッカー内操作
-
-| キー | アクション | 対象 |
-|------|------------|------|
-| `Enter` | 選択アイテムに切り替え | セッション/ウィンドウ/ペイン |
-| `n` | 新規セッション作成 | - |
-| `r` | 名前変更 | セッション/ウィンドウ |
-| `x` | 削除 | セッション/ウィンドウ/ペイン |
-| `D` | Git 差分表示 | ワークスペースセッションのみ |
-| `?` | ヘルプ表示 | - |
-| `Esc` | ピッカーを閉じる | - |
-| `j` / `↓` | 下に移動 | ナビゲーション |
-| `k` / `↑` | 上に移動 | ナビゲーション |
-| `/` | 検索 | ピッカー内 |
-| `Tab` | プレビュー切り替え | プレビューペイン |
-
-### 3.2 fzf ピッカー UI
-
-- ファジー検索による高速フィルタリング
-- リアルタイムプレビューパネル
-- カラー付きツリー表示
-- 操作後の自動リロード
+| `prefix + C` | Navigator起動 |
+| `prefix + T` | 新規セッション作成（ダイアログ） |
 
 ---
 
-## 4. 設定オプション
+## 4. セッションライフサイクル
 
-### 4.1 tmux 設定（~/.tmux.conf）
+### 4.1 作成
 
 ```bash
-# ピッカーキーのカスタマイズ（デフォルト: C）
-set -g @tower-key 'C'
+# Worktreeセッション（永続）
+tower new feat-login --worktree
+tower new feat-login -w
 
-# 新規セッションキーのカスタマイズ（デフォルト: T）
-set -g @tower-new-key 'T'
+# Simpleセッション（揮発）
+tower new experiment
+tower new experiment --dir ~/projects/app
 ```
 
-### 4.2 環境変数
+**Worktree作成フロー**:
+1. セッション名をサニタイズ
+2. `~/.claude-tower/worktrees/<name>` にworktree作成
+3. `tower/<name>` ブランチ作成
+4. メタデータ保存
+5. tmuxセッション作成
+6. `claude` 起動
 
-| 変数名 | 説明 | デフォルト値 |
-|--------|------|--------------|
-| `CLAUDE_TOWER_PROGRAM` | セッションで実行するプログラム | `claude` |
-| `CLAUDE_TOWER_WORKTREE_DIR` | ワークツリーの保存ディレクトリ | `~/.claude-tower/worktrees` |
-| `CLAUDE_TOWER_METADATA_DIR` | メタデータの保存ディレクトリ | `~/.claude-tower/metadata` |
+**Simple作成フロー**:
+1. セッション名をサニタイズ
+2. tmuxセッション作成（指定ディレクトリで）
+3. `claude` 起動
+4. （メタデータは保存しない）
+
+### 4.2 状態遷移
+
+```
+                        ┌─────────────┐
+        tower new       │   (なし)    │      tower delete
+       ┌───────────────►│             │◄────────────────────┐
+       │                └─────────────┘                     │
+       │                                                    │
+       │  ┌──────────────────────────────────────────────┐  │
+       │  │             Active States                    │  │
+       │  │                                              │  │
+       │  │   ┌─────────┐   完了   ┌─────────┐          │  │
+       │  │   │ Running │────────►│  Idle   │          │  │
+       │  │   │   (◉)   │◄────────│   (▶)   │          │  │
+       │  │   └────┬────┘  入力   └────┬────┘          │  │
+       │  │        │                   │               │  │
+       │  │        │ crash             │               │  │
+       │  │        ▼                   │               │  │
+       │  │   ┌─────────┐              │               │  │
+       │  │   │ Exited  │◄─────────────┘ exit         │  │
+       │  │   │   (!)   │                              │  │
+       │  │   └────┬────┘                              │  │
+       │  │        │ restart                           │  │
+       │  │        └──────────────────►(Running)       │  │
+       │  │                                              │  │
+       │  └────────────────────┬─────────────────────────┘  │
+       │                       │                            │
+       │                       │ tmux終了/再起動            │
+       │                       ▼ (Worktreeのみ)             │
+       │                ┌─────────────┐                     │
+       │   tower起動時   │  Dormant   │                     │
+       └────────────────│    (○)     │─────────────────────┘
+           自動復元      └─────────────┘
+```
+
+### 4.3 復元（Worktreeセッションのみ）
+
+tower起動時、Dormant状態のセッションを検出して自動復元：
+1. メタデータからworktreeパスを取得
+2. tmuxセッション作成
+3. `claude --continue` で会話継続
+
+### 4.4 削除
+
+```bash
+tower delete feat-login
+```
+
+**削除対象**:
+- tmuxセッション
+- メタデータファイル
+- worktree（Worktreeセッションの場合）
+- ローカルブランチ（リモートにpush済みなら安全）
+
+**確認ダイアログ**:
+```
+セッション 'feat-login' を削除します:
+  - tmux session: tower_feat-login
+  - worktree: ~/.claude-tower/worktrees/feat-login
+  - branch: tower/feat-login
+
+本当に削除しますか？ [y/N]
+```
 
 ---
 
-## 5. データ構造
+## 5. 表示形式
 
-### 5.1 メタデータファイル
+### 5.1 セッション一覧
 
-**保存場所**: `~/.claude-tower/metadata/tower_<セッション名>.meta`
-
-**フォーマット**:
 ```
-session_id=tower_example
-session_type=workspace|simple
-created_at=2025-01-01T00:00:00+00:00
-repository_path=/path/to/repo
+[状態] [種別] リポジトリ/セッション名   ブランチ      変更状態
+  ◉    [W]   project-a/feat-login     ⎇ feat-login   +3,-1
+  ▶    [W]   project-a/fix-perf       ⎇ fix-perf
+  ○    [W]   project-b/main           ⎇ main         *
+  ◉    [S]   experiment               ~/projects/app
+```
+
+### 5.2 アイコン凡例
+
+| アイコン | 意味 |
+|----------|------|
+| `◉` | Running（Claude実行中） |
+| `▶` | Idle（入力待ち） |
+| `!` | Exited（プロセス終了） |
+| `○` | Dormant（復元待ち） |
+| `[W]` | Worktreeセッション |
+| `[S]` | Simpleセッション |
+| `⎇` | Gitブランチ |
+| `*` | 未コミット変更あり |
+| `+N,-M` | 差分統計 |
+
+---
+
+## 6. データ構造
+
+### 6.1 ディレクトリ構成
+
+```
+~/.claude-tower/
+├── metadata/
+│   └── <session_id>.meta      # Worktreeセッションのメタデータ
+└── worktrees/
+    └── <session_name>/        # Git worktree
+        ├── .git               # Worktree git link
+        ├── .claude/           # Claude状態（会話履歴等）
+        └── ...                # プロジェクトファイル
+```
+
+### 6.2 メタデータファイル
+
+**ファイル名**: `~/.claude-tower/metadata/tower_<session_name>.meta`
+
+```ini
+session_id=tower_feat-login
+session_type=worktree
+session_name=feat-login
+repository_path=/Users/user/projects/my-app
+repository_name=my-app
 source_commit=abc123def456
-worktree_path=/home/user/.claude-tower/worktrees/example
+worktree_path=/Users/user/.claude-tower/worktrees/feat-login
+branch_name=tower/feat-login
+created_at=2025-01-01T00:00:00+00:00
 ```
 
-**フィールド説明**:
-| フィールド | 説明 |
-|------------|------|
-| `session_id` | セッション識別子（`tower_` プレフィックス付き） |
-| `session_type` | セッションタイプ（`workspace` または `simple`） |
-| `created_at` | 作成日時（ISO 8601 形式） |
-| `repository_path` | 元の Git リポジトリパス |
-| `source_commit` | ワークツリー作成元のコミット |
-| `worktree_path` | ワークツリーのパス |
+### 6.3 tmuxセッション命名規則
 
-### 5.2 ワークツリー
+```
+tower_<session_name>
+```
 
-**保存場所**: `~/.claude-tower/worktrees/<セッション名>`
-
-**ブランチ命名規則**: `tower/<セッション名>`
-
----
-
-## 6. セキュリティ機能
-
-### 6.1 入力サニタイズ
-
-- **許可文字**: 英数字、ハイフン、アンダースコアのみ
-- **最大長**: 64文字
-- **除去対象**: シェルメタ文字（`;`、`$()`、バッククォート等）
-- **トリム**: 先頭・末尾の特殊文字を除去
-
-### 6.2 パス検証
-
-- ディレクトリトラバーサル攻撃の防止（例: `../../etc/passwd`）
-- シンボリックリンクエスケープの防止
-- `realpath` による正規化検証
-- ワークツリーパスが `~/.claude-tower/worktrees` 内に収まることを検証
-
-### 6.3 コマンドインジェクション防止
-
-- シェルメタ文字の除去
-- git/tmux コマンドへの安全なパラメータ渡し
-
-### 6.4 セッション分離
-
-- 各ワークスペースセッションは独立した Git ワークツリーで動作
-- ブランチ分離により意図しない競合を防止
-- 別々のメタデータファイルによる相互汚染防止
+例: `tower_feat-login`, `tower_experiment`
 
 ---
 
 ## 7. スクリプト構成
-
-### 7.1 ファイル構成
 
 ```
 tmux-plugin/
@@ -225,78 +304,52 @@ tmux-plugin/
 ├── lib/
 │   └── common.sh              # 共通ライブラリ
 └── scripts/
-    ├── tower.sh               # メインセッションピッカー
-    ├── new-session.sh         # セッション作成
-    ├── rename.sh              # 名前変更
-    ├── kill.sh                # 削除
-    ├── preview.sh             # プレビュー生成
-    ├── diff.sh                # Git 差分表示
-    ├── help.sh                # ヘルプ表示
-    └── cleanup.sh             # 孤立ワークツリークリーンアップ
+    ├── tower.sh               # メインコマンド（Navigator起動）
+    ├── navigator.sh           # Navigatorモード
+    ├── tile.sh                # Tileモード
+    ├── session-new.sh         # セッション作成
+    ├── session-delete.sh      # セッション削除
+    ├── session-restore.sh     # セッション復元
+    ├── session-list.sh        # セッション一覧取得
+    ├── session-status.sh      # 状態検出
+    ├── input.sh               # 入力モード
+    └── preview.sh             # プレビュー生成
 ```
-
-### 7.2 各スクリプトの責務
-
-| スクリプト | 責務 |
-|------------|------|
-| `claude-tower.tmux` | プラグイン初期化、キーバインド登録 |
-| `common.sh` | 共通関数（サニタイズ、メタデータ、エラー処理） |
-| `tower.sh` | ツリービュー構築、選択処理、fzf 統合 |
-| `new-session.sh` | セッション作成フロー、ワークツリー生成 |
-| `rename.sh` | セッション/ウィンドウ名変更 |
-| `kill.sh` | セッション/ウィンドウ/ペイン削除、クリーンアップ |
-| `preview.sh` | ライブプレビュー生成 |
-| `diff.sh` | Git 差分表示 |
-| `help.sh` | ヘルプ情報表示 |
-| `cleanup.sh` | 孤立ワークツリー管理 |
 
 ---
 
-## 8. セッションライフサイクル
+## 8. 状態検出
 
-### 8.1 ワークスペースセッション作成フロー
+### 8.1 Running/Idle判定
 
-```
-1. ユーザーが prefix + T を押下、または ピッカーで n を選択
-2. セッション名の入力を促す
-3. カレントディレクトリが Git リポジトリか検出
-4. 入力をサニタイズしてセッション ID を生成（tower_*）
-5. ~/.claude-tower/worktrees/<名前> にワークツリーを作成
-6. tower/<名前> ブランチを現在のコミットから作成
-7. ワークツリーディレクトリに tmux セッションを作成
-8. メタデータファイルを保存
-9. 新規セッションに切り替え、Claude を起動
-```
+Claude Codeの出力パターンで判定:
+- **Idle**: プロンプト表示中（`>` で終わる、または出力停止）
+- **Running**: 出力が流れている
 
-### 8.2 セッション切り替えフロー
-
-```
-1. ユーザーが prefix + C を押下してピッカーを開く
-2. ツリービューに全セッション/ウィンドウ/ペインを表示
-3. プレビューパネルに選択中アイテムの内容を表示
-4. ユーザーがアイテムを選択して Enter を押下
-5. 選択先に tmux クライアントを切り替え
+**実装案**:
+```bash
+# paneの最終行を取得
+last_line=$(tmux capture-pane -t "$session" -p | tail -1)
+# 出力が変化しているかチェック（前回との比較）
 ```
 
-### 8.3 セッション削除フロー
+### 8.2 Exited判定
 
-```
-1. ユーザーがピッカーでセッションを選択し x を押下
-2. 確認ダイアログを表示
-3. ワークスペースセッションの場合: Git ワークツリーを削除
-4. tmux セッションを kill
-5. メタデータファイルを削除
-6. 完了メッセージを表示
+```bash
+# claudeプロセスの存在確認
+pane_cmd=$(tmux display-message -t "$session" -p '#{pane_current_command}')
+if [[ "$pane_cmd" != "claude" ]]; then
+    # Exited状態
+fi
 ```
 
-### 8.4 孤立ワークツリークリーンアップフロー
+### 8.3 Dormant判定
 
-```
-1. メタデータに存在するが tmux に存在しないセッションを検出
-2. git worktree remove でワークツリーを削除
-3. 通常削除が失敗した場合 --force でフォールバック
-4. Git リポジトリが利用不可な場合はディレクトリを直接削除
-5. メタデータファイルをクリーンアップ
+```bash
+# メタデータあり + tmuxセッションなし
+if [[ -f "$metadata_file" ]] && ! tmux has-session -t "$session_id" 2>/dev/null; then
+    # Dormant状態
+fi
 ```
 
 ---
@@ -308,105 +361,56 @@ tmux-plugin/
 | ソフトウェア | バージョン | 用途 |
 |--------------|------------|------|
 | tmux | 3.0+ | セッション管理 |
-| fzf | - | ピッカー UI |
-| git | - | ワークスペースモード |
-| Claude Code CLI | - | セッションで実行するプログラム |
 | bash | 4.0+ | スクリプト実行 |
+| git | 2.0+ | Worktree管理 |
+| Claude Code CLI | - | AIアシスタント |
 
 ### 9.2 オプション
 
 | ソフトウェア | 用途 |
 |--------------|------|
-| bats-core | テストスイート実行 |
-| realpath | パス検証（通常 coreutils に含まれる） |
+| fzf | 検索・選択UI |
 
 ---
 
-## 10. インストール
+## 10. 設定オプション
 
-### 10.1 TPM（Tmux Plugin Manager）経由
-
-```bash
-# ~/.tmux.conf に追加
-set -g @plugin 'tapoh22334/claude-tower'
-
-# prefix + I でインストール
-```
-
-### 10.2 手動インストール
+### 10.1 tmux設定（~/.tmux.conf）
 
 ```bash
-git clone https://github.com/tapoh22334/claude-tower ~/.tmux/plugins/claude-tower
-
-# ~/.tmux.conf に追加
-run-shell ~/.tmux/plugins/claude-tower/tmux-plugin/claude-tower.tmux
-
-# 設定を再読み込み
-tmux source ~/.tmux.conf
+# キーバインドのカスタマイズ
+set -g @tower-key 'C'           # Navigator起動（デフォルト: C）
+set -g @tower-new-key 'T'       # 新規セッション（デフォルト: T）
 ```
 
-### 10.3 インストール確認
+### 10.2 環境変数
 
-```bash
-tmux list-keys | grep tower
-```
+| 変数名 | 説明 | デフォルト値 |
+|--------|------|--------------|
+| `CLAUDE_TOWER_PROGRAM` | 起動するプログラム | `claude` |
+| `CLAUDE_TOWER_WORKTREE_DIR` | Worktree保存先 | `~/.claude-tower/worktrees` |
+| `CLAUDE_TOWER_METADATA_DIR` | メタデータ保存先 | `~/.claude-tower/metadata` |
+| `CLAUDE_TOWER_DEBUG` | デバッグログ出力 | `0` |
 
 ---
 
-## 11. テスト
-
-### 11.1 テストフレームワーク
-
-BATS（Bash Automated Testing System）を使用。
-
-### 11.2 テストファイル構成
-
-| ファイル | テスト対象 | テスト数 |
-|----------|------------|----------|
-| `test_sanitize.bats` | 入力サニタイズ | 20 |
-| `test_metadata.bats` | メタデータ永続化 | 13 |
-| `test_orphan.bats` | 孤立ワークツリー管理 | 11 |
-
-### 11.3 テスト実行
-
-```bash
-cd tests
-./run_tests.sh           # 全テスト実行
-./run_tests.sh sanitize  # 特定テストのみ実行
-./run_tests.sh --verbose # 詳細出力
-```
-
----
-
-## 12. 用語集
+## 11. 用語集
 
 | 用語 | 定義 |
 |------|------|
-| セッション | 複数のウィンドウを持つ tmux の作業単位 |
-| ウィンドウ | セッション内のビュー、複数のペインを持つ |
-| ペイン | ウィンドウ内の分割領域 |
-| セッション ID | `tower_` プレフィックスを持つ識別子 |
-| ワークスペースセッション | Git ワークツリーで分離されたセッション |
-| シンプルセッション | Git 統合なしの通常セッション |
-| ワークツリー | 独立した Git 作業ディレクトリ |
-| ソースコミット | ワークツリー作成元のコミット |
-| 孤立ワークツリー | アクティブな tmux セッションを持たないワークツリー |
-| メタデータ | 永続化されたセッション情報 |
+| claude-tower session | メタデータで定義されるClaude Codeワーカーの管理単位 |
+| Worktreeセッション | git worktreeで分離された永続セッション |
+| Simpleセッション | 任意ディレクトリで動作する揮発セッション |
+| Navigator | セッション選択・操作を行うメインUI |
+| Tileモード | 全セッションを並べて監視するモード |
+| Active | tmux session + claude processが存在する状態 |
+| Dormant | メタデータのみ存在し、実体がない状態（要復元） |
 
 ---
 
-## 13. バージョン履歴
+## 12. バージョン履歴
 
-| コミット | 概要 |
-|----------|------|
-| f3c03d7 | BATS テストフレームワークによるユニットテスト追加 |
-| 8ebb566 | ユビキタス言語の一貫性のための用語リファクタリング |
-| d79dd68 | プロジェクト名を claude-pilot から claude-tower に変更 |
-| 2774385 | セキュリティ修正、共通ライブラリ、メタデータ永続化の追加 |
-| 57c7b3f | 初期コミット - Claude Code セッション管理用 tmux プラグイン |
-
----
-
-## 14. ライセンス
-
-MIT License (Copyright 2024 claude-tower contributors)
+| バージョン | 日付 | 概要 |
+|------------|------|------|
+| 2.0.0 | 2025-01-xx | 設計刷新: 並列オーケストレーターへ |
+| 1.0.0 | 2024-xx-xx | 初期リリース |

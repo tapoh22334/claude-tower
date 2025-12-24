@@ -1,70 +1,129 @@
 #!/usr/bin/env bash
-# Main session picker with tree view and preview
-# Hybrid UI: Uses tree-view.sh for rendering, provides fzf overlay interface
+# tower.sh - Main entry point for claude-tower
+# A parallel Claude Code orchestrator
+#
+# Usage: tower.sh [command] [args...]
+#
+# Commands:
+#   (none)      Launch Navigator UI
+#   list        List all sessions
+#   new         Create new session
+#   delete      Delete session
+#   restore     Restore dormant session(s)
+#   tile        Launch Tile mode
+#   help        Show help
+#
+# Environment:
+#   CLAUDE_TOWER_PROGRAM      Program to run (default: claude)
+#   CLAUDE_TOWER_WORKTREE_DIR Worktree directory
+#   CLAUDE_TOWER_METADATA_DIR Metadata directory
+#   CLAUDE_TOWER_DEBUG        Enable debug logging (1)
+
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TOWER_DIR="$(dirname "$SCRIPT_DIR")"
 TOWER_SCRIPT_NAME="tower.sh"
 
-# Source common library
 # shellcheck source=../lib/common.sh
 source "$SCRIPT_DIR/../lib/common.sh"
 
-debug_log "Starting tower.sh"
+# Show help
+show_help() {
+    cat << 'EOF'
+claude-tower - Parallel Claude Code Orchestrator
 
-# Build tree structure using shared tree-view module
-build_tree() {
-    "$SCRIPT_DIR/tree-view.sh" full
+Usage: tower.sh [command] [args...]
+
+Commands:
+  (default)     Launch Navigator UI
+  list          List all sessions
+  new           Create new session
+    -n NAME       Session name
+    -w            Create worktree session (persistent)
+    -d DIR        Working directory
+  delete        Delete session
+    SESSION_ID    Session to delete
+    --force       Skip confirmation
+  restore       Restore dormant sessions
+    SESSION_ID    Specific session to restore
+    --all         Restore all dormant sessions
+  tile          Launch Tile mode
+  help          Show this help
+
+Session Types:
+  [W] Worktree  Persistent with git worktree, auto-restores
+  [S] Simple    Volatile, lost on tmux restart
+
+Session States:
+  ◉ Running     Claude is actively working
+  ▶ Idle        Claude is waiting for input
+  ! Exited      Claude process has exited
+  ○ Dormant     Session needs restoration
+
+Key Bindings (in Navigator):
+  j/k           Navigate sessions
+  Enter         Attach to session
+  i             Input mode (send command)
+  t             Tile mode (view all)
+  n             New session
+  d             Delete session
+  r             Restart Claude
+  ?             Help
+  Esc/q         Exit
+
+Examples:
+  tower.sh                           # Launch Navigator
+  tower.sh new -n feat-login -w      # Create worktree session
+  tower.sh new -n experiment         # Create simple session
+  tower.sh list                      # List all sessions
+  tower.sh restore --all             # Restore dormant sessions
+  tower.sh delete feat-login         # Delete session
+
+EOF
 }
 
-# Parse selection and switch
-handle_selection() {
-    local selection="$1"
-    local type selected_session selected_window selected_pane
+# Main command handler
+main() {
+    local cmd="${1:-}"
 
-    IFS=':' read -r type selected_session selected_window selected_pane _ <<< "$selection"
-
-    case "$type" in
-        session)
-            tmux switch-client -t "$selected_session" || handle_error "Failed to switch to session"
+    case "$cmd" in
+        ""|navigator)
+            # Default: Launch Navigator
+            "$SCRIPT_DIR/navigator.sh"
             ;;
-        window)
-            tmux switch-client -t "${selected_session}:${selected_window}" || handle_error "Failed to switch to window"
+        list)
+            shift
+            "$SCRIPT_DIR/session-list.sh" "${1:-pretty}"
             ;;
-        pane)
-            tmux switch-client -t "${selected_session}:${selected_window}.${selected_pane}" || handle_error "Failed to switch to pane"
+        new)
+            shift
+            "$SCRIPT_DIR/session-new.sh" "$@"
+            ;;
+        delete)
+            shift
+            "$SCRIPT_DIR/session-delete.sh" "$@"
+            ;;
+        restore)
+            shift
+            "$SCRIPT_DIR/session-restore.sh" "$@"
+            ;;
+        tile)
+            "$SCRIPT_DIR/tile.sh"
+            ;;
+        help|--help|-h)
+            show_help
+            ;;
+        *)
+            handle_error "Unknown command: $cmd"
+            echo "Run 'tower.sh help' for usage"
+            exit 1
             ;;
     esac
 }
 
-# Main
-main() {
-    # Check if fzf is available
-    require_command fzf || exit 1
-
-    # Build tree and show fzf picker
-    local selection
-    selection=$(build_tree | fzf-tmux -p 80%,70% \
-        --ansi \
-        --no-sort \
-        --reverse \
-        --header="Enter:select | n:new | r:rename | x:kill | D:diff | ?:help" \
-        --preview="$SCRIPT_DIR/preview.sh {}" \
-        --preview-window=right:50% \
-        --bind="n:execute($SCRIPT_DIR/new-session.sh)+reload($SCRIPT_DIR/tower.sh --list)" \
-        --bind="r:execute($SCRIPT_DIR/rename.sh {})+reload($SCRIPT_DIR/tower.sh --list)" \
-        --bind="x:execute($SCRIPT_DIR/kill.sh {})+reload($SCRIPT_DIR/tower.sh --list)" \
-        --bind="D:preview($SCRIPT_DIR/diff.sh {})" \
-        --bind="?:preview($SCRIPT_DIR/help.sh)" \
-        --delimiter=':' \
-    ) || exit 0
-
-    [[ -n "$selection" ]] && handle_selection "$selection"
-}
-
-# If called with --list, just output the tree (for reload)
-if [[ "${1:-}" == "--list" ]]; then
-    build_tree
-else
-    main
+# Auto-restore dormant sessions on startup (if enabled)
+if [[ "${CLAUDE_TOWER_AUTO_RESTORE:-0}" == "1" ]]; then
+    restore_all_dormant
 fi
+
+main "$@"
