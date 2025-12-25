@@ -18,6 +18,12 @@ A tmux plugin for managing Claude Code sessions with tree-style navigation and g
 - tmux 3.2+ (for display-popup support)
 - git
 - Claude Code CLI (`claude`)
+- [gum](https://github.com/charmbracelet/gum) (for Navigator UI)
+
+```bash
+# Install gum
+brew install gum
+```
 
 ## Installation
 

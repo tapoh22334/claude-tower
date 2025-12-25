@@ -842,21 +842,39 @@ get_type_icon() {
 # Session List (v2.0)
 # ============================================================================
 
-# List all tower sessions (active + dormant)
-# Output format: session_id:state:type:display_name:branch:diff_stats
+# List all tower sessions (active + dormant) - OPTIMIZED
+# Output format: session_id:state:type
+# Uses single tmux call for all active sessions
 list_all_sessions() {
-    local seen_sessions=()
+    local -A active_sessions=()
+    local program_name
+    program_name=$(basename "$TOWER_PROGRAM")
 
-    # First, get all active tmux sessions with tower_ prefix
-    while IFS= read -r session_id; do
+    # Get all tower sessions with their pane command in ONE tmux call
+    while IFS=$'\t' read -r session_id pane_cmd; do
         [[ -z "$session_id" ]] && continue
         [[ "$session_id" != tower_* ]] && continue
 
-        seen_sessions+=("$session_id")
-        _output_session_info "$session_id"
-    done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null || true)
+        active_sessions["$session_id"]=1
 
-    # Then, check metadata for dormant sessions
+        # Determine state based on pane command
+        local state
+        if [[ "$pane_cmd" == "$program_name" || "$pane_cmd" == "claude" ]]; then
+            state="$STATE_IDLE"  # Simplified: assume idle if claude is running
+        else
+            state="$STATE_EXITED"
+        fi
+
+        # Get type
+        local type="$TYPE_SIMPLE"
+        if has_metadata "$session_id"; then
+            type="$TYPE_WORKTREE"
+        fi
+
+        echo "${session_id}:${state}:${type}"
+    done < <(tmux list-sessions -F '#{session_name}	#{pane_current_command}' 2>/dev/null || true)
+
+    # Check metadata for dormant sessions
     for meta_file in "${TOWER_METADATA_DIR}"/*.meta; do
         [[ -f "$meta_file" ]] || continue
 
@@ -864,72 +882,25 @@ list_all_sessions() {
         session_id=$(basename "$meta_file" .meta)
 
         # Skip if already processed (active session)
-        local already_seen=false
-        for seen in "${seen_sessions[@]}"; do
-            if [[ "$seen" == "$session_id" ]]; then
-                already_seen=true
-                break
-            fi
-        done
-        [[ "$already_seen" == "true" ]] && continue
+        [[ -n "${active_sessions[$session_id]:-}" ]] && continue
 
         # This is a dormant session
-        _output_session_info "$session_id"
+        echo "${session_id}:${STATE_DORMANT}:${TYPE_WORKTREE}"
     done
 }
 
-# Output session info in standard format
+# Output session info in standard format (optimized - no git calls)
 # Arguments:
 #   $1 - Session ID
-# Output: session_id:state:type:display_name:branch:diff_stats
+# Output: session_id:state:type
 _output_session_info() {
     local session_id="$1"
-    local state type display_name branch diff_stats working_dir repo_name
+    local state type
 
     state=$(get_session_state "$session_id")
     type=$(get_session_type "$session_id")
-    display_name="${session_id#tower_}"
-    branch=""
-    diff_stats=""
-    repo_name=""
 
-    # Get working directory
-    if [[ "$state" != "$STATE_DORMANT" ]]; then
-        working_dir=$(tmux display-message -t "$session_id" -p '#{pane_current_path}' 2>/dev/null || echo "")
-    else
-        # For dormant sessions, use metadata
-        if load_metadata "$session_id" 2>/dev/null; then
-            working_dir="$META_WORKTREE_PATH"
-        fi
-    fi
-
-    # Get git info if in a git repo
-    if [[ -n "$working_dir" && -d "$working_dir" ]]; then
-        if git -C "$working_dir" rev-parse --git-dir &>/dev/null; then
-            branch=$(git -C "$working_dir" branch --show-current 2>/dev/null || echo "detached")
-
-            # Get repo name from path
-            repo_name=$(basename "$(git -C "$working_dir" rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "")
-
-            # Get diff stats (staged + unstaged)
-            local stats
-            stats=$(git -C "$working_dir" diff --numstat 2>/dev/null | \
-                awk '{add+=$1; del+=$2} END {if(add>0||del>0) printf "+%d,-%d", add, del}')
-            [[ -n "$stats" ]] && diff_stats="$stats"
-
-            # Check for uncommitted changes marker
-            if [[ -z "$diff_stats" ]] && ! git -C "$working_dir" diff --quiet 2>/dev/null; then
-                diff_stats="*"
-            fi
-        fi
-    fi
-
-    # Format display name with repo if available
-    if [[ -n "$repo_name" && "$repo_name" != "$display_name" ]]; then
-        display_name="${repo_name}/${display_name}"
-    fi
-
-    echo "${session_id}:${state}:${type}:${display_name}:${branch}:${diff_stats}"
+    echo "${session_id}:${state}:${type}"
 }
 
 # ============================================================================
