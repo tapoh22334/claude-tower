@@ -41,7 +41,8 @@ tmux bind-key "$TOWER_PREFIX" switch-client -T tower
 # Tower mode bindings
 # Navigator uses display-popup to provide a terminal context for session attachment
 # The navigator creates its own dedicated tmux server (-L claude-tower) for isolation
-tmux bind-key -T tower c display-popup -E -w 95% -h 95% "$CURRENT_DIR/scripts/navigator.sh"
+# Full screen popup for immersive experience, exits on navigator close
+tmux bind-key -T tower c display-popup -E -w 100% -h 100% "$CURRENT_DIR/scripts/navigator.sh"
 tmux bind-key -T tower t new-window -n "tower-new" "$CURRENT_DIR/scripts/session-new.sh"
 tmux bind-key -T tower n new-window -n "tower-new" "$CURRENT_DIR/scripts/session-new.sh"
 tmux bind-key -T tower l new-window -n "tower-list" "$CURRENT_DIR/scripts/session-list.sh pretty"

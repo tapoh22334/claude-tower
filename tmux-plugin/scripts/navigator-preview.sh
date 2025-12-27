@@ -19,8 +19,17 @@ source "$SCRIPT_DIR/../lib/common.sh"
 # Configuration
 # ============================================================================
 
-readonly CONF_DIR="$SCRIPT_DIR/../conf"
+# Ensure absolute path for inner-tmux.conf (important for nested tmux)
+readonly CONF_DIR="$(cd "$SCRIPT_DIR/../conf" 2>/dev/null && pwd)"
 readonly INNER_CONF="$CONF_DIR/inner-tmux.conf"
+
+# Log script startup
+info_log "Navigator preview started (PID: $$)"
+info_log "SCRIPT_DIR: $SCRIPT_DIR"
+info_log "CONF_DIR: $CONF_DIR"
+info_log "INNER_CONF path: $INNER_CONF"
+info_log "INNER_CONF exists: $([[ -f "$INNER_CONF" ]] && echo yes || echo no)"
+info_log "Current TMUX: ${TMUX:-<unset>}"
 
 # ============================================================================
 # Preview Functions
@@ -35,7 +44,40 @@ show_placeholder() {
     echo "  │   Select a session to preview         │"
     echo "  │                                       │"
     echo "  │   Use j/k to navigate                 │"
-    echo "  │   Press 'i' to interact               │"
+    echo "  │   Press Enter to attach               │"
+    echo "  │                                       │"
+    echo "  └───────────────────────────────────────┘"
+    echo ""
+}
+
+# Show error message
+show_error() {
+    local msg="$1"
+    clear
+    echo ""
+    echo "  ┌───────────────────────────────────────┐"
+    echo "  │  ⚠️  Preview Error                     │"
+    echo "  │                                       │"
+    printf "  │  %-37s │\n" "${msg:0:37}"
+    echo "  │                                       │"
+    echo "  │  Check log: ~/.claude-tower/metadata/ │"
+    echo "  │  tower.log                            │"
+    echo "  │                                       │"
+    echo "  └───────────────────────────────────────┘"
+    echo ""
+}
+
+# Show connecting message
+show_connecting() {
+    local session_id="$1"
+    local name="${session_id#tower_}"
+    clear
+    echo ""
+    echo "  ┌───────────────────────────────────────┐"
+    echo "  │                                       │"
+    printf "  │  Connecting to: %-20s │\n" "${name:0:20}"
+    echo "  │                                       │"
+    echo "  │  Press Escape to return to list       │"
     echo "  │                                       │"
     echo "  └───────────────────────────────────────┘"
     echo ""
@@ -71,20 +113,46 @@ show_dormant_info() {
 attach_to_session() {
     local session_id="$1"
 
-    # Check if session exists in default server
-    if ! tmux has-session -t "$session_id" 2>/dev/null; then
+    info_log "Attempting to attach to session: $session_id"
+
+    # Show connecting message briefly
+    show_connecting "$session_id"
+
+    # Check if session exists in DEFAULT server (TMUX= to unset Navigator context)
+    if ! TMUX= tmux has-session -t "$session_id" 2>/dev/null; then
+        error_log "Session not found on default server: $session_id"
+        show_error "Session not found"
         return 1
     fi
+
+    info_log "Session exists on default server, attaching with nested tmux"
 
     # Use nested tmux to attach to the session
     # TMUX= unsets the environment variable to allow nesting
     # -f loads our custom config that makes Escape detach
+    local attach_result
     if [[ -f "$INNER_CONF" ]]; then
-        TMUX= tmux -f "$INNER_CONF" attach-session -t "$session_id"
+        info_log "Using inner-tmux.conf for nested attachment"
+        if ! TMUX= tmux -f "$INNER_CONF" attach-session -t "$session_id" 2>&1; then
+            error_log "Failed to attach with inner config, trying without"
+            if ! TMUX= tmux attach-session -t "$session_id" 2>&1; then
+                error_log "Attach failed completely"
+                show_error "Failed to attach to session"
+                return 1
+            fi
+        fi
     else
-        # Fallback: attach with just escape binding
-        TMUX= tmux attach-session -t "$session_id"
+        error_log "INNER_CONF not found: $INNER_CONF"
+        show_error "Config file missing"
+        if ! TMUX= tmux attach-session -t "$session_id" 2>&1; then
+            error_log "Attach failed without config"
+            show_error "Failed to attach"
+            return 1
+        fi
     fi
+
+    info_log "Detached from session: $session_id"
+    return 0
 }
 
 # ============================================================================
@@ -92,6 +160,8 @@ attach_to_session() {
 # ============================================================================
 
 main_loop() {
+    info_log "Starting main preview loop"
+
     while true; do
         # Get currently selected session
         local selected
@@ -99,18 +169,24 @@ main_loop() {
 
         if [[ -z "$selected" ]]; then
             # No selection - show placeholder
+            debug_log "No session selected, showing placeholder"
             show_placeholder
             sleep 1
             continue
         fi
 
-        # Check session state
+        debug_log "Selected session: $selected"
+
+        # Check session state (on DEFAULT server)
         local state
         state=$(get_session_state "$selected")
+
+        debug_log "Session state: $state"
 
         case "$state" in
             "$STATE_DORMANT")
                 # Show dormant info
+                info_log "Session is dormant: $selected"
                 show_dormant_info "$selected"
                 # Wait for signal (Escape from left pane)
                 # shellcheck disable=SC2034
@@ -118,17 +194,21 @@ main_loop() {
                 ;;
             "")
                 # Session doesn't exist
+                debug_log "Session state empty, showing placeholder"
                 show_placeholder
                 sleep 1
                 ;;
             *)
                 # Active session - attach to it
+                info_log "Attaching to active session: $selected (state: $state)"
                 # This will block until user presses Escape (which detaches)
                 if ! attach_to_session "$selected"; then
+                    error_log "Failed to attach to session: $selected"
                     show_placeholder
                     sleep 1
                 fi
                 # After detach, loop back to check new selection
+                info_log "Returned from session attachment, checking for new selection"
                 ;;
         esac
     done
