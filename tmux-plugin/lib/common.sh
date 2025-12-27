@@ -90,6 +90,102 @@ readonly TOWER_METADATA_DIR="${CLAUDE_TOWER_METADATA_DIR:-$HOME/.claude-tower/me
 readonly PREVIEW_LINES=30
 
 # ============================================================================
+# Navigator Configuration (Socket Separation)
+# ============================================================================
+# Navigator uses a dedicated tmux server separate from the user's default server.
+# This allows Navigator to act as a control center while Claude Code sessions
+# remain in the user's familiar environment.
+readonly TOWER_NAV_SOCKET="${CLAUDE_TOWER_NAV_SOCKET:-claude-tower}"
+readonly TOWER_NAV_SESSION="navigator"
+readonly TOWER_NAV_WIDTH="${CLAUDE_TOWER_NAV_WIDTH:-30}"
+readonly TOWER_NAV_STATE_DIR="/tmp/claude-tower"
+readonly TOWER_NAV_SELECTED_FILE="${TOWER_NAV_STATE_DIR}/selected"
+readonly TOWER_NAV_CALLER_FILE="${TOWER_NAV_STATE_DIR}/caller"
+readonly TOWER_NAV_FOCUS_FILE="${TOWER_NAV_STATE_DIR}/focus"
+
+# ============================================================================
+# Navigator Helper Functions
+# ============================================================================
+
+# Ensure Navigator state directory exists
+ensure_nav_state_dir() {
+    mkdir -p "$TOWER_NAV_STATE_DIR" 2>/dev/null || true
+    chmod 700 "$TOWER_NAV_STATE_DIR" 2>/dev/null || true
+}
+
+# Check if Navigator server is running
+is_nav_server_running() {
+    tmux -L "$TOWER_NAV_SOCKET" list-sessions &>/dev/null
+}
+
+# Check if Navigator session exists
+is_nav_session_exists() {
+    tmux -L "$TOWER_NAV_SOCKET" has-session -t "$TOWER_NAV_SESSION" 2>/dev/null
+}
+
+# Run command on Navigator server
+nav_tmux() {
+    tmux -L "$TOWER_NAV_SOCKET" "$@"
+}
+
+# Get currently selected session from state file
+get_nav_selected() {
+    if [[ -f "$TOWER_NAV_SELECTED_FILE" ]]; then
+        cat "$TOWER_NAV_SELECTED_FILE" 2>/dev/null || echo ""
+    fi
+}
+
+# Set currently selected session
+set_nav_selected() {
+    local session_id="$1"
+    ensure_nav_state_dir
+    echo "$session_id" > "$TOWER_NAV_SELECTED_FILE"
+}
+
+# Get caller session (session to return to on quit)
+get_nav_caller() {
+    if [[ -f "$TOWER_NAV_CALLER_FILE" ]]; then
+        cat "$TOWER_NAV_CALLER_FILE" 2>/dev/null || echo ""
+    fi
+}
+
+# Set caller session
+set_nav_caller() {
+    local session_id="$1"
+    ensure_nav_state_dir
+    echo "$session_id" > "$TOWER_NAV_CALLER_FILE"
+}
+
+# Get current focus (list or preview)
+get_nav_focus() {
+    if [[ -f "$TOWER_NAV_FOCUS_FILE" ]]; then
+        cat "$TOWER_NAV_FOCUS_FILE" 2>/dev/null || echo "list"
+    else
+        echo "list"
+    fi
+}
+
+# Set current focus
+set_nav_focus() {
+    local focus="$1"  # "list" or "preview"
+    ensure_nav_state_dir
+    echo "$focus" > "$TOWER_NAV_FOCUS_FILE"
+}
+
+# Clean up Navigator state files
+cleanup_nav_state() {
+    rm -f "$TOWER_NAV_SELECTED_FILE" "$TOWER_NAV_CALLER_FILE" "$TOWER_NAV_FOCUS_FILE" 2>/dev/null || true
+}
+
+# Kill Navigator server
+kill_nav_server() {
+    if is_nav_server_running; then
+        nav_tmux kill-server 2>/dev/null || true
+    fi
+    cleanup_nav_state
+}
+
+# ============================================================================
 # Input Sanitization
 # ============================================================================
 # These functions handle user input security:

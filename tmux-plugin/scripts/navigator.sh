@@ -1,170 +1,254 @@
 #!/usr/bin/env bash
-# navigator.sh - Session navigator using gum
-# Fast and simple UI with gum
+# navigator.sh - Session navigator using socket separation architecture
+#
+# Architecture:
+#   default tmux server    = User's world (Claude Code sessions)
+#   -L claude-tower server = Navigator's world (control center)
+#
+# The Navigator creates a dedicated tmux server (claude-tower) with:
+#   - Left pane: Session list with vim-style navigation
+#   - Right pane: Real-time view of selected session (connects to default server)
+#
+# Key bindings:
+#   j/k    - Navigate sessions
+#   Enter  - Full attach to selected session
+#   i      - Input mode (focus on right pane)
+#   Esc    - Return from input mode to list
+#   n      - Create new session
+#   d      - Delete session
+#   R      - Restart Claude in session
+#   q      - Quit Navigator
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/common.sh"
 
-# Check for gum
-if ! command -v gum &>/dev/null; then
-    echo "Error: gum is required. Install with: brew install gum"
-    exit 1
-fi
+# ============================================================================
+# Configuration
+# ============================================================================
 
-# Build session list for display
-build_session_list() {
-    local sessions=()
+readonly CONF_DIR="$SCRIPT_DIR/../conf"
 
-    while IFS=: read -r id state type; do
-        [[ -z "$id" ]] && continue
+# ============================================================================
+# Helper Functions
+# ============================================================================
 
-        local icon type_icon name
-        icon=$(get_state_icon "$state")
-        type_icon=$(get_type_icon "$type")
-        name="${id#tower_}"
-
-        sessions+=("$icon $type_icon $name")
-    done < <(list_all_sessions 2>/dev/null)
-
-    printf '%s\n' "${sessions[@]}"
+# Get first tower session from default server
+get_first_tower_session() {
+    tmux list-sessions -F '#{session_name}' 2>/dev/null | grep '^tower_' | head -1 || echo ""
 }
 
-# Build session ID list (parallel to display list)
-build_session_ids() {
-    while IFS=: read -r id state type; do
-        [[ -z "$id" ]] && continue
-        echo "$id"
-    done < <(list_all_sessions 2>/dev/null)
+# Count tower sessions
+count_tower_sessions() {
+    tmux list-sessions -F '#{session_name}' 2>/dev/null | grep -c '^tower_' || echo "0"
 }
 
-# Show preview of selected session
-show_preview() {
-    local session_id="$1"
-    local state
-    state=$(get_session_state "$session_id")
+# ============================================================================
+# Navigator Setup
+# ============================================================================
 
-    echo "━━━ Preview: ${session_id#tower_} ━━━"
-    echo ""
+# Create Navigator session in dedicated server
+create_navigator() {
+    debug_log "Creating Navigator session in -L $TOWER_NAV_SOCKET"
 
-    if [[ "$state" == "$STATE_DORMANT" ]]; then
-        gum style --foreground 214 "(Session is dormant - will restore on attach)"
-        if load_metadata "$session_id" 2>/dev/null; then
-            echo "Worktree: $META_WORKTREE_PATH"
-        fi
+    # Ensure state directory exists
+    ensure_nav_state_dir
+
+    # Get first session to select
+    local first_session
+    first_session=$(get_first_tower_session)
+
+    if [[ -n "$first_session" ]]; then
+        set_nav_selected "$first_session"
+    fi
+
+    # Create new session in Navigator server
+    # Unset TMUX to allow nested tmux
+    TMUX= nav_tmux new-session -d -s "$TOWER_NAV_SESSION" -x "$(tput cols)" -y "$(tput lines)"
+
+    # Split into left (list) and right (preview) panes
+    nav_tmux split-window -t "$TOWER_NAV_SESSION" -h -l "70%"
+
+    # Set up left pane (session list)
+    nav_tmux send-keys -t "$TOWER_NAV_SESSION:0.0" \
+        "$SCRIPT_DIR/navigator-list.sh" Enter
+
+    # Set up right pane (preview wrapper)
+    nav_tmux send-keys -t "$TOWER_NAV_SESSION:0.1" \
+        "$SCRIPT_DIR/navigator-preview.sh" Enter
+
+    # Focus on left pane
+    nav_tmux select-pane -t "$TOWER_NAV_SESSION:0.0"
+
+    debug_log "Navigator session created"
+}
+
+# Attach to Navigator
+attach_navigator() {
+    debug_log "Attaching to Navigator"
+
+    # Need to unset TMUX to attach to different server
+    TMUX= nav_tmux attach-session -t "$TOWER_NAV_SESSION"
+}
+
+# Kill Navigator and cleanup
+kill_navigator() {
+    debug_log "Killing Navigator"
+
+    if is_nav_session_exists; then
+        nav_tmux kill-session -t "$TOWER_NAV_SESSION" 2>/dev/null || true
+    fi
+
+    cleanup_nav_state
+}
+
+# ============================================================================
+# Main Entry Points
+# ============================================================================
+
+# Open Navigator (main entry point)
+open_navigator() {
+    # Save caller session for return
+    local current_session
+    current_session=$(tmux display-message -p '#S' 2>/dev/null || echo "")
+
+    if [[ -n "$current_session" && "$current_session" != "$TOWER_NAV_SESSION" ]]; then
+        set_nav_caller "$current_session"
+    fi
+
+    # Check if Navigator already exists
+    if is_nav_session_exists; then
+        debug_log "Navigator already exists, attaching"
+        attach_navigator
     else
-        tmux capture-pane -t "$session_id" -p -S -20 2>/dev/null | tail -15 || echo "(no output)"
+        # Check if there are any sessions to navigate
+        local session_count
+        session_count=$(count_tower_sessions)
+
+        if [[ "$session_count" -eq 0 ]]; then
+            # No sessions - offer to create one
+            handle_info "No tower sessions found. Use 'prefix + t n' to create a new session."
+            return 0
+        fi
+
+        debug_log "Creating new Navigator"
+        create_navigator
+        attach_navigator
     fi
 }
 
-# Main menu
-main_menu() {
-    while true; do
-        # Get sessions
-        local display_list id_list
-        display_list=$(build_session_list)
-        id_list=$(build_session_ids)
+# Close Navigator and return to caller
+close_navigator() {
+    local caller
+    caller=$(get_nav_caller)
 
-        if [[ -z "$display_list" ]]; then
-            gum style --foreground 214 "No sessions found."
+    kill_navigator
 
-            if gum confirm "Create a new session?"; then
-                "$SCRIPT_DIR/session-new.sh"
-                continue
-            else
-                exit 0
-            fi
+    # Return to caller session if available
+    if [[ -n "$caller" ]]; then
+        if tmux has-session -t "$caller" 2>/dev/null; then
+            tmux switch-client -t "$caller" 2>/dev/null || true
         fi
-
-        # Convert to arrays
-        mapfile -t displays <<< "$display_list"
-        mapfile -t ids <<< "$id_list"
-
-        # Show session picker with filter
-        local selected
-        selected=$(printf '%s\n' "${displays[@]}" | \
-            gum filter --placeholder "Search sessions..." \
-                       --header "Sessions (Enter=attach, Ctrl+C=menu)" \
-                       --height 15 \
-                       --indicator "▶" \
-                       --indicator.foreground 212) || true
-
-        [[ -z "$selected" ]] && break
-
-        # Find the session ID for selected display
-        local selected_id=""
-        for i in "${!displays[@]}"; do
-            if [[ "${displays[$i]}" == "$selected" ]]; then
-                selected_id="${ids[$i]}"
-                break
-            fi
-        done
-
-        [[ -z "$selected_id" ]] && continue
-
-        # Show action menu
-        clear
-        show_preview "$selected_id"
-        echo ""
-
-        local action
-        action=$(gum choose --header "Action for: ${selected_id#tower_}" \
-            "attach    → Switch to session" \
-            "input     → Send command" \
-            "tile      → View all sessions" \
-            "new       → Create new session" \
-            "delete    → Delete session" \
-            "restart   → Restart Claude" \
-            "back      → Back to list" \
-            "quit      → Exit navigator") || action="back"
-
-        case "$action" in
-            "attach"*)
-                local state
-                state=$(get_session_state "$selected_id")
-                if [[ "$state" == "$STATE_DORMANT" ]]; then
-                    gum spin --spinner dot --title "Restoring session..." -- \
-                        "$SCRIPT_DIR/session-restore.sh" "$selected_id"
-                fi
-                tmux switch-client -t "$selected_id"
-                exit 0
-                ;;
-            "input"*)
-                local input
-                input=$(gum input --placeholder "Enter command to send..." --width 60) || true
-                if [[ -n "$input" ]]; then
-                    tmux send-keys -t "$selected_id" "$input" Enter
-                    gum spin --spinner dot --title "Sending..." -- sleep 0.5
-                fi
-                ;;
-            "tile"*)
-                "$SCRIPT_DIR/tile.sh"
-                exit 0
-                ;;
-            "new"*)
-                "$SCRIPT_DIR/session-new.sh"
-                ;;
-            "delete"*)
-                if gum confirm "Delete session '${selected_id#tower_}'?"; then
-                    "$SCRIPT_DIR/session-delete.sh" "$selected_id" --force 2>/dev/null || true
-                    gum style --foreground 212 "Deleted."
-                    sleep 0.5
-                fi
-                ;;
-            "restart"*)
-                tmux send-keys -t "$selected_id" C-c
-                sleep 0.2
-                tmux send-keys -t "$selected_id" "${CLAUDE_TOWER_PROGRAM:-claude}" Enter
-                gum style --foreground 212 "Restarted."
-                sleep 0.5
-                ;;
-            "quit"*)
-                exit 0
-                ;;
-        esac
-    done
+    fi
 }
 
-# Run
-main_menu
+# Full attach to session (exit Navigator and attach directly)
+full_attach() {
+    local session_id="${1:-}"
+
+    if [[ -z "$session_id" ]]; then
+        session_id=$(get_nav_selected)
+    fi
+
+    if [[ -z "$session_id" ]]; then
+        handle_error "No session selected"
+        return 1
+    fi
+
+    # Check if session exists
+    if ! tmux has-session -t "$session_id" 2>/dev/null; then
+        # Try to restore if dormant
+        local state
+        state=$(get_session_state "$session_id")
+
+        if [[ "$state" == "$STATE_DORMANT" ]]; then
+            restore_session "$session_id"
+        else
+            handle_error "Session does not exist: ${session_id#tower_}"
+            return 1
+        fi
+    fi
+
+    # Kill Navigator
+    kill_navigator
+
+    # Attach to selected session in default server
+    tmux switch-client -t "$session_id" 2>/dev/null || \
+        tmux attach-session -t "$session_id" 2>/dev/null || true
+}
+
+# ============================================================================
+# Usage
+# ============================================================================
+
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") [command]
+
+Commands:
+    (default)       Open Navigator (or attach if already exists)
+    --open          Open Navigator
+    --close         Close Navigator and return to caller
+    --attach <id>   Full attach to session, closing Navigator
+    --kill          Kill Navigator server
+
+Navigator Architecture:
+    Uses socket separation with dedicated tmux server (-L $TOWER_NAV_SOCKET)
+    Left pane shows session list, right pane shows live preview
+
+Keybindings in Navigator:
+    j/k, ↓/↑     Navigate sessions
+    g/G          Go to first/last session
+    Enter        Full attach to selected session
+    i            Input mode (focus on preview pane)
+    Esc          Return to list from input mode
+    n            Create new session
+    d            Delete selected session
+    R            Restart Claude in session
+    ?            Show help
+    q            Quit Navigator
+
+EOF
+}
+
+# ============================================================================
+# Main
+# ============================================================================
+
+main() {
+    case "${1:-}" in
+        --open|"")
+            open_navigator
+            ;;
+        --close)
+            close_navigator
+            ;;
+        --attach)
+            full_attach "${2:-}"
+            ;;
+        --kill)
+            kill_nav_server
+            ;;
+        --help|-h)
+            usage
+            ;;
+        *)
+            handle_error "Unknown command: $1"
+            usage
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"
