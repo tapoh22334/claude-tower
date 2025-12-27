@@ -293,7 +293,8 @@ open_navigator_direct() {
     if is_nav_session_exists; then
         info_log "Navigator exists, attaching directly"
         # Just attach - very fast!
-        exec nav_tmux attach-session -t "$TOWER_NAV_SESSION"
+        # Note: Can't use nav_tmux function with exec, must use direct command
+        exec tmux -L "$TOWER_NAV_SOCKET" attach-session -t "$TOWER_NAV_SESSION"
     fi
 
     # Check if there are any sessions to navigate
@@ -344,7 +345,8 @@ open_navigator_direct() {
     info_log "Navigator session created, attaching"
 
     # Attach to Navigator (this replaces the current process)
-    exec nav_tmux attach-session -t "$TOWER_NAV_SESSION"
+    # Note: Can't use nav_tmux function with exec, must use direct command
+    exec tmux -L "$TOWER_NAV_SOCKET" attach-session -t "$TOWER_NAV_SESSION"
 }
 
 # ============================================================================
