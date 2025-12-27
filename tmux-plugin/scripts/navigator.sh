@@ -189,9 +189,10 @@ close_navigator() {
     # cleanup_nav_state  # Don't clear - keep selected state too
 
     # Use exec to seamlessly return to default server
+    # TMUX= clears the Navigator server context to allow default server attach
     if [[ -n "$target_session" ]]; then
         info_log "Detaching and attaching to: $target_session"
-        exec tmux attach-session -t "$target_session"
+        TMUX= exec tmux attach-session -t "$target_session"
     else
         info_log "No target session, just exiting"
         exit 0
@@ -255,7 +256,8 @@ full_attach() {
     # The session list and preview will continue running in background
 
     # Use exec to seamlessly attach to the target session
-    exec tmux attach-session -t "$session_id"
+    # TMUX= clears the Navigator server context to allow default server attach
+    TMUX= exec tmux attach-session -t "$session_id"
 }
 
 # ============================================================================
@@ -294,7 +296,8 @@ open_navigator_direct() {
         info_log "Navigator exists, attaching directly"
         # Just attach - very fast!
         # Note: Can't use nav_tmux function with exec, must use direct command
-        exec tmux -L "$TOWER_NAV_SOCKET" attach-session -t "$TOWER_NAV_SESSION"
+        # TMUX= clears the environment variable to allow cross-server attach
+        TMUX= exec tmux -L "$TOWER_NAV_SOCKET" attach-session -t "$TOWER_NAV_SESSION"
     fi
 
     # Check if there are any sessions to navigate
@@ -308,7 +311,7 @@ open_navigator_direct() {
         local any_session
         any_session=$(TMUX= tmux list-sessions -F '#{session_name}' 2>/dev/null | head -1 || echo "")
         if [[ -n "$any_session" ]]; then
-            exec tmux attach-session -t "$any_session"
+            TMUX= exec tmux attach-session -t "$any_session"
         fi
         exit 0
     fi
@@ -346,7 +349,8 @@ open_navigator_direct() {
 
     # Attach to Navigator (this replaces the current process)
     # Note: Can't use nav_tmux function with exec, must use direct command
-    exec tmux -L "$TOWER_NAV_SOCKET" attach-session -t "$TOWER_NAV_SESSION"
+    # TMUX= clears the environment variable to allow cross-server attach
+    TMUX= exec tmux -L "$TOWER_NAV_SOCKET" attach-session -t "$TOWER_NAV_SESSION"
 }
 
 # ============================================================================
