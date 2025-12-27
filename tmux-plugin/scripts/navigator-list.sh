@@ -160,7 +160,8 @@ render_list() {
     echo -e "${NAV_C_HEADER}├─────────────────────────┤${NAV_C_NORMAL}"
     echo -e "│ ${NAV_C_DIM}j/k${NAV_C_NORMAL}:nav ${NAV_C_DIM}Enter${NAV_C_NORMAL}:attach   │"
     echo -e "│ ${NAV_C_DIM}i${NAV_C_NORMAL}:input ${NAV_C_DIM}n${NAV_C_NORMAL}:new ${NAV_C_DIM}d${NAV_C_NORMAL}:del   │"
-    echo -e "│ ${NAV_C_DIM}R${NAV_C_NORMAL}:restart ${NAV_C_DIM}?${NAV_C_NORMAL}:help ${NAV_C_DIM}q${NAV_C_NORMAL}:quit│"
+    echo -e "│ ${NAV_C_DIM}R${NAV_C_NORMAL}:restart ${NAV_C_DIM}T${NAV_C_NORMAL}:tile      │"
+    echo -e "│ ${NAV_C_DIM}?${NAV_C_NORMAL}:help ${NAV_C_DIM}q${NAV_C_NORMAL}:quit          │"
     echo -e "${NAV_C_HEADER}└─────────────────────────┘${NAV_C_NORMAL}"
 }
 
@@ -181,6 +182,7 @@ show_help() {
     echo "    n          Create new session"
     echo "    d          Delete selected session"
     echo "    R          Restart Claude in session"
+    echo "    T          Switch to Tile mode"
     echo ""
     echo "  Other:"
     echo "    ?          Show this help"
@@ -301,6 +303,17 @@ restart_selected() {
     sleep 0.5
 }
 
+# Switch to Tile mode
+switch_to_tile() {
+    # Close Navigator and open Tile mode
+    if [[ -x "$SCRIPT_DIR/navigator.sh" ]]; then
+        "$SCRIPT_DIR/navigator.sh" --close 2>/dev/null || true
+    fi
+
+    # Launch Tile mode in a new window
+    tmux new-window -n "tower-tile" "$SCRIPT_DIR/tile.sh"
+}
+
 # Full attach to selected session
 full_attach() {
     local selected
@@ -406,6 +419,9 @@ main_loop() {
                     ;;
                 R)
                     restart_selected
+                    ;;
+                T)
+                    switch_to_tile
                     ;;
                 '?')
                     show_help

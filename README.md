@@ -15,15 +15,9 @@ A tmux plugin for managing Claude Code sessions with tree-style navigation and g
 
 ## Requirements
 
-- tmux 3.2+ (for display-popup support)
+- tmux 3.2+
 - git
 - Claude Code CLI (`claude`)
-- [gum](https://github.com/charmbracelet/gum) (for Navigator UI)
-
-```bash
-# Install gum
-brew install gum
-```
 
 ## Installation
 
@@ -60,7 +54,11 @@ Press `prefix + t` to enter Tower mode, then use one of the following keys:
 | `prefix + t r` | Restore sessions |
 | `prefix + t ?` | Show help |
 
-### Navigator Keybindings (Vim-style)
+### Navigator
+
+Navigator opens in a dedicated tmux session with a sidebar layout:
+- **Left pane**: Session list with vim-style navigation
+- **Right pane**: Real-time preview of selected session
 
 | Key | Action |
 |-----|--------|
@@ -68,17 +66,13 @@ Press `prefix + t` to enter Tower mode, then use one of the following keys:
 | `k` / `↑` | Move up |
 | `g` | Go to first session |
 | `G` | Go to last session |
-| `5G` | Jump to session 5 (number+G) |
-| `/pattern` | Search sessions |
-| `N` | Next search result |
 | `Enter` | Attach to selected session |
 | `i` | Input mode (send command) |
-| `T` | Tile mode (view all sessions) |
-| `c` | Create new session |
+| `n` | Create new session |
 | `d` | Delete session |
 | `R` | Restart Claude |
 | `?` | Show help |
-| `q` / `Esc` | Exit Navigator |
+| `q` | Exit Navigator |
 
 ## Tree View
 

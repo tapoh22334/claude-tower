@@ -39,11 +39,11 @@ TOWER_PREFIX=$(get_tmux_option "@tower-prefix" "${CLAUDE_TOWER_PREFIX:-t}")
 tmux bind-key "$TOWER_PREFIX" switch-client -T tower
 
 # Tower mode bindings
-# Use display-popup for interactive TUI scripts (requires tmux 3.2+)
-tmux bind-key -T tower c display-popup -E -w 90% -h 90% "$CURRENT_DIR/scripts/navigator.sh"
-tmux bind-key -T tower t display-popup -E -w 60% -h 40% "$CURRENT_DIR/scripts/session-new.sh"
-tmux bind-key -T tower n display-popup -E -w 60% -h 40% "$CURRENT_DIR/scripts/session-new.sh"
-tmux bind-key -T tower l display-popup -E -w 80% -h 60% "$CURRENT_DIR/scripts/session-list.sh pretty"
+# Navigator now uses dedicated tmux session (no popup, no external deps)
+tmux bind-key -T tower c run-shell -b "$CURRENT_DIR/scripts/navigator.sh"
+tmux bind-key -T tower t new-window -n "tower-new" "$CURRENT_DIR/scripts/session-new.sh"
+tmux bind-key -T tower n new-window -n "tower-new" "$CURRENT_DIR/scripts/session-new.sh"
+tmux bind-key -T tower l new-window -n "tower-list" "$CURRENT_DIR/scripts/session-list.sh pretty"
 tmux bind-key -T tower r run-shell -b "$CURRENT_DIR/scripts/session-restore.sh --all"
 tmux bind-key -T tower '?' display-message "tower: c=navigator t/n=new l=list r=restore"
 

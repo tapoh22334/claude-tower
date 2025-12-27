@@ -1,4 +1,4 @@
-# claude-tower 機能仕様書 v2.0
+# claude-tower 機能仕様書 v2.1
 
 ## 1. 概要
 
@@ -83,31 +83,37 @@ claude-tower session = メタデータ（定義）
 ```
 
 **操作（Vim風）**:
+| キー | アクション | 実装状況 |
+|------|------------|----------|
+| `j` / `↓` | 次のセッションへ | ✅ |
+| `k` / `↑` | 前のセッションへ | ✅ |
+| `g` | 先頭セッションへ | ✅ |
+| `G` | 末尾セッションへ | ✅ |
+| `Enter` | セッションにアタッチ | ✅ |
+| `i` | 入力モード（選択セッションに指示） | ✅ |
+| `n` | 新規セッション作成 | ✅ |
+| `d` | セッション削除 | ✅ |
+| `R` | Claudeプロセス再起動（大文字） | ✅ |
+| `T` | Tileモードへ切り替え（大文字） | ✅ |
+| `?` | ヘルプ表示 | ✅ |
+| `q` | 終了 | ✅ |
+
+**将来実装予定**:
 | キー | アクション |
 |------|------------|
-| `j` / `↓` | 次のセッションへ |
-| `k` / `↑` | 前のセッションへ |
-| `g` | 先頭セッションへ |
-| `G` | 末尾セッションへ |
 | `5G` | 5番目のセッションへ（数字+G） |
 | `/pattern` | セッション検索 |
 | `N` | 次の検索結果へ |
-| `Enter` | セッションにアタッチ |
-| `i` | 入力モード（選択セッションに指示） |
-| `T` | Tileモードへ切り替え（大文字） |
-| `c` | 新規セッション作成 |
-| `d` | セッション削除 |
-| `R` | Claudeプロセス再起動（大文字） |
-| `?` | ヘルプ表示 |
-| `q` / `Esc` | 終了 |
 
 #### 3.1.2 入力モード
 
 Navigatorから `i` で遷移。選択中のセッションに指示を送信。
 
 - テキスト入力 → Enter で送信
-- `Ctrl-[` でNavigatorに戻る（Vim風）
+- `Ctrl-C` / `Ctrl-D` で終了
 - 送信後も入力モード継続（連続指示可能）
+
+> **Note**: Navigator右ペインから直接セッションに入力可能。`Esc`でリスト操作に戻る。
 
 #### 3.1.3 Tileモード
 
@@ -312,53 +318,108 @@ tower_<session_name>
 tmux-plugin/
 ├── claude-tower.tmux          # エントリポイント（キーバインド設定）
 ├── lib/
-│   └── common.sh              # 共通ライブラリ
+│   └── common.sh              # 共通ライブラリ（状態検出含む）
 └── scripts/
     ├── tower.sh               # メインコマンド（Navigator起動）
-    ├── navigator.sh           # Navigatorモード
+    ├── navigator.sh           # Navigatorモード（メイン）
+    ├── navigator-list.sh      # Navigator左ペイン（セッション一覧）
+    ├── navigator-preview.sh   # Navigator右ペイン（プレビュー）
     ├── tile.sh                # Tileモード
     ├── session-new.sh         # セッション作成
     ├── session-delete.sh      # セッション削除
     ├── session-restore.sh     # セッション復元
-    ├── session-list.sh        # セッション一覧取得
-    ├── session-status.sh      # 状態検出
+    ├── session-list.sh        # セッション一覧取得（CLI出力）
     ├── input.sh               # 入力モード
-    └── preview.sh             # プレビュー生成
+    ├── preview.sh             # プレビュー生成（fzf用、レガシー）
+    ├── cleanup.sh             # 孤立リソースのクリーンアップ
+    ├── diff.sh                # Git差分表示
+    ├── help.sh                # ヘルプ表示
+    ├── kill.sh                # セッション強制終了
+    ├── rename.sh              # セッション名変更
+    ├── sidebar.sh             # サイドバー表示
+    ├── statusline.sh          # ステータスライン設定
+    └── tree-view.sh           # ツリービュー表示
 ```
+
+> **Note**: 状態検出ロジック(`get_session_state()`)は`common.sh`に統合済み。
+
+### 7.1 Navigatorアーキテクチャ（Socket Separation）
+
+Navigatorは専用のtmuxサーバー（`-L claude-tower`）を使用し、ユーザーのデフォルトtmuxサーバーとは分離されている。
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                   Default tmux server                           │
+│  ┌────────────┐ ┌────────────┐ ┌────────────┐                 │
+│  │ tower_feat │ │ tower_exp  │ │ user_shell │                 │
+│  │ (Claude)   │ │ (Claude)   │ │            │                 │
+│  └────────────┘ └────────────┘ └────────────┘                 │
+└─────────────────────────────────────────────────────────────────┘
+                          ↕ connect/switch
+┌─────────────────────────────────────────────────────────────────┐
+│              Navigator server (-L claude-tower)                 │
+│  ┌────────────────┬─────────────────────────────────────────┐  │
+│  │ Session List   │           Live Preview                   │  │
+│  │ (navigator-    │  (navigator-preview.sh + nested tmux)   │  │
+│  │  list.sh)      │                                          │  │
+│  └────────────────┴─────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**利点**:
+- Navigatorがユーザーのセッションを汚染しない
+- ネストされたtmuxでリアルタイムプレビューが可能
+- 独立したライフサイクル管理
 
 ---
 
 ## 8. 状態検出
 
+状態検出ロジックは `common.sh` の `get_session_state()` 関数に実装されている。
+
 ### 8.1 Running/Idle判定
 
 Claude Codeの出力パターンで判定:
-- **Idle**: プロンプト表示中（`>` で終わる、または出力停止）
+- **Idle**: プロンプト表示中（`>` で終わる、`claude>`、入力待ちメッセージなど）
 - **Running**: 出力が流れている
 
-**実装案**:
+**実装** (`common.sh:858-896`):
 ```bash
-# paneの最終行を取得
-last_line=$(tmux capture-pane -t "$session" -p | tail -1)
-# 出力が変化しているかチェック（前回との比較）
+# paneの最終5行を取得
+last_lines=$(tmux capture-pane -t "$session_id" -p -S -5 2>/dev/null | tail -5 || echo "")
+
+# Idleパターンの検出
+if echo "$last_lines" | grep -qE '^\s*>\s*$|^\s*claude>\s*$|^\s*\$\s*$|What would you like|waiting for input|Ready'; then
+    echo "$STATE_IDLE"
+else
+    echo "$STATE_RUNNING"
+fi
 ```
 
 ### 8.2 Exited判定
 
+**実装**:
 ```bash
-# claudeプロセスの存在確認
-pane_cmd=$(tmux display-message -t "$session" -p '#{pane_current_command}')
-if [[ "$pane_cmd" != "claude" ]]; then
-    # Exited状態
+# claudeプロセス（または設定プログラム）の存在確認
+pane_cmd=$(tmux display-message -t "$session_id" -p '#{pane_current_command}')
+program_name=$(basename "$TOWER_PROGRAM")  # デフォルト: claude
+
+if [[ "$pane_cmd" != "$program_name" && "$pane_cmd" != "claude" ]]; then
+    echo "$STATE_EXITED"
 fi
 ```
 
 ### 8.3 Dormant判定
 
+**実装**:
 ```bash
-# メタデータあり + tmuxセッションなし
-if [[ -f "$metadata_file" ]] && ! tmux has-session -t "$session_id" 2>/dev/null; then
-    # Dormant状態
+# tmuxセッションなし + メタデータあり
+if ! tmux has-session -t "$session_id" 2>/dev/null; then
+    if has_metadata "$session_id"; then
+        echo "$STATE_DORMANT"
+    else
+        echo ""  # セッションは存在しない
+    fi
 fi
 ```
 
@@ -402,6 +463,9 @@ set -g @tower-prefix 't'        # towerモード起動キー（デフォルト: 
 | `CLAUDE_TOWER_WORKTREE_DIR` | Worktree保存先 | `~/.claude-tower/worktrees` |
 | `CLAUDE_TOWER_METADATA_DIR` | メタデータ保存先 | `~/.claude-tower/metadata` |
 | `CLAUDE_TOWER_DEBUG` | デバッグログ出力 | `0` |
+| `CLAUDE_TOWER_NAV_SOCKET` | Navigatorのtmuxソケット名 | `claude-tower` |
+| `CLAUDE_TOWER_NAV_WIDTH` | Navigator左ペインの幅 | `30` |
+| `CLAUDE_TOWER_PREFIX` | towerモードのキー | `t` |
 
 ---
 
@@ -423,5 +487,12 @@ set -g @tower-prefix 't'        # towerモード起動キー（デフォルト: 
 
 | バージョン | 日付 | 概要 |
 |------------|------|------|
+| 2.1.0 | 2025-12-27 | 仕様書とコードの対応整備、Socket Separation Architecture追加 |
 | 2.0.0 | 2025-01-xx | 設計刷新: 並列オーケストレーターへ |
 | 1.0.0 | 2024-xx-xx | 初期リリース |
+
+---
+
+## 付録A: 仕様書とコードの対応表
+
+詳細な対応表は [docs/SPEC_CODE_MAPPING.md](docs/SPEC_CODE_MAPPING.md) を参照。
