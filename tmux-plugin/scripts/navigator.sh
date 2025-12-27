@@ -28,7 +28,8 @@ source "$SCRIPT_DIR/../lib/common.sh"
 # Configuration
 # ============================================================================
 
-readonly CONF_DIR="$SCRIPT_DIR/../conf"
+# Cleanup on abnormal exit
+trap 'cleanup_nav_state' EXIT INT TERM
 
 # ============================================================================
 # Helper Functions
@@ -163,6 +164,12 @@ full_attach() {
 
     if [[ -z "$session_id" ]]; then
         handle_error "No session selected"
+        return 1
+    fi
+
+    # Validate session ID format (security)
+    if ! validate_tower_session_id "$session_id"; then
+        handle_error "Invalid session ID format"
         return 1
     fi
 

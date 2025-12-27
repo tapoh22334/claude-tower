@@ -113,7 +113,8 @@ main_loop() {
                 # Show dormant info
                 show_dormant_info "$selected"
                 # Wait for signal (Escape from left pane)
-                read -rsn1 -t 1 key || true
+                # shellcheck disable=SC2034
+                read -rsn1 -t 1 _key || true
                 ;;
             "")
                 # Session doesn't exist
@@ -137,19 +138,12 @@ main_loop() {
 # Signal Handlers
 # ============================================================================
 
-# Handle Escape key gracefully
-handle_escape() {
-    # Just continue the loop - will re-read selection
-    :
-}
-
-# Cleanup on exit
+# Cleanup on exit (placeholder for future cleanup needs)
 cleanup() {
-    # Nothing special needed
-    :
+    debug_log "Navigator preview cleanup"
 }
 
-trap cleanup EXIT
+trap cleanup EXIT INT TERM
 
 # ============================================================================
 # Main

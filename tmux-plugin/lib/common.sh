@@ -107,6 +107,16 @@ readonly TOWER_NAV_FOCUS_FILE="${TOWER_NAV_STATE_DIR}/focus"
 # Navigator Helper Functions
 # ============================================================================
 
+# Validate session ID format (security: prevent command injection)
+# Arguments:
+#   $1 - Session ID to validate
+# Returns:
+#   0 if valid tower session ID, 1 if invalid
+validate_tower_session_id() {
+    local session_id="$1"
+    [[ "$session_id" =~ ^tower_[a-zA-Z0-9_-]{1,60}$ ]]
+}
+
 # Ensure Navigator state directory exists
 ensure_nav_state_dir() {
     mkdir -p "$TOWER_NAV_STATE_DIR" 2>/dev/null || true

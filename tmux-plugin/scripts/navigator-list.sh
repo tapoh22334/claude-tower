@@ -21,6 +21,8 @@ readonly NAV_C_HEADER="\033[1;36m"
 readonly NAV_C_SELECTED="\033[7m"  # Reverse video
 readonly NAV_C_NORMAL="\033[0m"
 readonly NAV_C_DIM="\033[2m"
+# Colors (NAV_C_RUNNING used in future state detection)
+# shellcheck disable=SC2034
 readonly NAV_C_RUNNING="\033[32m"
 readonly NAV_C_IDLE="\033[33m"
 readonly NAV_C_EXITED="\033[31m"
@@ -140,15 +142,15 @@ render_list() {
             fi
 
             # Truncate display to fit
-            local line
-            line=$(printf '%s' "$display" | sed 's/\x1b\[[0-9;]*m//g' | cut -c1-22)
-            local colored_line="$display"
+            # Strip ANSI codes and truncate for display
+            local plain_text
+            plain_text=$(printf '%s' "$display" | sed 's/\x1b\[[0-9;]*m//g' | cut -c1-22)
 
             if [[ $i -eq $selected_index ]]; then
                 # Highlight selected row
-                printf "│${NAV_C_SELECTED}%-23s${NAV_C_NORMAL}│\n" " ${line}"
+                printf "│${NAV_C_SELECTED}%-23s${NAV_C_NORMAL}│\n" " ${plain_text}"
             else
-                printf "│ %-22s │\n" "$line"
+                printf "│ %-22s │\n" "$plain_text"
             fi
             ((i++)) || true
         done
@@ -270,7 +272,10 @@ delete_selected() {
     local name="${selected#tower_}"
 
     echo -e "\n${C_YELLOW}Delete '${name}'? (y/N)${C_RESET}"
-    read -rsn1 confirm
+    if ! read -rsn1 -t 10 confirm; then
+        echo -e "\n${NAV_C_DIM}Cancelled (timeout)${NAV_C_NORMAL}"
+        return
+    fi
 
     if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
         "$SCRIPT_DIR/session-delete.sh" "$selected" --force 2>/dev/null || true
@@ -316,12 +321,22 @@ full_attach() {
     fi
 
     # Call navigator.sh to handle full attach
-    exec "$SCRIPT_DIR/navigator.sh" --attach "$selected"
+    if [[ -x "$SCRIPT_DIR/navigator.sh" ]]; then
+        exec "$SCRIPT_DIR/navigator.sh" --attach "$selected"
+    else
+        handle_error "navigator.sh not found or not executable"
+        return 1
+    fi
 }
 
 # Quit Navigator
 quit_navigator() {
-    exec "$SCRIPT_DIR/navigator.sh" --close
+    if [[ -x "$SCRIPT_DIR/navigator.sh" ]]; then
+        exec "$SCRIPT_DIR/navigator.sh" --close
+    else
+        # Fallback: exit directly
+        exit 0
+    fi
 }
 
 # ============================================================================

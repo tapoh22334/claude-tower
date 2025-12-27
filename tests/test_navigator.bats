@@ -220,6 +220,36 @@ setup() {
     [ ! -f "$TOWER_NAV_FOCUS_FILE" ]
 }
 
+@test "validate_tower_session_id: accepts valid session ID" {
+    run validate_tower_session_id "tower_my-project"
+
+    [ "$status" -eq 0 ]
+}
+
+@test "validate_tower_session_id: accepts session ID with underscores" {
+    run validate_tower_session_id "tower_my_project_123"
+
+    [ "$status" -eq 0 ]
+}
+
+@test "validate_tower_session_id: rejects session ID without tower_ prefix" {
+    run validate_tower_session_id "my-project"
+
+    [ "$status" -eq 1 ]
+}
+
+@test "validate_tower_session_id: rejects session ID with special characters" {
+    run validate_tower_session_id "tower_my;rm -rf"
+
+    [ "$status" -eq 1 ]
+}
+
+@test "validate_tower_session_id: rejects empty session ID" {
+    run validate_tower_session_id ""
+
+    [ "$status" -eq 1 ]
+}
+
 @test "nav_tmux: wrapper function exists" {
     # This test just verifies the function exists and can be called
     # Actual socket functionality requires a running tmux
