@@ -16,17 +16,17 @@ source "$SCRIPT_DIR/../lib/common.sh"
 
 readonly REFRESH_INTERVAL=2
 
-# Colors for navigator
-readonly NAV_C_HEADER="\033[1;36m"
-readonly NAV_C_SELECTED="\033[7m"  # Reverse video
-readonly NAV_C_NORMAL="\033[0m"
-readonly NAV_C_DIM="\033[2m"
+# Colors for navigator (using $'...' syntax for actual escape sequences)
+readonly NAV_C_HEADER=$'\033[1;36m'
+readonly NAV_C_SELECTED=$'\033[7m'  # Reverse video
+readonly NAV_C_NORMAL=$'\033[0m'
+readonly NAV_C_DIM=$'\033[2m'
 # Colors (NAV_C_RUNNING used in future state detection)
 # shellcheck disable=SC2034
-readonly NAV_C_RUNNING="\033[32m"
-readonly NAV_C_IDLE="\033[33m"
-readonly NAV_C_EXITED="\033[31m"
-readonly NAV_C_DORMANT="\033[90m"
+readonly NAV_C_RUNNING=$'\033[32m'
+readonly NAV_C_IDLE=$'\033[33m'
+readonly NAV_C_EXITED=$'\033[31m'
+readonly NAV_C_DORMANT=$'\033[90m'
 
 # ============================================================================
 # Session List Management
