@@ -11,9 +11,26 @@ set -euo pipefail
 # Enable debug mode with: export CLAUDE_TOWER_DEBUG=1
 readonly TOWER_DEBUG="${CLAUDE_TOWER_DEBUG:-0}"
 
+# Log file path (always available, not just in debug mode)
+readonly TOWER_LOG_DIR="${CLAUDE_TOWER_METADATA_DIR:-$HOME/.claude-tower/metadata}"
+readonly TOWER_LOG_FILE="${TOWER_LOG_DIR}/tower.log"
+
 # Store the calling script name for error messages
 TOWER_SCRIPT_NAME="${TOWER_SCRIPT_NAME:-${BASH_SOURCE[1]:-unknown}}"
 TOWER_SCRIPT_NAME=$(basename "$TOWER_SCRIPT_NAME")
+
+# Ensure log directory exists
+_ensure_log_dir() {
+    mkdir -p "$TOWER_LOG_DIR" 2>/dev/null || true
+}
+
+# Log to file (always, not just debug mode)
+_log_to_file() {
+    local level="$1"
+    local msg="$2"
+    _ensure_log_dir
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [$level] [$TOWER_SCRIPT_NAME] $msg" >> "$TOWER_LOG_FILE" 2>/dev/null || true
+}
 
 # Error trap handler - called when a command fails
 _tower_error_trap() {
@@ -24,22 +41,18 @@ _tower_error_trap() {
     # Don't trigger on intentional exits
     [[ "$exit_code" -eq 0 ]] && return 0
 
-    local error_msg="[$TOWER_SCRIPT_NAME:$line_no] Command failed (exit $exit_code): $command"
+    local error_msg="Line $line_no: Command failed (exit $exit_code): $command"
+
+    # Always log errors to file
+    _log_to_file "ERROR" "$error_msg"
 
     if [[ "$TOWER_DEBUG" == "1" ]]; then
-        echo "DEBUG: $error_msg" >&2
+        echo "ERROR: [$TOWER_SCRIPT_NAME] $error_msg" >&2
         echo "DEBUG: Stack trace:" >&2
         local frame=0
         while caller $frame; do
             ((frame++))
         done 2>/dev/null >&2
-    fi
-
-    # Log to file if debug enabled
-    if [[ "$TOWER_DEBUG" == "1" ]]; then
-        local log_file="${CLAUDE_TOWER_METADATA_DIR:-$HOME/.claude-tower/metadata}/tower.log"
-        mkdir -p "$(dirname "$log_file")" 2>/dev/null || true
-        echo "[$(date -Iseconds)] $error_msg" >> "$log_file" 2>/dev/null || true
     fi
 }
 
@@ -48,9 +61,23 @@ trap '_tower_error_trap ${LINENO}' ERR
 
 # Debug logging function
 debug_log() {
-    [[ "$TOWER_DEBUG" != "1" ]] && return 0
     local msg="$1"
+    _log_to_file "DEBUG" "$msg"
+    [[ "$TOWER_DEBUG" != "1" ]] && return 0
     echo "DEBUG: [$TOWER_SCRIPT_NAME] $msg" >&2
+}
+
+# Info logging (always to file, optionally to stderr)
+info_log() {
+    local msg="$1"
+    _log_to_file "INFO" "$msg"
+}
+
+# Error logging (always to file and stderr)
+error_log() {
+    local msg="$1"
+    _log_to_file "ERROR" "$msg"
+    echo "ERROR: [$TOWER_SCRIPT_NAME] $msg" >&2
 }
 
 # ============================================================================
@@ -284,10 +311,11 @@ handle_error() {
     local exit_code="${2:-}"
     local formatted_msg="${C_RED}Error:${C_RESET} $msg"
 
-    echo -e "$formatted_msg" >&2
-    tmux display-message "Error: $msg" 2>/dev/null || true
+    # Always log to file
+    _log_to_file "ERROR" "$msg"
 
-    debug_log "Error occurred: $msg"
+    echo -e "$formatted_msg" >&2
+    tmux display-message "❌ Error: $msg" 2>/dev/null || true
 
     if [[ -n "$exit_code" ]]; then
         exit "$exit_code"
@@ -301,10 +329,10 @@ handle_warning() {
     local msg="$1"
     local formatted_msg="${C_YELLOW}Warning:${C_RESET} $msg"
 
-    echo -e "$formatted_msg" >&2
-    tmux display-message "Warning: $msg" 2>/dev/null || true
+    _log_to_file "WARN" "$msg"
 
-    debug_log "Warning: $msg"
+    echo -e "$formatted_msg" >&2
+    tmux display-message "⚠️ Warning: $msg" 2>/dev/null || true
 }
 
 # Display info message to user via tmux
@@ -312,8 +340,8 @@ handle_warning() {
 #   $1 - Info message
 handle_info() {
     local msg="$1"
+    _log_to_file "INFO" "$msg"
     tmux display-message "$msg" 2>/dev/null || true
-    debug_log "Info: $msg"
 }
 
 # Display success message
@@ -323,10 +351,10 @@ handle_success() {
     local msg="$1"
     local formatted_msg="${C_GREEN}Success:${C_RESET} $msg"
 
-    echo -e "$formatted_msg"
-    tmux display-message "$msg" 2>/dev/null || true
+    _log_to_file "INFO" "Success: $msg"
 
-    debug_log "Success: $msg"
+    echo -e "$formatted_msg"
+    tmux display-message "✓ $msg" 2>/dev/null || true
 }
 
 # Graceful error exit with cleanup hint

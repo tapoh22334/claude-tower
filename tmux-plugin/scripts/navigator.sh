@@ -87,7 +87,16 @@ create_navigator() {
 
 # Attach to Navigator
 attach_navigator() {
-    debug_log "Attaching to Navigator"
+    info_log "Attaching to Navigator"
+
+    # Check if we have a terminal (required for attach)
+    if ! tty -s 2>/dev/null; then
+        local err_msg="Cannot attach: no terminal available. Use 'prefix + t, c' from tmux, or run directly in terminal."
+        error_log "$err_msg"
+        tmux display-message "❌ $err_msg" 2>/dev/null || true
+        tmux display-message "📋 Log: $TOWER_LOG_FILE" 2>/dev/null || true
+        return 1
+    fi
 
     # Need to unset TMUX to attach to different server
     TMUX= nav_tmux attach-session -t "$TOWER_NAV_SESSION"
@@ -110,6 +119,17 @@ kill_navigator() {
 
 # Open Navigator (main entry point)
 open_navigator() {
+    info_log "Opening Navigator..."
+
+    # Early check: do we have a terminal?
+    if ! tty -s 2>/dev/null; then
+        local err_msg="Navigator requires a terminal. Cannot run in background mode."
+        error_log "$err_msg"
+        tmux display-message "❌ $err_msg" 2>/dev/null || true
+        tmux display-message "💡 Try: tmux display-popup -E -w 90% -h 90% '$SCRIPT_DIR/navigator.sh'" 2>/dev/null || true
+        return 1
+    fi
+
     # Save caller session for return
     local current_session
     current_session=$(tmux display-message -p '#S' 2>/dev/null || echo "")
@@ -120,7 +140,7 @@ open_navigator() {
 
     # Check if Navigator already exists
     if is_nav_session_exists; then
-        debug_log "Navigator already exists, attaching"
+        info_log "Navigator already exists, attaching"
         attach_navigator
     else
         # Check if there are any sessions to navigate
@@ -130,10 +150,11 @@ open_navigator() {
         if [[ "$session_count" -eq 0 ]]; then
             # No sessions - offer to create one
             handle_info "No tower sessions found. Use 'prefix + t n' to create a new session."
+            info_log "No tower sessions found"
             return 0
         fi
 
-        debug_log "Creating new Navigator"
+        info_log "Creating new Navigator (session count: $session_count)"
         create_navigator
         attach_navigator
     fi
