@@ -39,10 +39,13 @@ TOWER_PREFIX=$(get_tmux_option "@tower-prefix" "${CLAUDE_TOWER_PREFIX:-t}")
 tmux bind-key "$TOWER_PREFIX" switch-client -T tower
 
 # Tower mode bindings
-# Navigator uses display-popup to provide a terminal context for session attachment
-# The navigator creates its own dedicated tmux server (-L claude-tower) for isolation
-# Full screen popup for immersive experience, exits on navigator close
-tmux bind-key -T tower c display-popup -E -w 100% -h 100% "$CURRENT_DIR/scripts/navigator.sh"
+# Navigator uses detach-client -E for seamless server switching
+# This provides true switch-client-like experience between servers:
+#   1. Detach from default server
+#   2. Execute command that attaches to Navigator server
+# The -E flag runs the command after detaching, in the original terminal context
+# #{session_name} is expanded by tmux BEFORE detaching, so we can pass the caller session
+tmux bind-key -T tower c detach-client -E "exec $CURRENT_DIR/scripts/navigator.sh --direct --caller '#{session_name}'"
 tmux bind-key -T tower t new-window -n "tower-new" "$CURRENT_DIR/scripts/session-new.sh"
 tmux bind-key -T tower n new-window -n "tower-new" "$CURRENT_DIR/scripts/session-new.sh"
 tmux bind-key -T tower l new-window -n "tower-list" "$CURRENT_DIR/scripts/session-list.sh pretty"

@@ -9,6 +9,12 @@
 #   - Left pane: Session list with vim-style navigation
 #   - Right pane: Real-time view of selected session (connects to default server)
 #
+# Invocation modes:
+#   --direct    Called from detach-client -E (seamless server switching)
+#   --open      Open Navigator (legacy popup mode)
+#   --close     Close Navigator and return to caller
+#   --attach    Full attach to session
+#
 # Key bindings:
 #   j/k    - Navigate sessions
 #   Enter  - Full attach to selected session
@@ -28,8 +34,8 @@ source "$SCRIPT_DIR/../lib/common.sh"
 # Configuration
 # ============================================================================
 
-# Cleanup on abnormal exit
-trap 'cleanup_nav_state' EXIT INT TERM
+# Don't trap EXIT in direct mode - let the shell handle it
+# trap 'cleanup_nav_state' EXIT INT TERM
 
 # ============================================================================
 # Helper Functions
@@ -160,8 +166,40 @@ open_navigator() {
     fi
 }
 
-# Close Navigator and return to caller
+# Close Navigator and return to caller (detach-client -E version)
+# This is called from within Navigator to exit and return to default server
+# NOTE: Navigator session is kept alive for fast re-entry
 close_navigator() {
+    local caller
+    caller=$(get_nav_caller)
+
+    info_log "Closing Navigator (keeping session alive), returning to caller: ${caller:-<none>}"
+
+    # Determine target session on default server
+    local target_session=""
+    if [[ -n "$caller" ]] && TMUX= tmux has-session -t "$caller" 2>/dev/null; then
+        target_session="$caller"
+    else
+        # Fallback: find any session on default server
+        target_session=$(TMUX= tmux list-sessions -F '#{session_name}' 2>/dev/null | head -1 || echo "")
+    fi
+
+    # DON'T kill Navigator session - keep it for fast re-entry
+    # Just clear the caller state (will be set again on next entry)
+    # cleanup_nav_state  # Don't clear - keep selected state too
+
+    # Use exec to seamlessly return to default server
+    if [[ -n "$target_session" ]]; then
+        info_log "Detaching and attaching to: $target_session"
+        exec tmux attach-session -t "$target_session"
+    else
+        info_log "No target session, just exiting"
+        exit 0
+    fi
+}
+
+# Close Navigator (legacy version for popup mode)
+close_navigator_legacy() {
     local caller
     caller=$(get_nav_caller)
 
@@ -176,6 +214,8 @@ close_navigator() {
 }
 
 # Full attach to session (exit Navigator and attach directly)
+# Uses exec to seamlessly switch to the target session
+# NOTE: Navigator session is kept alive for fast re-entry
 full_attach() {
     local session_id="${1:-}"
 
@@ -201,6 +241,7 @@ full_attach() {
         state=$(get_session_state "$session_id")
 
         if [[ "$state" == "$STATE_DORMANT" ]]; then
+            info_log "Restoring dormant session: $session_id"
             restore_session "$session_id"
         else
             handle_error "Session does not exist: ${session_id#tower_}"
@@ -208,12 +249,102 @@ full_attach() {
         fi
     fi
 
-    # Kill Navigator
-    kill_navigator
+    info_log "Full attach to session: $session_id"
 
-    # Attach to selected session in default server
-    TMUX= tmux switch-client -t "$session_id" 2>/dev/null || \
-        TMUX= tmux attach-session -t "$session_id" 2>/dev/null || true
+    # DON'T kill Navigator session - keep it for fast re-entry
+    # The session list and preview will continue running in background
+
+    # Use exec to seamlessly attach to the target session
+    exec tmux attach-session -t "$session_id"
+}
+
+# ============================================================================
+# Direct Mode (for detach-client -E)
+# ============================================================================
+
+# Direct mode entry point - called from detach-client -E
+# This runs AFTER detaching from default server, directly in the user's terminal
+# Arguments:
+#   --caller <session>  The session to return to when exiting Navigator
+open_navigator_direct() {
+    local caller_session=""
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --caller)
+                caller_session="$2"
+                shift 2
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    info_log "Opening Navigator (direct mode), caller: ${caller_session:-<none>}"
+
+    # Save caller session for return
+    if [[ -n "$caller_session" ]]; then
+        set_nav_caller "$caller_session"
+    fi
+
+    # Check if Navigator session already exists
+    if is_nav_session_exists; then
+        info_log "Navigator exists, attaching directly"
+        # Just attach - very fast!
+        exec nav_tmux attach-session -t "$TOWER_NAV_SESSION"
+    fi
+
+    # Check if there are any sessions to navigate
+    local session_count
+    session_count=$(count_tower_sessions)
+
+    if [[ "$session_count" -eq 0 ]]; then
+        echo "No tower sessions found. Use 'prefix + t n' to create a new session."
+        info_log "No tower sessions found"
+        # Return to default server
+        local any_session
+        any_session=$(TMUX= tmux list-sessions -F '#{session_name}' 2>/dev/null | head -1 || echo "")
+        if [[ -n "$any_session" ]]; then
+            exec tmux attach-session -t "$any_session"
+        fi
+        exit 0
+    fi
+
+    info_log "Creating new Navigator (session count: $session_count)"
+
+    # Ensure state directory exists
+    ensure_nav_state_dir
+
+    # Get first session to select
+    local first_session
+    first_session=$(get_first_tower_session)
+    if [[ -n "$first_session" ]]; then
+        set_nav_selected "$first_session"
+    fi
+
+    # Create Navigator session
+    TMUX= nav_tmux new-session -d -s "$TOWER_NAV_SESSION" -x "$(tput cols)" -y "$(tput lines)"
+
+    # Split into left (list) and right (preview) panes
+    nav_tmux split-window -t "$TOWER_NAV_SESSION" -h -l "70%"
+
+    # Set up left pane (session list)
+    nav_tmux send-keys -t "$TOWER_NAV_SESSION:0.0" \
+        "$SCRIPT_DIR/navigator-list.sh" Enter
+
+    # Set up right pane (preview wrapper)
+    nav_tmux send-keys -t "$TOWER_NAV_SESSION:0.1" \
+        "$SCRIPT_DIR/navigator-preview.sh" Enter
+
+    # Focus on left pane
+    nav_tmux select-pane -t "$TOWER_NAV_SESSION:0.0"
+
+    info_log "Navigator session created, attaching"
+
+    # Attach to Navigator (this replaces the current process)
+    exec nav_tmux attach-session -t "$TOWER_NAV_SESSION"
 }
 
 # ============================================================================
@@ -225,15 +356,20 @@ usage() {
 Usage: $(basename "$0") [command]
 
 Commands:
-    (default)       Open Navigator (or attach if already exists)
-    --open          Open Navigator
+    (default)       Open Navigator (popup mode, legacy)
+    --direct        Open Navigator (direct mode, for detach-client -E)
+    --open          Open Navigator (popup mode)
     --close         Close Navigator and return to caller
-    --attach <id>   Full attach to session, closing Navigator
+    --attach <id>   Full attach to session
     --kill          Kill Navigator server
 
 Navigator Architecture:
     Uses socket separation with dedicated tmux server (-L $TOWER_NAV_SOCKET)
     Left pane shows session list, right pane shows live preview
+
+Invocation:
+    From tmux:     prefix + t, c  (uses detach-client -E for seamless switching)
+    Direct:        ./navigator.sh --direct
 
 Keybindings in Navigator:
     j/k, ↓/↑     Navigate sessions
@@ -256,7 +392,13 @@ EOF
 
 main() {
     case "${1:-}" in
+        --direct)
+            # New seamless mode via detach-client -E
+            shift
+            open_navigator_direct "$@"
+            ;;
         --open|"")
+            # Legacy popup mode
             open_navigator
             ;;
         --close)
