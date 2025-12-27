@@ -71,7 +71,7 @@ build_session_list() {
 
         SESSION_IDS+=("$session_id")
         SESSION_DISPLAYS+=("${state_color}${state_icon}${NAV_C_NORMAL} ${type_icon} ${name}")
-    done < <(tmux list-sessions -F '#{session_name}	#{pane_current_command}' 2>/dev/null || true)
+    done < <(TMUX= tmux list-sessions -F '#{session_name}	#{pane_current_command}' 2>/dev/null || true)
 
     # Add dormant sessions (metadata exists but no tmux session)
     for meta_file in "${TOWER_METADATA_DIR}"/*.meta; do
@@ -295,10 +295,10 @@ restart_selected() {
         return
     fi
 
-    # Send Ctrl-C and restart
-    tmux send-keys -t "$selected" C-c 2>/dev/null || true
+    # Send Ctrl-C and restart on DEFAULT server
+    TMUX= tmux send-keys -t "$selected" C-c 2>/dev/null || true
     sleep 0.2
-    tmux send-keys -t "$selected" "${TOWER_PROGRAM:-claude}" Enter 2>/dev/null || true
+    TMUX= tmux send-keys -t "$selected" "${TOWER_PROGRAM:-claude}" Enter 2>/dev/null || true
     echo -e "\n${C_GREEN}Restarted Claude${C_RESET}"
     sleep 0.5
 }
@@ -310,8 +310,8 @@ switch_to_tile() {
         "$SCRIPT_DIR/navigator.sh" --close 2>/dev/null || true
     fi
 
-    # Launch Tile mode in a new window
-    tmux new-window -n "tower-tile" "$SCRIPT_DIR/tile.sh"
+    # Launch Tile mode in a new window on DEFAULT server
+    TMUX= tmux new-window -n "tower-tile" "$SCRIPT_DIR/tile.sh"
 }
 
 # Full attach to selected session

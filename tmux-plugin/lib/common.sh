@@ -542,9 +542,9 @@ has_metadata() {
 # active tmux session. These can occur when sessions are terminated
 # unexpectedly or when cleanup fails.
 
-# Get list of active tmux sessions
+# Get list of active tmux sessions from default server
 get_active_sessions() {
-    tmux list-sessions -F '#{session_name}' 2>/dev/null || true
+    TMUX= tmux list-sessions -F '#{session_name}' 2>/dev/null || true
 }
 
 # Find orphaned worktrees (worktrees without active sessions)
@@ -805,14 +805,14 @@ validate_session_name() {
     return 0
 }
 
-# Check if session exists
+# Check if session exists on default server
 # Arguments:
 #   $1 - Session ID
 # Returns:
 #   0 if exists, 1 if not
 session_exists() {
     local session_id="$1"
-    tmux has-session -t "$session_id" 2>/dev/null
+    TMUX= tmux has-session -t "$session_id" 2>/dev/null
 }
 
 # Check if worktree exists
@@ -850,7 +850,7 @@ readonly TYPE_SIMPLE="simple"
 readonly ICON_TYPE_WORKTREE="[W]"
 readonly ICON_TYPE_SIMPLE="[S]"
 
-# Get session state
+# Get session state (always checks default server)
 # Arguments:
 #   $1 - Session ID (with tower_ prefix)
 # Returns:
@@ -858,8 +858,8 @@ readonly ICON_TYPE_SIMPLE="[S]"
 get_session_state() {
     local session_id="$1"
 
-    # Check if tmux session exists
-    if ! tmux has-session -t "$session_id" 2>/dev/null; then
+    # Check if tmux session exists on default server
+    if ! TMUX= tmux has-session -t "$session_id" 2>/dev/null; then
         # No tmux session - check if metadata exists (Dormant)
         if has_metadata "$session_id"; then
             echo "$STATE_DORMANT"
@@ -871,7 +871,7 @@ get_session_state() {
 
     # tmux session exists - check Claude process
     local pane_cmd
-    pane_cmd=$(tmux display-message -t "$session_id" -p '#{pane_current_command}' 2>/dev/null || echo "")
+    pane_cmd=$(TMUX= tmux display-message -t "$session_id" -p '#{pane_current_command}' 2>/dev/null || echo "")
 
     # Check if Claude (or configured program) is running
     local program_name
@@ -885,7 +885,7 @@ get_session_state() {
     # Claude is running - check if actively outputting or idle
     # We use a simple heuristic: capture pane content and check last line
     local last_lines
-    last_lines=$(tmux capture-pane -t "$session_id" -p -S -5 2>/dev/null | tail -5 || echo "")
+    last_lines=$(TMUX= tmux capture-pane -t "$session_id" -p -S -5 2>/dev/null | tail -5 || echo "")
 
     # Common idle patterns in Claude Code
     if echo "$last_lines" | grep -qE '^\s*>\s*$|^\s*claude>\s*$|^\s*\$\s*$|What would you like|waiting for input|Ready'; then
@@ -978,7 +978,7 @@ list_all_sessions() {
         fi
 
         echo "${session_id}:${state}:${type}"
-    done < <(tmux list-sessions -F '#{session_name}	#{pane_current_command}' 2>/dev/null || true)
+    done < <(TMUX= tmux list-sessions -F '#{session_name}	#{pane_current_command}' 2>/dev/null || true)
 
     # Check metadata for dormant sessions
     for meta_file in "${TOWER_METADATA_DIR}"/*.meta; do
@@ -1109,19 +1109,22 @@ _create_simple_session() {
 }
 
 # Start tmux session with Claude (internal)
+# Note: TMUX= prefix ensures sessions are always created on the default server,
+# even when this function is called from within Navigator's popup context
 _start_session_with_claude() {
     local session_id="$1"
     local working_dir="$2"
     local continue_flag="${3:-}"
 
-    # Create detached tmux session
-    tmux new-session -d -s "$session_id" -c "$working_dir"
+    # Create detached tmux session on DEFAULT server (not Navigator server)
+    # TMUX= clears the environment variable to prevent inheriting Navigator's context
+    TMUX= tmux new-session -d -s "$session_id" -c "$working_dir"
 
     # Start Claude
     local claude_cmd="$TOWER_PROGRAM"
     [[ -n "$continue_flag" ]] && claude_cmd="$TOWER_PROGRAM --continue"
 
-    tmux send-keys -t "$session_id" "$claude_cmd" Enter
+    TMUX= tmux send-keys -t "$session_id" "$claude_cmd" Enter
 
     handle_success "Session created: ${session_id#tower_}"
 }
@@ -1193,9 +1196,9 @@ delete_session() {
         fi
     fi
 
-    # Kill tmux session if active
+    # Kill tmux session if active (on default server)
     if [[ "$state" != "$STATE_DORMANT" ]]; then
-        tmux kill-session -t "$session_id" 2>/dev/null || true
+        TMUX= tmux kill-session -t "$session_id" 2>/dev/null || true
     fi
 
     # For worktree sessions, cleanup worktree and branch
@@ -1260,8 +1263,8 @@ restart_session() {
         return 1
     fi
 
-    # Kill current process and start Claude again
-    tmux send-keys -t "$session_id" C-c 2>/dev/null || true
+    # Kill current process and start Claude again (on default server)
+    TMUX= tmux send-keys -t "$session_id" C-c 2>/dev/null || true
     sleep 0.5
 
     local type
@@ -1270,7 +1273,7 @@ restart_session() {
     local claude_cmd="$TOWER_PROGRAM"
     [[ "$type" == "$TYPE_WORKTREE" ]] && claude_cmd="$TOWER_PROGRAM --continue"
 
-    tmux send-keys -t "$session_id" "$claude_cmd" Enter
+    TMUX= tmux send-keys -t "$session_id" "$claude_cmd" Enter
 
     handle_success "Session restarted: ${session_id#tower_}"
 }
@@ -1293,7 +1296,7 @@ send_to_session() {
         return 1
     fi
 
-    tmux send-keys -t "$session_id" "$input" Enter
+    TMUX= tmux send-keys -t "$session_id" "$input" Enter
 }
 
 # ============================================================================

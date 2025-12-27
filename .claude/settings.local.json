@@ -3,7 +3,13 @@
     "allow": [
       "mcp__ruv-swarm",
       "mcp__claude-flow@alpha",
-      "mcp__flow-nexus"
+      "mcp__flow-nexus",
+      "Bash(cat:*)",
+      "Bash(bash -x tmux-plugin/scripts/navigator.sh:*)",
+      "Bash(tmux-plugin/scripts/navigator.sh)",
+      "Bash(echo:*)",
+      "Bash(tmux list-sessions:*)",
+      "Bash(chmod:*)"
     ],
     "deny": []
   }

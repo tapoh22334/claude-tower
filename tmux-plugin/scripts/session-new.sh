@@ -98,8 +98,9 @@ fi
 
 # Determine working directory
 if [[ -z "$working_dir" ]]; then
-    # Try to get from current tmux pane
-    working_dir=$(tmux display-message -p '#{pane_current_path}' 2>/dev/null || pwd)
+    # Try to get from current tmux pane on DEFAULT server (not Navigator server)
+    # TMUX= ensures we query the default server
+    working_dir=$(TMUX= tmux display-message -p '#{pane_current_path}' 2>/dev/null || pwd)
 fi
 
 # Determine session type
@@ -113,10 +114,10 @@ fi
 debug_log "Creating session: name=$name, type=$session_type, dir=$working_dir"
 
 if create_session "$name" "$session_type" "$working_dir"; then
-    # Switch to new session
+    # Switch to new session on DEFAULT server
     session_id=$(normalize_session_name "$(sanitize_name "$name")")
-    tmux switch-client -t "$session_id" 2>/dev/null || \
-    tmux attach-session -t "$session_id" 2>/dev/null || true
+    TMUX= tmux switch-client -t "$session_id" 2>/dev/null || \
+    TMUX= tmux attach-session -t "$session_id" 2>/dev/null || true
 else
     exit 1
 fi

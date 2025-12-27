@@ -37,12 +37,12 @@ trap 'cleanup_nav_state' EXIT INT TERM
 
 # Get first tower session from default server
 get_first_tower_session() {
-    tmux list-sessions -F '#{session_name}' 2>/dev/null | grep '^tower_' | head -1 || echo ""
+    TMUX= tmux list-sessions -F '#{session_name}' 2>/dev/null | grep '^tower_' | head -1 || echo ""
 }
 
-# Count tower sessions
+# Count tower sessions on default server
 count_tower_sessions() {
-    tmux list-sessions -F '#{session_name}' 2>/dev/null | grep -c '^tower_' || echo "0"
+    TMUX= tmux list-sessions -F '#{session_name}' 2>/dev/null | grep -c '^tower_' || echo "0"
 }
 
 # ============================================================================
@@ -146,10 +146,10 @@ close_navigator() {
 
     kill_navigator
 
-    # Return to caller session if available
+    # Return to caller session if available (on default server)
     if [[ -n "$caller" ]]; then
-        if tmux has-session -t "$caller" 2>/dev/null; then
-            tmux switch-client -t "$caller" 2>/dev/null || true
+        if TMUX= tmux has-session -t "$caller" 2>/dev/null; then
+            TMUX= tmux switch-client -t "$caller" 2>/dev/null || true
         fi
     fi
 }
@@ -173,8 +173,8 @@ full_attach() {
         return 1
     fi
 
-    # Check if session exists
-    if ! tmux has-session -t "$session_id" 2>/dev/null; then
+    # Check if session exists on default server
+    if ! TMUX= tmux has-session -t "$session_id" 2>/dev/null; then
         # Try to restore if dormant
         local state
         state=$(get_session_state "$session_id")
@@ -191,8 +191,8 @@ full_attach() {
     kill_navigator
 
     # Attach to selected session in default server
-    tmux switch-client -t "$session_id" 2>/dev/null || \
-        tmux attach-session -t "$session_id" 2>/dev/null || true
+    TMUX= tmux switch-client -t "$session_id" 2>/dev/null || \
+        TMUX= tmux attach-session -t "$session_id" 2>/dev/null || true
 }
 
 # ============================================================================
