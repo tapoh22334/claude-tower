@@ -15,9 +15,11 @@ arg="${1:-}"
 if [[ "$arg" == "--all" || "$arg" == "-a" ]]; then
     restore_all_dormant
 elif [[ -n "$arg" ]]; then
-    session_id="$arg"
-    # Ensure session_id has tower_ prefix
-    [[ "$session_id" != tower_* ]] && session_id="tower_$session_id"
+    # Validate and ensure session_id has tower_ prefix (security: prevent injection)
+    session_id=$(ensure_tower_prefix "$arg") || {
+        handle_error "Invalid session ID format"
+        exit 1
+    }
     restore_session "$session_id"
 else
     # Interactive: select from dormant sessions

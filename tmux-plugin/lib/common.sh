@@ -144,9 +144,46 @@ validate_tower_session_id() {
     [[ "$session_id" =~ ^tower_[a-zA-Z0-9_-]{1,60}$ ]]
 }
 
-# Ensure Navigator state directory exists
+# Ensure session ID has tower_ prefix and validate
+# Security: Validates input before adding prefix to prevent injection
+# Arguments:
+#   $1 - Session ID (with or without tower_ prefix)
+# Returns:
+#   Validated session ID with tower_ prefix, or empty string on failure
+# Exit:
+#   Returns 1 if validation fails
+ensure_tower_prefix() {
+    local session_id="$1"
+
+    # Remove tower_ prefix if present for validation
+    local name="${session_id#tower_}"
+
+    # Sanitize the name part
+    name=$(sanitize_name "$name")
+
+    if [[ -z "$name" ]]; then
+        error_log "Invalid session ID: empty after sanitization"
+        return 1
+    fi
+
+    local result="tower_${name}"
+
+    # Final validation
+    if ! validate_tower_session_id "$result"; then
+        error_log "Invalid session ID format: $result"
+        return 1
+    fi
+
+    echo "$result"
+}
+
+# Ensure Navigator state directory exists with secure permissions
+# Security: Creates directory and sets 700 permissions to prevent access by other users
 ensure_nav_state_dir() {
-    mkdir -p "$TOWER_NAV_STATE_DIR" 2>/dev/null || true
+    if [[ ! -d "$TOWER_NAV_STATE_DIR" ]]; then
+        mkdir -p "$TOWER_NAV_STATE_DIR" 2>/dev/null || true
+    fi
+    # Set secure permissions (prevents other users from accessing state files)
     chmod 700 "$TOWER_NAV_STATE_DIR" 2>/dev/null || true
 }
 
@@ -468,9 +505,12 @@ confirm() {
 # Metadata is stored as simple key=value files for each session.
 # This allows recovery of session info even if tmux session options are lost.
 
-# Ensure metadata directory exists
+# Ensure metadata directory exists with secure permissions
 ensure_metadata_dir() {
-    mkdir -p "$TOWER_METADATA_DIR"
+    if [[ ! -d "$TOWER_METADATA_DIR" ]]; then
+        mkdir -p "$TOWER_METADATA_DIR" 2>/dev/null || true
+        chmod 700 "$TOWER_METADATA_DIR" 2>/dev/null || true
+    fi
 }
 
 # Save session metadata to file
@@ -1128,6 +1168,33 @@ _create_simple_session() {
     _start_session_with_claude "$session_id" "$working_dir"
 }
 
+# Wait for shell prompt to be ready in a pane
+# Uses tmux capture-pane to check for prompt characters
+_wait_for_shell_ready() {
+    local session_id="$1"
+    local max_attempts=30  # 3 seconds max (30 * 0.1s)
+    local attempt=0
+
+    while [[ $attempt -lt $max_attempts ]]; do
+        # Capture pane content and check for common prompt indicators
+        local content
+        content=$(TMUX= tmux capture-pane -t "$session_id" -p 2>/dev/null || echo "")
+
+        # Check for prompt characters: $, >, ❯, %, #
+        if [[ "$content" =~ [\$\>❯%#][[:space:]]*$ ]]; then
+            debug_log "Shell ready after $attempt attempts"
+            return 0
+        fi
+
+        sleep 0.1
+        ((attempt++))
+    done
+
+    # Timeout - proceed anyway but log warning
+    debug_log "Shell readiness timeout after $max_attempts attempts"
+    return 0
+}
+
 # Start tmux session with Claude (internal)
 # Note: TMUX= prefix ensures sessions are always created on the default server,
 # even when this function is called from within Navigator's popup context
@@ -1140,11 +1207,21 @@ _start_session_with_claude() {
     # TMUX= clears the environment variable to prevent inheriting Navigator's context
     TMUX= tmux new-session -d -s "$session_id" -c "$working_dir"
 
+    # Wait for shell prompt to be ready before sending keys
+    _wait_for_shell_ready "$session_id"
+
+    # Clear screen first to flush any terminal initialization noise
+    TMUX= tmux send-keys -t "$session_id" C-l
+
+    # Wait for clear to complete
+    _wait_for_shell_ready "$session_id"
+
     # Start Claude
     local claude_cmd="$TOWER_PROGRAM"
     [[ -n "$continue_flag" ]] && claude_cmd="$TOWER_PROGRAM --continue"
 
-    TMUX= tmux send-keys -t "$session_id" "$claude_cmd" Enter
+    # Use C-m (Ctrl-M) instead of Enter for more reliable key sending
+    TMUX= tmux send-keys -t "$session_id" "$claude_cmd" C-m
 
     handle_success "Session created: ${session_id#tower_}"
 }
@@ -1293,7 +1370,7 @@ restart_session() {
     local claude_cmd="$TOWER_PROGRAM"
     [[ "$type" == "$TYPE_WORKTREE" ]] && claude_cmd="$TOWER_PROGRAM --continue"
 
-    TMUX= tmux send-keys -t "$session_id" "$claude_cmd" Enter
+    TMUX= tmux send-keys -t "$session_id" "$claude_cmd" C-m
 
     handle_success "Session restarted: ${session_id#tower_}"
 }
@@ -1316,7 +1393,7 @@ send_to_session() {
         return 1
     fi
 
-    TMUX= tmux send-keys -t "$session_id" "$input" Enter
+    TMUX= tmux send-keys -t "$session_id" "$input" C-m
 }
 
 # ============================================================================

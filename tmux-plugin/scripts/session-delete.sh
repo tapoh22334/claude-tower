@@ -18,7 +18,10 @@ if [[ -z "$session_id" ]]; then
     exit 1
 fi
 
-# Ensure session_id has tower_ prefix
-[[ "$session_id" != tower_* ]] && session_id="tower_$session_id"
+# Validate and ensure session_id has tower_ prefix (security: prevent injection)
+session_id=$(ensure_tower_prefix "$session_id") || {
+    handle_error "Invalid session ID format"
+    exit 1
+}
 
 delete_session "$session_id" "$force"

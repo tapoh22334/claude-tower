@@ -151,18 +151,8 @@ open_navigator() {
         info_log "Navigator already exists, attaching"
         attach_navigator
     else
-        # Check if there are any sessions to navigate
-        local session_count
-        session_count=$(count_tower_sessions)
-
-        if [[ "$session_count" -eq 0 ]]; then
-            # No sessions - offer to create one
-            handle_info "No tower sessions found. Use 'prefix + t n' to create a new session."
-            info_log "No tower sessions found"
-            return 0
-        fi
-
-        info_log "Creating new Navigator (session count: $session_count)"
+        # Open Navigator even with 0 sessions - user can create with 'n'
+        info_log "Creating new Navigator"
         create_navigator
         attach_navigator
     fi
@@ -198,21 +188,6 @@ close_navigator() {
     else
         info_log "No target session, just exiting"
         exit 0
-    fi
-}
-
-# Close Navigator (legacy version for popup mode)
-close_navigator_legacy() {
-    local caller
-    caller=$(get_nav_caller)
-
-    kill_navigator
-
-    # Return to caller session if available (on default server)
-    if [[ -n "$caller" ]]; then
-        if TMUX= tmux has-session -t "$caller" 2>/dev/null; then
-            TMUX= tmux switch-client -t "$caller" 2>/dev/null || true
-        fi
     fi
 }
 
@@ -291,18 +266,8 @@ open_navigator_direct() {
     local session_count
     session_count=$(count_tower_sessions)
 
-    if [[ "$session_count" -eq 0 ]]; then
-        echo "No tower sessions found. Use 'prefix + t n' to create a new session."
-        info_log "No tower sessions found"
-        # Return to default server
-        local any_session
-        any_session=$(TMUX= tmux list-sessions -F '#{session_name}' 2>/dev/null | head -1 || echo "")
-        if [[ -n "$any_session" ]]; then
-            TMUX= exec tmux attach-session -t "$any_session"
-        fi
-        exit 0
-    fi
-
+    # Note: We open Navigator even with 0 tower sessions
+    # The list will show empty state, and user can create sessions with 'n'
     info_log "Creating new Navigator (session count: $session_count)"
 
     # Ensure state directory exists
@@ -315,11 +280,34 @@ open_navigator_direct() {
         set_nav_selected "$first_session"
     fi
 
-    # Create Navigator session
-    TMUX= nav_tmux new-session -d -s "$TOWER_NAV_SESSION" -x "$(tput cols)" -y "$(tput lines)"
+    # Create Navigator session with error handling
+    # Disable errexit temporarily for session creation
+    set +e
+    local create_error=""
 
-    # Split into left (list) and right (view) panes
-    nav_tmux split-window -t "$TOWER_NAV_SESSION" -h -l "70%"
+    if ! TMUX= nav_tmux new-session -d -s "$TOWER_NAV_SESSION" -x "$(tput cols)" -y "$(tput lines)" 2>&1; then
+        create_error="Failed to create Navigator session"
+    elif ! nav_tmux split-window -t "$TOWER_NAV_SESSION" -h -l "70%" 2>&1; then
+        create_error="Failed to split Navigator window"
+    fi
+
+    if [[ -n "$create_error" ]]; then
+        error_log "$create_error"
+        # Try to return to caller session
+        local target="${caller_session:-}"
+        if [[ -z "$target" ]]; then
+            target=$(TMUX= tmux list-sessions -F '#{session_name}' 2>/dev/null | head -1 || echo "")
+        fi
+        if [[ -n "$target" ]]; then
+            echo "Navigator error: $create_error"
+            echo "Returning to session: $target"
+            sleep 1
+            TMUX= exec tmux attach-session -t "$target"
+        fi
+        exit 1
+    fi
+
+    set -e
 
     # Set up left pane (session list)
     nav_tmux send-keys -t "$TOWER_NAV_SESSION:0.0" \

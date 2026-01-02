@@ -10,10 +10,18 @@
 #   - Outer tmux: Navigator server (-L claude-tower)
 #   - Inner tmux: Connection to default server's session
 
-set -euo pipefail
+# Use pipefail but handle errors gracefully instead of exiting
+set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/common.sh"
+
+# Error handler - log and continue instead of exiting
+handle_script_error() {
+    local line="$1"
+    error_log "navigator-view.sh: Error at line $line"
+    # Don't exit - the main loop will continue
+}
 
 # ============================================================================
 # Configuration
@@ -224,6 +232,8 @@ cleanup() {
     debug_log "Navigator view pane cleanup"
 }
 
+# Combine traps: ERR for error handling, EXIT/INT/TERM for cleanup
+trap 'handle_script_error $LINENO' ERR
 trap cleanup EXIT INT TERM
 
 # ============================================================================

@@ -5,10 +5,20 @@
 # It displays the session list and handles navigation keys.
 # When switching sessions, it updates the state file and signals the right pane.
 
-set -euo pipefail
+# Use pipefail but handle errors gracefully instead of exiting
+set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/common.sh"
+
+# Error handler - log and continue instead of exiting
+handle_script_error() {
+    local line="$1"
+    error_log "navigator-list.sh: Error at line $line"
+    # Don't exit - the main loop will continue
+}
+
+trap 'handle_script_error $LINENO' ERR
 
 # ============================================================================
 # Configuration
@@ -123,49 +133,58 @@ get_selection_index() {
 # Rendering
 # ============================================================================
 
-# Render session list
+# Render session list (double-buffered to prevent flicker)
 render_list() {
     local selected_index="$1"
     local term_height
     term_height=$(tput lines 2>/dev/null || echo 24)
     local max_lines=$((term_height - 8)) # Reserve space for header/footer
 
+    # Build output in variable first (double buffering)
+    local output=""
+
     # Header
-    echo -e "${NAV_C_HEADER}┌─ Sessions ─────────────┐${NAV_C_NORMAL}"
+    output+="${NAV_C_HEADER}┌─ Sessions ─────────────┐${NAV_C_NORMAL}\n"
 
     if [[ ${#SESSION_IDS[@]} -eq 0 ]]; then
-        echo -e "│ ${NAV_C_DIM}(no sessions)${NAV_C_NORMAL}           │"
+        output+="│ ${NAV_C_DIM}(no sessions)${NAV_C_NORMAL}           │\n"
     else
         local i=0
         for display in "${SESSION_DISPLAYS[@]}"; do
             if [[ $i -ge $max_lines ]]; then
                 local remaining=$((${#SESSION_IDS[@]} - max_lines))
-                echo -e "│ ${NAV_C_DIM}... +${remaining} more${NAV_C_NORMAL}"
+                output+="│ ${NAV_C_DIM}... +${remaining} more${NAV_C_NORMAL}\n"
                 break
             fi
 
-            # Truncate display to fit
             # Strip ANSI codes and truncate for display
             local plain_text
             plain_text=$(printf '%s' "$display" | sed 's/\x1b\[[0-9;]*m//g' | cut -c1-22)
 
             if [[ $i -eq $selected_index ]]; then
                 # Highlight selected row
-                printf "│${NAV_C_SELECTED}%-23s${NAV_C_NORMAL}│\n" " ${plain_text}"
+                output+=$(printf "│${NAV_C_SELECTED}%-23s${NAV_C_NORMAL}│\n" " ${plain_text}")
             else
-                printf "│ %-22s │\n" "$plain_text"
+                output+=$(printf "│ %-22s │\n" "$plain_text")
             fi
             ((i++)) || true
         done
     fi
 
     # Footer with keybindings
-    echo -e "${NAV_C_HEADER}├─────────────────────────┤${NAV_C_NORMAL}"
-    echo -e "│ ${NAV_C_DIM}j/k${NAV_C_NORMAL}:nav ${NAV_C_DIM}Enter${NAV_C_NORMAL}:attach   │"
-    echo -e "│ ${NAV_C_DIM}i${NAV_C_NORMAL}:input ${NAV_C_DIM}n${NAV_C_NORMAL}:new ${NAV_C_DIM}d${NAV_C_NORMAL}:del   │"
-    echo -e "│ ${NAV_C_DIM}R${NAV_C_NORMAL}:restart ${NAV_C_DIM}Tab${NAV_C_NORMAL}:tile    │"
-    echo -e "│ ${NAV_C_DIM}?${NAV_C_NORMAL}:help ${NAV_C_DIM}q${NAV_C_NORMAL}:quit          │"
-    echo -e "${NAV_C_HEADER}└─────────────────────────┘${NAV_C_NORMAL}"
+    output+="${NAV_C_HEADER}├─────────────────────────┤${NAV_C_NORMAL}\n"
+    output+="│ ${NAV_C_DIM}j/k${NAV_C_NORMAL}:nav ${NAV_C_DIM}Enter${NAV_C_NORMAL}:attach   │\n"
+    output+="│ ${NAV_C_DIM}i${NAV_C_NORMAL}:input ${NAV_C_DIM}n${NAV_C_NORMAL}:new ${NAV_C_DIM}d${NAV_C_NORMAL}:del   │\n"
+    output+="│ ${NAV_C_DIM}R${NAV_C_NORMAL}:restart ${NAV_C_DIM}Tab${NAV_C_NORMAL}:tile    │\n"
+    output+="│ ${NAV_C_DIM}?${NAV_C_NORMAL}:help ${NAV_C_DIM}q${NAV_C_NORMAL}:quit          │\n"
+    output+="${NAV_C_HEADER}└─────────────────────────┘${NAV_C_NORMAL}\n"
+
+    # Clear to end of screen code
+    local clear_eos
+    clear_eos=$(tput ed 2>/dev/null || printf '\033[J')
+
+    # Single atomic write: hide cursor, move home, print, clear rest, show cursor
+    printf '\033[?25l\033[H%b%s\033[?25h' "$output" "$clear_eos"
 }
 
 # Show help screen
@@ -292,18 +311,31 @@ create_session_inline() {
 
     # Create session
     local result
+    local new_session_id="tower_${name}"
     if [[ $use_worktree -eq 1 ]]; then
-        # Get current working directory from caller session or use pwd
+        # Get working directory from caller session on default server
         local working_dir
-        working_dir=$(pwd)
-        if result=$("$SCRIPT_DIR/session-new.sh" "$name" --worktree --dir "$working_dir" 2>&1); then
+        local caller
+        caller=$(get_nav_caller)
+        if [[ -n "$caller" ]]; then
+            working_dir=$(TMUX= tmux display-message -t "$caller" -p '#{pane_current_path}' 2>/dev/null)
+        fi
+        # Fallback to home directory if caller not available
+        working_dir="${working_dir:-$HOME}"
+        if result=$("$SCRIPT_DIR/session-new.sh" -n "$name" --worktree --dir "$working_dir" --no-attach 2>&1); then
             echo -e "${C_GREEN}Created: $name${C_RESET}"
+            # Select the newly created session
+            set_nav_selected "$new_session_id"
+            signal_view_update
         else
             echo -e "${C_RED}Error: ${result}${C_RESET}"
         fi
     else
-        if result=$("$SCRIPT_DIR/session-new.sh" "$name" 2>&1); then
+        if result=$("$SCRIPT_DIR/session-new.sh" -n "$name" --no-attach 2>&1); then
             echo -e "${C_GREEN}Created: $name${C_RESET}"
+            # Select the newly created session
+            set_nav_selected "$new_session_id"
+            signal_view_update
         else
             echo -e "${C_RED}Error: ${result}${C_RESET}"
         fi
@@ -347,7 +379,7 @@ restart_selected() {
     # Send Ctrl-C and restart on DEFAULT server
     TMUX= tmux send-keys -t "$selected" C-c 2>/dev/null || true
     sleep 0.2
-    TMUX= tmux send-keys -t "$selected" "${TOWER_PROGRAM:-claude}" Enter 2>/dev/null || true
+    TMUX= tmux send-keys -t "$selected" "${TOWER_PROGRAM:-claude}" C-m 2>/dev/null || true
     echo -e "\n${C_GREEN}Restarted Claude${C_RESET}"
     sleep 0.5
 }
@@ -442,19 +474,38 @@ main_loop() {
     # Initial build
     build_session_list
 
+    # Validate current selection - clear if session no longer exists
+    local current_selected
+    current_selected=$(get_nav_selected)
+    if [[ -n "$current_selected" ]]; then
+        local found=0
+        for id in "${SESSION_IDS[@]:-}"; do
+            [[ "$id" == "$current_selected" ]] && { found=1; break; }
+        done
+        if [[ $found -eq 0 ]]; then
+            # Selected session no longer exists, clear selection
+            set_nav_selected ""
+        fi
+    fi
+
     # Get initial selection
     local selected_index
     selected_index=$(get_selection_index)
 
-    # Set initial selection if not set
-    if [[ ${#SESSION_IDS[@]} -gt 0 && -z "$(get_nav_selected)" ]]; then
-        set_nav_selected "${SESSION_IDS[0]}"
-        signal_view_update
+    # Set initial selection if not set or invalid
+    if [[ ${#SESSION_IDS[@]} -gt 0 ]]; then
+        current_selected=$(get_nav_selected)
+        if [[ -z "$current_selected" ]]; then
+            set_nav_selected "${SESSION_IDS[0]}"
+            signal_view_update
+        fi
     fi
 
+    # Initial clear and hide cursor during rendering
+    clear
+
     while true; do
-        # Clear and render
-        clear
+        # render_list handles cursor positioning internally
         render_list "$selected_index"
 
         # Wait for input with timeout
@@ -493,11 +544,14 @@ main_loop() {
                 n)
                     create_session_inline
                     build_session_list
+                    selected_index=$(get_selection_index)
+                    clear  # Clear screen after input mode
                     ;;
                 d)
                     delete_selected
                     build_session_list
                     selected_index=$(get_selection_index)
+                    clear  # Clear screen after input mode
                     ;;
                 R)
                     restart_selected

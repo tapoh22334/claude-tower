@@ -24,6 +24,7 @@ Options:
   -n, --name NAME     Session name (required)
   -w, --worktree      Create worktree session (persistent)
   -d, --dir DIR       Working directory (default: current)
+  --no-attach         Don't switch/attach to new session (for Navigator)
   -h, --help          Show this help
 
 Session Types:
@@ -42,6 +43,7 @@ EOF
 name=""
 use_worktree=false
 working_dir=""
+no_attach=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -56,6 +58,10 @@ while [[ $# -gt 0 ]]; do
         -d | --dir)
             working_dir="$2"
             shift 2
+            ;;
+        --no-attach)
+            no_attach=true
+            shift
             ;;
         -h | --help)
             show_help
@@ -114,10 +120,12 @@ fi
 debug_log "Creating session: name=$name, type=$session_type, dir=$working_dir"
 
 if create_session "$name" "$session_type" "$working_dir"; then
-    # Switch to new session on DEFAULT server
-    session_id=$(normalize_session_name "$(sanitize_name "$name")")
-    TMUX= tmux switch-client -t "$session_id" 2>/dev/null ||
-        TMUX= tmux attach-session -t "$session_id" 2>/dev/null || true
+    # Switch to new session on DEFAULT server (unless --no-attach)
+    if [[ "$no_attach" != "true" ]]; then
+        session_id=$(normalize_session_name "$(sanitize_name "$name")")
+        TMUX= tmux switch-client -t "$session_id" 2>/dev/null ||
+            TMUX= tmux attach-session -t "$session_id" 2>/dev/null || true
+    fi
 else
     exit 1
 fi

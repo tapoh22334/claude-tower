@@ -1,11 +1,15 @@
 # Claude Tower - Development Makefile
 # Usage: make <target>
 
-.PHONY: help lint lint-fix format test test-docker clean
+.PHONY: help lint lint-fix format format-fix test test-docker clean reload reset
 
 # Default target
 help:
 	@echo "Claude Tower - Available targets:"
+	@echo ""
+	@echo "  Development:"
+	@echo "    make reload     - Reload tmux plugin"
+	@echo "    make reset      - Kill Navigator, clear caches, reload"
 	@echo ""
 	@echo "  Linting & Formatting:"
 	@echo "    make lint       - Run shellcheck on all scripts"
@@ -95,6 +99,39 @@ docker-lint:
 
 docker-test:
 	docker build -f Dockerfile.test -t claude-tower-test .
+
+# ============================================================================
+# Development
+# ============================================================================
+
+# Reload tmux plugin (run inside tmux)
+reload:
+	@if [ -n "$$TMUX" ]; then \
+		tmux run-shell "$(PWD)/tmux-plugin/claude-tower.tmux" && \
+		echo "✓ Plugin reloaded"; \
+	else \
+		echo "Error: Run inside tmux session"; \
+		exit 1; \
+	fi
+
+# Reset: kill Navigator server, clear caches, reload plugin
+reset:
+	@echo "=== Killing Navigator server ==="
+	@tmux -L claude-tower kill-server 2>/dev/null && echo "✓ Navigator killed" || echo "  (not running)"
+	@echo "=== Clearing state files ==="
+	@rm -rf /tmp/claude-tower && mkdir -p /tmp/claude-tower && echo "✓ State cleared"
+	@echo "=== Clearing tower sessions ==="
+	@for s in $$(TMUX= tmux list-sessions -F '#{session_name}' 2>/dev/null | grep '^tower_'); do \
+		TMUX= tmux kill-session -t "$$s" 2>/dev/null && echo "  Killed: $$s"; \
+	done || echo "  (no tower sessions)"
+	@echo "=== Reloading plugin ==="
+	@if [ -n "$$TMUX" ]; then \
+		tmux run-shell "$(PWD)/tmux-plugin/claude-tower.tmux" && \
+		echo "✓ Plugin reloaded"; \
+	else \
+		echo "  (not in tmux, skipping reload)"; \
+	fi
+	@echo "=== Done ==="
 
 # ============================================================================
 # Cleanup
