@@ -15,7 +15,7 @@ TOWER_SCRIPT_NAME="session-new.sh"
 source "$SCRIPT_DIR/../lib/common.sh"
 
 show_help() {
-    cat << 'EOF'
+    cat <<'EOF'
 Create a new claude-tower session
 
 Usage: session-new.sh [options]
@@ -45,19 +45,19 @@ working_dir=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        -n|--name)
+        -n | --name)
             name="$2"
             shift 2
             ;;
-        -w|--worktree)
+        -w | --worktree)
             use_worktree=true
             shift
             ;;
-        -d|--dir)
+        -d | --dir)
             working_dir="$2"
             shift 2
             ;;
-        -h|--help)
+        -h | --help)
             show_help
             exit 0
             ;;
@@ -80,7 +80,7 @@ if [[ -z "$name" ]]; then
     read -r -p "Session name: " name
 
     if [[ -z "$name" ]]; then
-        exit 0  # User cancelled
+        exit 0 # User cancelled
     fi
 
     # Ask for type if not specified
@@ -116,8 +116,8 @@ debug_log "Creating session: name=$name, type=$session_type, dir=$working_dir"
 if create_session "$name" "$session_type" "$working_dir"; then
     # Switch to new session on DEFAULT server
     session_id=$(normalize_session_name "$(sanitize_name "$name")")
-    TMUX= tmux switch-client -t "$session_id" 2>/dev/null || \
-    TMUX= tmux attach-session -t "$session_id" 2>/dev/null || true
+    TMUX= tmux switch-client -t "$session_id" 2>/dev/null ||
+        TMUX= tmux attach-session -t "$session_id" 2>/dev/null || true
 else
     exit 1
 fi

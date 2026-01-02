@@ -15,7 +15,7 @@ if [[ -z "$INPUT" ]]; then
     exit 1
 fi
 
-IFS=':' read -r type selected_session selected_window selected_pane _ <<< "$INPUT"
+IFS=':' read -r type selected_session selected_window selected_pane _ <<<"$INPUT"
 
 debug_log "Kill request: type=$type, session=$selected_session, window=$selected_window, pane=$selected_pane"
 

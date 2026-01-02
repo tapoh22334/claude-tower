@@ -29,7 +29,7 @@ _log_to_file() {
     local level="$1"
     local msg="$2"
     _ensure_log_dir
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [$level] [$TOWER_SCRIPT_NAME] $msg" >> "$TOWER_LOG_FILE" 2>/dev/null || true
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [$level] [$TOWER_SCRIPT_NAME] $msg" >>"$TOWER_LOG_FILE" 2>/dev/null || true
 }
 
 # Error trap handler - called when a command fails
@@ -84,20 +84,20 @@ error_log() {
 # Colors
 # ============================================================================
 readonly C_RESET="\033[0m"
-readonly C_HEADER="\033[1;36m"    # Cyan bold
-readonly C_SESSION="\033[1;34m"   # Blue bold
-readonly C_WINDOW="\033[0;36m"    # Cyan
-readonly C_PANE="\033[0;37m"      # Gray
-readonly C_ACTIVE="\033[1;32m"    # Green bold
-readonly C_GIT="\033[0;33m"       # Yellow
+readonly C_HEADER="\033[1;36m"  # Cyan bold
+readonly C_SESSION="\033[1;34m" # Blue bold
+readonly C_WINDOW="\033[0;36m"  # Cyan
+readonly C_PANE="\033[0;37m"    # Gray
+readonly C_ACTIVE="\033[1;32m"  # Green bold
+readonly C_GIT="\033[0;33m"     # Yellow
 readonly C_GREEN="\033[0;32m"
 readonly C_YELLOW="\033[0;33m"
 readonly C_BLUE="\033[0;34m"
 readonly C_RED="\033[0;31m"
-readonly C_DIFF_ADD="\033[0;32m"  # Green
-readonly C_DIFF_DEL="\033[0;31m"  # Red
-readonly C_HUNK="\033[0;36m"      # Cyan
-readonly C_INFO="\033[0;33m"      # Yellow
+readonly C_DIFF_ADD="\033[0;32m" # Green
+readonly C_DIFF_DEL="\033[0;31m" # Red
+readonly C_HUNK="\033[0;36m"     # Cyan
+readonly C_INFO="\033[0;33m"     # Yellow
 
 # ============================================================================
 # Icons
@@ -176,7 +176,7 @@ get_nav_selected() {
 set_nav_selected() {
     local session_id="$1"
     ensure_nav_state_dir
-    echo "$session_id" > "$TOWER_NAV_SELECTED_FILE"
+    echo "$session_id" >"$TOWER_NAV_SELECTED_FILE"
 }
 
 # Get caller session (session to return to on quit)
@@ -190,10 +190,10 @@ get_nav_caller() {
 set_nav_caller() {
     local session_id="$1"
     ensure_nav_state_dir
-    echo "$session_id" > "$TOWER_NAV_CALLER_FILE"
+    echo "$session_id" >"$TOWER_NAV_CALLER_FILE"
 }
 
-# Get current focus (list or preview)
+# Get current focus (list or view)
 get_nav_focus() {
     if [[ -f "$TOWER_NAV_FOCUS_FILE" ]]; then
         cat "$TOWER_NAV_FOCUS_FILE" 2>/dev/null || echo "list"
@@ -204,9 +204,9 @@ get_nav_focus() {
 
 # Set current focus
 set_nav_focus() {
-    local focus="$1"  # "list" or "preview"
+    local focus="$1" # "list" or "view"
     ensure_nav_state_dir
-    echo "$focus" > "$TOWER_NAV_FOCUS_FILE"
+    echo "$focus" >"$TOWER_NAV_FOCUS_FILE"
 }
 
 # Clean up Navigator state files
@@ -257,6 +257,9 @@ sanitize_name() {
 validate_path_within() {
     local path="$1"
     local base="$2"
+
+    # Validate inputs
+    [[ -z "$path" || -z "$base" ]] && return 1
 
     # Normalize paths (handle .., ., and make absolute)
     # Use Python as fallback for macOS which lacks realpath -m
@@ -446,7 +449,7 @@ confirm() {
     # Use tmux display-menu for confirmation
     tmux display-menu -T "$msg" \
         "Yes" y "run-shell 'echo yes > $result_file'" \
-        "No"  n "run-shell 'echo no > $result_file'" \
+        "No" n "run-shell 'echo no > $result_file'" \
         2>/dev/null
 
     # Wait briefly for menu result
@@ -493,7 +496,7 @@ save_metadata() {
         echo "repository_path=${repository_path}"
         echo "source_commit=${source_commit}"
         echo "worktree_path=${TOWER_WORKTREE_DIR}/${session_id#tower_}"
-    } > "$metadata_file"
+    } >"$metadata_file"
 }
 
 # Load session metadata from file
@@ -516,13 +519,13 @@ load_metadata() {
         while IFS='=' read -r key value; do
             case "$key" in
                 # Support both old and new key names for backwards compatibility
-                mode|session_type) META_SESSION_TYPE="$value" ;;
-                repo_path|repository_path) META_REPOSITORY_PATH="$value" ;;
-                base_commit|source_commit) META_SOURCE_COMMIT="$value" ;;
+                mode | session_type) META_SESSION_TYPE="$value" ;;
+                repo_path | repository_path) META_REPOSITORY_PATH="$value" ;;
+                base_commit | source_commit) META_SOURCE_COMMIT="$value" ;;
                 worktree_path) META_WORKTREE_PATH="$value" ;;
                 created_at) META_CREATED_AT="$value" ;;
             esac
-        done < "$metadata_file"
+        done <"$metadata_file"
         return 0
     fi
     return 1
@@ -620,8 +623,8 @@ remove_orphaned_worktree() {
         # Validate path before removal
         if validate_path_within "$worktree_path" "$TOWER_WORKTREE_DIR"; then
             if [[ -n "$repository_path" ]] && [[ -d "$repository_path" ]]; then
-                git -C "$repository_path" worktree remove "$worktree_path" 2>/dev/null || \
-                git -C "$repository_path" worktree remove --force "$worktree_path" 2>/dev/null || true
+                git -C "$repository_path" worktree remove "$worktree_path" 2>/dev/null ||
+                    git -C "$repository_path" worktree remove --force "$worktree_path" 2>/dev/null || true
             else
                 # Repository not found, remove directory manually
                 rm -rf "$worktree_path"
@@ -857,18 +860,15 @@ worktree_exists() {
 # Session State Detection (v2.0)
 # ============================================================================
 # Session states:
-#   Running (◉) - Claude is actively outputting
-#   Idle (▶)    - Claude is waiting for input
+#   Active (▶)  - Claude is running (waiting for input or outputting)
 #   Exited (!)  - Claude process has exited
 #   Dormant (○) - Metadata exists but no tmux session
 
-readonly STATE_RUNNING="running"
-readonly STATE_IDLE="idle"
+readonly STATE_ACTIVE="active"
 readonly STATE_EXITED="exited"
 readonly STATE_DORMANT="dormant"
 
-readonly ICON_STATE_RUNNING="◉"
-readonly ICON_STATE_IDLE="▶"
+readonly ICON_STATE_ACTIVE="▶"
 readonly ICON_STATE_EXITED="!"
 readonly ICON_STATE_DORMANT="○"
 
@@ -882,7 +882,7 @@ readonly ICON_TYPE_SIMPLE="[S]"
 # Arguments:
 #   $1 - Session ID (with tower_ prefix)
 # Returns:
-#   State string: running, idle, exited, or dormant
+#   State string: active, exited, or dormant
 get_session_state() {
     local session_id="$1"
 
@@ -892,7 +892,7 @@ get_session_state() {
         if has_metadata "$session_id"; then
             echo "$STATE_DORMANT"
         else
-            echo ""  # Session doesn't exist at all
+            echo "" # Session doesn't exist at all
         fi
         return 0
     fi
@@ -910,17 +910,8 @@ get_session_state() {
         return 0
     fi
 
-    # Claude is running - check if actively outputting or idle
-    # We use a simple heuristic: capture pane content and check last line
-    local last_lines
-    last_lines=$(TMUX= tmux capture-pane -t "$session_id" -p -S -5 2>/dev/null | tail -5 || echo "")
-
-    # Common idle patterns in Claude Code
-    if echo "$last_lines" | grep -qE '^\s*>\s*$|^\s*claude>\s*$|^\s*\$\s*$|What would you like|waiting for input|Ready'; then
-        echo "$STATE_IDLE"
-    else
-        echo "$STATE_RUNNING"
-    fi
+    # Claude is running (active state - simplified from running/idle)
+    echo "$STATE_ACTIVE"
 }
 
 # Get state icon
@@ -931,11 +922,10 @@ get_session_state() {
 get_state_icon() {
     local state="$1"
     case "$state" in
-        "$STATE_RUNNING") echo "$ICON_STATE_RUNNING" ;;
-        "$STATE_IDLE")    echo "$ICON_STATE_IDLE" ;;
-        "$STATE_EXITED")  echo "$ICON_STATE_EXITED" ;;
+        "$STATE_ACTIVE") echo "$ICON_STATE_ACTIVE" ;;
+        "$STATE_EXITED") echo "$ICON_STATE_EXITED" ;;
         "$STATE_DORMANT") echo "$ICON_STATE_DORMANT" ;;
-        *)                echo "?" ;;
+        *) echo "?" ;;
     esac
 }
 
@@ -967,8 +957,8 @@ get_type_icon() {
     local type="$1"
     case "$type" in
         "$TYPE_WORKTREE") echo "$ICON_TYPE_WORKTREE" ;;
-        "$TYPE_SIMPLE")   echo "$ICON_TYPE_SIMPLE" ;;
-        *)                echo "[?]" ;;
+        "$TYPE_SIMPLE") echo "$ICON_TYPE_SIMPLE" ;;
+        *) echo "[?]" ;;
     esac
 }
 
@@ -994,7 +984,7 @@ list_all_sessions() {
         # Determine state based on pane command
         local state
         if [[ "$pane_cmd" == "$program_name" || "$pane_cmd" == "claude" ]]; then
-            state="$STATE_IDLE"  # Simplified: assume idle if claude is running
+            state="$STATE_ACTIVE" # Claude is running
         else
             state="$STATE_EXITED"
         fi
@@ -1111,9 +1101,11 @@ _create_worktree_session() {
 
     # Update metadata with additional fields
     local metadata_file="${TOWER_METADATA_DIR}/${session_id}.meta"
-    echo "session_name=${name}" >> "$metadata_file"
-    echo "branch_name=${branch_name}" >> "$metadata_file"
-    echo "repository_name=$(basename "$repo_path")" >> "$metadata_file"
+    {
+        echo "session_name=${name}"
+        echo "branch_name=${branch_name}"
+        echo "repository_name=$(basename "$repo_path")"
+    } >>"$metadata_file"
 
     # Create tmux session and start Claude
     _start_session_with_claude "$session_id" "$worktree_path"
@@ -1245,9 +1237,9 @@ delete_session() {
             # Remove worktree
             if [[ -d "$worktree_path" ]] && validate_path_within "$worktree_path" "$TOWER_WORKTREE_DIR"; then
                 if [[ -n "$repo_path" && -d "$repo_path" ]]; then
-                    git -C "$repo_path" worktree remove "$worktree_path" 2>/dev/null || \
-                    git -C "$repo_path" worktree remove --force "$worktree_path" 2>/dev/null || \
-                    rm -rf "$worktree_path"
+                    git -C "$repo_path" worktree remove "$worktree_path" 2>/dev/null ||
+                        git -C "$repo_path" worktree remove --force "$worktree_path" 2>/dev/null ||
+                        rm -rf "$worktree_path"
                 else
                     rm -rf "$worktree_path"
                 fi

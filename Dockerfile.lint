@@ -1,0 +1,21 @@
+# Linting environment for claude-tower
+# Includes shellcheck and shfmt for bash script analysis
+
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install shellcheck and shfmt
+RUN apt-get update && apt-get install -y \
+    shellcheck \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install shfmt (Go binary)
+RUN curl -sS https://webinstall.dev/shfmt | bash
+ENV PATH="/root/.local/bin:${PATH}"
+
+WORKDIR /app
+
+# Default: run shellcheck on all scripts
+CMD ["shellcheck", "-x", "tmux-plugin/scripts/*.sh", "tmux-plugin/lib/*.sh"]

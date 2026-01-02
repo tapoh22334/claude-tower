@@ -9,7 +9,7 @@ source "$SCRIPT_DIR/../lib/common.sh"
 
 # Parse input (format: type:session:window:pane:display_text)
 INPUT="$1"
-IFS=':' read -r type selected_session selected_window selected_pane _ <<< "$INPUT"
+IFS=':' read -r type selected_session selected_window selected_pane _ <<<"$INPUT"
 
 show_session_details() {
     local session="$1"

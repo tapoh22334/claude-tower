@@ -9,7 +9,13 @@
       "Bash(tmux-plugin/scripts/navigator.sh)",
       "Bash(echo:*)",
       "Bash(tmux list-sessions:*)",
-      "Bash(chmod:*)"
+      "Bash(chmod:*)",
+      "Bash(gitleaks protect:*)",
+      "Bash(bash -x:*)",
+      "Bash(bash:*)",
+      "Bash(TMUX= tmux list-sessions:*)",
+      "Bash(./tests/run_behavioral_tests.sh:*)",
+      "Bash(bats:*)"
     ],
     "deny": []
   }

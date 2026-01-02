@@ -38,8 +38,8 @@ else
     fi
 
     # Build tmux display-menu dynamically
-    local menu_items=()
-    local idx=1
+    menu_items=()
+    idx=1
     for sid in "${dormant_sessions[@]}"; do
         # Menu format: "label" "key" "command"
         menu_items+=("$sid" "$idx" "run-shell '$SCRIPT_DIR/session-restore.sh tower_$sid'")

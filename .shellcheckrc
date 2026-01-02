@@ -1,0 +1,17 @@
+# ShellCheck configuration for claude-tower
+# https://www.shellcheck.net/wiki/Directive
+
+# Disable SC1091: Not following sourced files (shellcheck can't resolve dynamic paths)
+disable=SC1091
+
+# Disable SC1007: False positive for TMUX= prefix pattern (intentional env var clearing)
+# TMUX= tmux command is a valid pattern to clear TMUX env before running tmux
+disable=SC1007
+
+# Disable SC2034: Unused variables warning
+# Many constants are defined for future use or used via source
+disable=SC2034
+
+# Disable SC1003: False positive for escape sequences in printf
+# printf '\033]2;%s\033\\' is valid terminal escape sequence
+disable=SC1003

@@ -34,15 +34,8 @@ setup() {
     teardown_test_env
 }
 
-@test "get_state_icon: returns correct icon for running" {
-    run get_state_icon "running"
-
-    [ "$status" -eq 0 ]
-    [ "$output" = "◉" ]
-}
-
-@test "get_state_icon: returns correct icon for idle" {
-    run get_state_icon "idle"
+@test "get_state_icon: returns correct icon for active" {
+    run get_state_icon "active"
 
     [ "$status" -eq 0 ]
     [ "$output" = "▶" ]
@@ -185,11 +178,11 @@ setup() {
 @test "set_nav_focus and get_nav_focus: round trip works" {
     ensure_nav_state_dir
 
-    set_nav_focus "preview"
+    set_nav_focus "view"
     run get_nav_focus
 
     [ "$status" -eq 0 ]
-    [ "$output" = "preview" ]
+    [ "$output" = "view" ]
 
     cleanup_nav_state
 }
@@ -210,7 +203,7 @@ setup() {
     ensure_nav_state_dir
     set_nav_selected "tower_test"
     set_nav_caller "my-session"
-    set_nav_focus "preview"
+    set_nav_focus "view"
 
     run cleanup_nav_state
 
@@ -275,14 +268,14 @@ setup() {
     [ -x "$script" ]
 }
 
-@test "navigator-preview.sh: exists and is executable" {
-    local script="$PROJECT_ROOT/tmux-plugin/scripts/navigator-preview.sh"
+@test "navigator-view.sh: exists and is executable" {
+    local script="$PROJECT_ROOT/tmux-plugin/scripts/navigator-view.sh"
     [ -f "$script" ]
     [ -x "$script" ]
 }
 
-@test "inner-tmux.conf: exists" {
-    local conf="$PROJECT_ROOT/tmux-plugin/conf/inner-tmux.conf"
+@test "view-focus.conf: exists" {
+    local conf="$PROJECT_ROOT/tmux-plugin/conf/view-focus.conf"
     [ -f "$conf" ]
 }
 
@@ -309,24 +302,24 @@ setup() {
     [[ "$output" != *"display-popup"* ]]
 }
 
-@test "inner-tmux.conf: disables prefix key" {
-    local conf="$PROJECT_ROOT/tmux-plugin/conf/inner-tmux.conf"
+@test "view-focus.conf: disables prefix key" {
+    local conf="$PROJECT_ROOT/tmux-plugin/conf/view-focus.conf"
 
     run grep "prefix None" "$conf"
 
     [ "$status" -eq 0 ]
 }
 
-@test "inner-tmux.conf: binds Escape to detach" {
-    local conf="$PROJECT_ROOT/tmux-plugin/conf/inner-tmux.conf"
+@test "view-focus.conf: binds Escape to detach" {
+    local conf="$PROJECT_ROOT/tmux-plugin/conf/view-focus.conf"
 
     run grep "Escape detach" "$conf"
 
     [ "$status" -eq 0 ]
 }
 
-@test "inner-tmux.conf: disables status bar" {
-    local conf="$PROJECT_ROOT/tmux-plugin/conf/inner-tmux.conf"
+@test "view-focus.conf: disables status bar" {
+    local conf="$PROJECT_ROOT/tmux-plugin/conf/view-focus.conf"
 
     run grep "status off" "$conf"
 

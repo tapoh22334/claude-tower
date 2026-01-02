@@ -147,6 +147,9 @@ setup() {
 }
 
 @test "validate_path_within: rejects symlink escape" {
+    # Skip if realpath doesn't support -m option (required for symlink resolution)
+    realpath -m /tmp >/dev/null 2>&1 || skip "realpath -m not available (macOS)"
+
     setup_test_env
 
     # Create a symlink that points outside the base directory

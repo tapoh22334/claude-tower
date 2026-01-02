@@ -66,12 +66,7 @@ setup() {
     [[ "$func_def" == *"TMUX= tmux display-message"* ]]
 }
 
-@test "get_session_state: uses TMUX= prefix for capture-pane" {
-    local func_def
-    func_def=$(declare -f get_session_state)
-
-    [[ "$func_def" == *"TMUX= tmux capture-pane"* ]]
-}
+# Note: get_session_state no longer uses capture-pane (uses display-message instead)
 
 # ============================================================================
 # _start_session_with_claude tests
@@ -196,7 +191,8 @@ setup() {
     run grep "TMUX= tmux switch-client" "$script"
     [ "$status" -eq 0 ]
 
-    run grep "TMUX= tmux attach-session" "$script"
+    # Check for TMUX= prefix with attach-session (may use 'exec tmux' or 'nav_tmux')
+    run grep -E "TMUX=.*(tmux|nav_tmux) attach-session" "$script"
     [ "$status" -eq 0 ]
 }
 

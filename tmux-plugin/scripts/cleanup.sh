@@ -10,7 +10,7 @@ source "$SCRIPT_DIR/../lib/common.sh"
 
 # Show usage
 show_usage() {
-    cat << EOF
+    cat <<EOF
 Usage: cleanup.sh [OPTIONS]
 
 Cleanup orphaned worktrees and metadata from terminated sessions.
@@ -64,7 +64,7 @@ list_orphaned_worktrees() {
             fi
             echo ""
         fi
-    done <<< "$orphaned_worktrees"
+    done <<<"$orphaned_worktrees"
 
     printf "Total: %d orphaned worktree(s)\n" "$count"
     return "$count"
@@ -111,7 +111,7 @@ remove_all_orphaned_worktrees() {
             printf "%bFailed%b\n" "$C_RED" "$C_RESET"
             failed=$((failed + 1))
         fi
-    done <<< "$orphaned_worktrees"
+    done <<<"$orphaned_worktrees"
 
     echo ""
     printf "Cleanup complete. Removed: %d, Failed: %d\n" "$removed" "$failed"
@@ -133,13 +133,13 @@ cleanup_force() {
 # Main
 main() {
     case "${1:-}" in
-        -l|--list)
+        -l | --list)
             list_orphaned_worktrees
             ;;
-        -f|--force)
+        -f | --force)
             cleanup_force
             ;;
-        -h|--help)
+        -h | --help)
             show_usage
             ;;
         "")

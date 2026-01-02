@@ -64,7 +64,7 @@ build_enhanced_tree() {
 
             # Diff stats
             local stats
-            stats=$(git -C "$session_path" diff --numstat 2>/dev/null | \
+            stats=$(git -C "$session_path" diff --numstat 2>/dev/null |
                 awk '{add+=$1; del+=$2} END {if(add>0||del>0) printf "+%d,-%d", add, del}')
 
             git_info="${ICON_GIT} ${branch}"
@@ -113,7 +113,7 @@ build_enhanced_tree() {
             fi
 
             local window_active_marker=""
-            [[ "$session" == "$active_session" && "$win_idx" == "$active_window" ]] && \
+            [[ "$session" == "$active_session" && "$win_idx" == "$active_window" ]] &&
                 window_active_marker=" ${C_ACTIVE}${ICON_ACTIVE}${C_RESET}"
 
             printf "window:%s:%s:%s %s %b%s: %s%b%s\n" \
@@ -152,7 +152,7 @@ build_enhanced_tree() {
                 fi
 
                 local pane_active_marker=""
-                [[ "$session" == "$active_session" && "$win_idx" == "$active_window" && "$pane_idx" == "$active_pane" ]] && \
+                [[ "$session" == "$active_session" && "$win_idx" == "$active_window" && "$pane_idx" == "$active_pane" ]] &&
                     pane_active_marker=" ${C_ACTIVE}${ICON_ACTIVE}${C_RESET}"
 
                 printf "pane:%s:%s:%s:%s%s %s %b%s: %s%b (pid:%s)%s\n" \
@@ -165,9 +165,9 @@ build_enhanced_tree() {
                     "$C_PANE" "$pane_idx" "$pane_cmd" "$C_RESET" \
                     "$pane_pid" \
                     "$pane_active_marker"
-            done <<< "$panes"
-        done <<< "$windows"
-    done <<< "$sessions"
+            done <<<"$panes"
+        done <<<"$windows"
+    done <<<"$sessions"
 }
 
 # Build compact session-only list
@@ -182,13 +182,13 @@ build_full_tree() {
 
 # Main
 case "${1:-full}" in
-    compact|sessions)
+    compact | sessions)
         build_session_list
         ;;
     windows)
         build_enhanced_tree false false
         ;;
-    full|*)
+    full | *)
         build_full_tree
         ;;
 esac

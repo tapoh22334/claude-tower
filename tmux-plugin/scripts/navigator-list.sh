@@ -18,7 +18,7 @@ readonly REFRESH_INTERVAL=2
 
 # Colors for navigator (using $'...' syntax for actual escape sequences)
 readonly NAV_C_HEADER=$'\033[1;36m'
-readonly NAV_C_SELECTED=$'\033[7m'  # Reverse video
+readonly NAV_C_SELECTED=$'\033[7m' # Reverse video
 readonly NAV_C_NORMAL=$'\033[0m'
 readonly NAV_C_DIM=$'\033[2m'
 # Colors (NAV_C_RUNNING used in future state detection)
@@ -83,7 +83,10 @@ build_session_list() {
         # Skip if already in list
         local found=0
         for id in "${SESSION_IDS[@]:-}"; do
-            [[ "$id" == "$session_id" ]] && { found=1; break; }
+            [[ "$id" == "$session_id" ]] && {
+                found=1
+                break
+            }
         done
         [[ $found -eq 1 ]] && continue
 
@@ -125,7 +128,7 @@ render_list() {
     local selected_index="$1"
     local term_height
     term_height=$(tput lines 2>/dev/null || echo 24)
-    local max_lines=$((term_height - 8))  # Reserve space for header/footer
+    local max_lines=$((term_height - 8)) # Reserve space for header/footer
 
     # Header
     echo -e "${NAV_C_HEADER}┌─ Sessions ─────────────┐${NAV_C_NORMAL}"
@@ -160,7 +163,7 @@ render_list() {
     echo -e "${NAV_C_HEADER}├─────────────────────────┤${NAV_C_NORMAL}"
     echo -e "│ ${NAV_C_DIM}j/k${NAV_C_NORMAL}:nav ${NAV_C_DIM}Enter${NAV_C_NORMAL}:attach   │"
     echo -e "│ ${NAV_C_DIM}i${NAV_C_NORMAL}:input ${NAV_C_DIM}n${NAV_C_NORMAL}:new ${NAV_C_DIM}d${NAV_C_NORMAL}:del   │"
-    echo -e "│ ${NAV_C_DIM}R${NAV_C_NORMAL}:restart ${NAV_C_DIM}T${NAV_C_NORMAL}:tile      │"
+    echo -e "│ ${NAV_C_DIM}R${NAV_C_NORMAL}:restart ${NAV_C_DIM}Tab${NAV_C_NORMAL}:tile    │"
     echo -e "│ ${NAV_C_DIM}?${NAV_C_NORMAL}:help ${NAV_C_DIM}q${NAV_C_NORMAL}:quit          │"
     echo -e "${NAV_C_HEADER}└─────────────────────────┘${NAV_C_NORMAL}"
 }
@@ -178,11 +181,11 @@ show_help() {
     echo ""
     echo "  Actions:"
     echo "    Enter      Full attach to session"
-    echo "    i          Input mode (focus preview)"
+    echo "    i          Focus view pane (input mode)"
     echo "    n          Create new session"
     echo "    d          Delete selected session"
     echo "    R          Restart Claude in session"
-    echo "    T          Switch to Tile mode"
+    echo "    Tab        Switch to Tile view"
     echo ""
     echo "  Other:"
     echo "    ?          Show this help"
@@ -196,15 +199,15 @@ show_help() {
 # Actions
 # ============================================================================
 
-# Signal right pane to update preview
-signal_preview_update() {
+# Signal view pane to update
+signal_view_update() {
     # Send Escape to right pane to trigger detach/reattach
     nav_tmux send-keys -t "$TOWER_NAV_SESSION:0.1" Escape 2>/dev/null || true
 }
 
-# Move selection and update preview
+# Move selection and update view
 move_selection() {
-    local direction="$1"  # "up" or "down"
+    local direction="$1" # "up" or "down"
     local current_index="$2"
     local new_index
 
@@ -220,7 +223,7 @@ move_selection() {
     if [[ ${#SESSION_IDS[@]} -gt 0 ]]; then
         local new_session="${SESSION_IDS[$new_index]}"
         set_nav_selected "$new_session"
-        signal_preview_update
+        signal_view_update
     fi
 
     echo "$new_index"
@@ -230,7 +233,7 @@ move_selection() {
 go_first() {
     if [[ ${#SESSION_IDS[@]} -gt 0 ]]; then
         set_nav_selected "${SESSION_IDS[0]}"
-        signal_preview_update
+        signal_view_update
     fi
     echo 0
 }
@@ -240,26 +243,72 @@ go_last() {
     if [[ ${#SESSION_IDS[@]} -gt 0 ]]; then
         local last_index=$((${#SESSION_IDS[@]} - 1))
         set_nav_selected "${SESSION_IDS[$last_index]}"
-        signal_preview_update
+        signal_view_update
         echo "$last_index"
     else
         echo 0
     fi
 }
 
-# Focus on input (right pane)
-focus_input() {
-    set_nav_focus "preview"
+# Focus on view pane (enables input to selected session)
+focus_view() {
+    set_nav_focus "view"
     nav_tmux select-pane -t "$TOWER_NAV_SESSION:0.1"
 }
 
-# Create new session
-create_new_session() {
-    # Use display-popup for session creation
-    nav_tmux display-popup -E -w 60% -h 40% "$SCRIPT_DIR/session-new.sh" 2>/dev/null || {
-        # Fallback: just run in current pane
-        "$SCRIPT_DIR/session-new.sh"
-    }
+# Create new session (inline input in list pane)
+create_session_inline() {
+    # Clear prompt area
+    local term_height
+    term_height=$(tput lines 2>/dev/null || echo 24)
+
+    # Move cursor to bottom of list area
+    tput cup "$((term_height - 4))" 0 2>/dev/null || true
+    echo -e "${NAV_C_HEADER}┌─ New Session ───────────┐${NAV_C_NORMAL}"
+
+    # Get session name
+    printf "│ Name: "
+    local name=""
+    read -r name
+
+    if [[ -z "$name" ]]; then
+        echo -e "│ ${NAV_C_DIM}Cancelled${NAV_C_NORMAL}"
+        sleep 0.5
+        return
+    fi
+
+    # Ask about worktree
+    printf "│ Worktree? [y/N]: "
+    local worktree_choice=""
+    read -rsn1 worktree_choice
+    echo ""
+
+    local use_worktree=0
+    if [[ "$worktree_choice" == "y" || "$worktree_choice" == "Y" ]]; then
+        use_worktree=1
+    fi
+
+    echo -e "${NAV_C_HEADER}└─────────────────────────┘${NAV_C_NORMAL}"
+
+    # Create session
+    local result
+    if [[ $use_worktree -eq 1 ]]; then
+        # Get current working directory from caller session or use pwd
+        local working_dir
+        working_dir=$(pwd)
+        if result=$("$SCRIPT_DIR/session-new.sh" "$name" --worktree --dir "$working_dir" 2>&1); then
+            echo -e "${C_GREEN}Created: $name${C_RESET}"
+        else
+            echo -e "${C_RED}Error: ${result}${C_RESET}"
+        fi
+    else
+        if result=$("$SCRIPT_DIR/session-new.sh" "$name" 2>&1); then
+            echo -e "${C_GREEN}Created: $name${C_RESET}"
+        else
+            echo -e "${C_RED}Error: ${result}${C_RESET}"
+        fi
+    fi
+    sleep 0.5
 }
 
 # Delete selected session
@@ -305,16 +354,26 @@ restart_selected() {
 
 # Switch to Tile mode
 switch_to_tile() {
-    # Close Navigator and open Tile mode
-    if [[ -x "$SCRIPT_DIR/navigator.sh" ]]; then
-        "$SCRIPT_DIR/navigator.sh" --close 2>/dev/null || true
+    info_log "Switching to Tile mode"
+
+    # Create tile window on default server first
+    TMUX= tmux new-window -n "tower-tile" "$SCRIPT_DIR/tile.sh" 2>/dev/null || true
+
+    # Get the current session to return to (should have the new tile window)
+    local target_session
+    target_session=$(TMUX= tmux display-message -p '#S' 2>/dev/null || echo "")
+
+    if [[ -z "$target_session" ]]; then
+        target_session=$(TMUX= tmux list-sessions -F '#{session_name}' 2>/dev/null | head -1 || echo "")
     fi
 
-    # Launch Tile mode in a new window on DEFAULT server
-    TMUX= tmux new-window -n "tower-tile" "$SCRIPT_DIR/tile.sh"
+    if [[ -n "$target_session" ]]; then
+        nav_tmux detach-client -E "TMUX= tmux attach-session -t '$target_session'"
+    fi
 }
 
 # Full attach to selected session
+# Uses detach-client -E to seamlessly switch from Navigator to the target session
 full_attach() {
     local selected
     selected=$(get_nav_selected)
@@ -323,7 +382,7 @@ full_attach() {
         return
     fi
 
-    # Check if dormant and restore
+    # Check if dormant and restore first
     local state
     state=$(get_session_state "$selected")
 
@@ -331,24 +390,47 @@ full_attach() {
         echo "Restoring session..."
         "$SCRIPT_DIR/session-restore.sh" "$selected" 2>/dev/null || true
         sleep 0.5
+        # Re-check state after restore
+        state=$(get_session_state "$selected")
     fi
 
-    # Call navigator.sh to handle full attach
-    if [[ -x "$SCRIPT_DIR/navigator.sh" ]]; then
-        exec "$SCRIPT_DIR/navigator.sh" --attach "$selected"
-    else
-        handle_error "navigator.sh not found or not executable"
+    # Verify session exists on default server
+    if ! TMUX= tmux has-session -t "$selected" 2>/dev/null; then
+        handle_error "Session not found: ${selected#tower_}"
         return 1
     fi
+
+    info_log "Full attach to session: $selected"
+
+    # Use detach-client -E to seamlessly switch from Navigator server to default server
+    # This detaches the client from Navigator and immediately attaches to the target session
+    # The Navigator session remains alive in the background for fast re-entry
+    nav_tmux detach-client -E "TMUX= tmux attach-session -t '$selected'"
 }
 
 # Quit Navigator
+# Returns to the caller session or any available session on default server
 quit_navigator() {
-    if [[ -x "$SCRIPT_DIR/navigator.sh" ]]; then
-        exec "$SCRIPT_DIR/navigator.sh" --close
+    local caller
+    caller=$(get_nav_caller)
+
+    info_log "Quitting Navigator, returning to caller: ${caller:-<none>}"
+
+    # Determine target session on default server
+    local target_session=""
+    if [[ -n "$caller" ]] && TMUX= tmux has-session -t "$caller" 2>/dev/null; then
+        target_session="$caller"
     else
-        # Fallback: exit directly
-        exit 0
+        # Fallback: find any session on default server
+        target_session=$(TMUX= tmux list-sessions -F '#{session_name}' 2>/dev/null | head -1 || echo "")
+    fi
+
+    if [[ -n "$target_session" ]]; then
+        # Use detach-client -E to seamlessly return to default server
+        nav_tmux detach-client -E "TMUX= tmux attach-session -t '$target_session'"
+    else
+        # No sessions available, just exit
+        nav_tmux detach-client
     fi
 }
 
@@ -367,7 +449,7 @@ main_loop() {
     # Set initial selection if not set
     if [[ ${#SESSION_IDS[@]} -gt 0 && -z "$(get_nav_selected)" ]]; then
         set_nav_selected "${SESSION_IDS[0]}"
-        signal_preview_update
+        signal_view_update
     fi
 
     while true; do
@@ -379,13 +461,13 @@ main_loop() {
         local key=""
         if read -rsn1 -t "$REFRESH_INTERVAL" key; then
             case "$key" in
-                j|$'\x1b')
+                j | $'\x1b')
                     # Handle arrow keys
                     if [[ "$key" == $'\x1b' ]]; then
                         read -rsn2 -t 0.1 arrow || true
                         case "$arrow" in
-                            '[B') key="j" ;;  # Down
-                            '[A') key="k" ;;  # Up
+                            '[B') key="j" ;; # Down
+                            '[A') key="k" ;; # Up
                             *) continue ;;
                         esac
                     fi
@@ -402,14 +484,14 @@ main_loop() {
                 G)
                     selected_index=$(go_last)
                     ;;
-                '')  # Enter key
+                '') # Enter key
                     full_attach
                     ;;
                 i)
-                    focus_input
+                    focus_view
                     ;;
                 n)
-                    create_new_session
+                    create_session_inline
                     build_session_list
                     ;;
                 d)
@@ -420,13 +502,13 @@ main_loop() {
                 R)
                     restart_selected
                     ;;
-                T)
+                $'\t') # Tab key
                     switch_to_tile
                     ;;
                 '?')
                     show_help
                     ;;
-                q|Q)
+                q | Q)
                     quit_navigator
                     ;;
             esac

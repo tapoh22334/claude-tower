@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# navigator-preview.sh - Right pane: Real-time preview wrapper
+# navigator-view.sh - Right pane: Real-time view of selected session
 #
 # This script runs in the right pane of Navigator.
 # It connects to the selected session in the default tmux server using a nested tmux.
@@ -19,12 +19,13 @@ source "$SCRIPT_DIR/../lib/common.sh"
 # Configuration
 # ============================================================================
 
-# Ensure absolute path for inner-tmux.conf (important for nested tmux)
-readonly CONF_DIR="$(cd "$SCRIPT_DIR/../conf" 2>/dev/null && pwd)"
-readonly INNER_CONF="$CONF_DIR/inner-tmux.conf"
+# Ensure absolute path for view-focus.conf (important for nested tmux)
+CONF_DIR="$(cd "$SCRIPT_DIR/../conf" 2>/dev/null && pwd)"
+readonly CONF_DIR
+readonly INNER_CONF="$CONF_DIR/view-focus.conf"
 
 # Log script startup
-info_log "Navigator preview started (PID: $$)"
+info_log "Navigator view pane started (PID: $$)"
 info_log "SCRIPT_DIR: $SCRIPT_DIR"
 info_log "CONF_DIR: $CONF_DIR"
 info_log "INNER_CONF path: $INNER_CONF"
@@ -41,7 +42,7 @@ show_placeholder() {
     echo ""
     echo "  ┌───────────────────────────────────────┐"
     echo "  │                                       │"
-    echo "  │   Select a session to preview         │"
+    echo "  │   Select a session to view            │"
     echo "  │                                       │"
     echo "  │   Use j/k to navigate                 │"
     echo "  │   Press Enter to attach               │"
@@ -132,7 +133,7 @@ attach_to_session() {
     # -f loads our custom config that makes Escape detach
     local attach_result
     if [[ -f "$INNER_CONF" ]]; then
-        info_log "Using inner-tmux.conf for nested attachment"
+        info_log "Using view-focus.conf for nested attachment"
         if ! TMUX= tmux -f "$INNER_CONF" attach-session -t "$session_id" 2>&1; then
             error_log "Failed to attach with inner config, trying without"
             if ! TMUX= tmux attach-session -t "$session_id" 2>&1; then
@@ -160,7 +161,7 @@ attach_to_session() {
 # ============================================================================
 
 main_loop() {
-    info_log "Starting main preview loop"
+    info_log "Starting main view loop"
 
     while true; do
         # Get currently selected session
@@ -220,7 +221,7 @@ main_loop() {
 
 # Cleanup on exit (placeholder for future cleanup needs)
 cleanup() {
-    debug_log "Navigator preview cleanup"
+    debug_log "Navigator view pane cleanup"
 }
 
 trap cleanup EXIT INT TERM

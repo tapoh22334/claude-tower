@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
-# tile.sh - Tile mode for claude-tower
-# Shows all sessions in a grid layout for monitoring
+# tile.sh - Tile view for claude-tower Navigator
+# Shows all sessions in a grid layout for overview/selection
 #
 # Key bindings:
 #   j/↓       Move to next session
 #   k/↑       Move to previous session
-#   1-9       Jump to session by number
-#   Enter     Attach to selected session
+#   1-9       Select session + return to list view
+#   Enter     Return to list view with current selection
+#   Tab       Return to list view
 #   r         Refresh view
-#   q/Esc     Exit tile mode
+#   q/Esc     Quit Navigator
 
 set -euo pipefail
 
@@ -32,6 +33,26 @@ SELECTED_INDEX=0
 SESSIONS=()
 SESSION_IDS=()
 
+# Quit navigator - return to caller session
+quit_navigator() {
+    cleanup
+
+    local caller
+    caller=$(get_nav_caller)
+
+    if [[ -n "$caller" ]] && TMUX= tmux has-session -t "$caller" 2>/dev/null; then
+        TMUX= tmux attach-session -t "$caller" 2>/dev/null || exit 0
+    else
+        # Fall back to any tower session
+        local target
+        target=$(TMUX= tmux list-sessions -F '#{session_name}' 2>/dev/null | grep '^tower_' | head -1 || echo "")
+        if [[ -n "$target" ]]; then
+            TMUX= tmux attach-session -t "$target" 2>/dev/null || exit 0
+        fi
+    fi
+    exit 0
+}
+
 # Load active sessions
 load_sessions() {
     SESSIONS=()
@@ -39,7 +60,7 @@ load_sessions() {
 
     while IFS=':' read -r session_id state type display_name branch diff_stats; do
         [[ -z "$session_id" ]] && continue
-        [[ "$state" == "$STATE_DORMANT" ]] && continue  # Only active sessions
+        [[ "$state" == "$STATE_DORMANT" ]] && continue # Only active sessions
 
         local state_icon type_icon line
         state_icon=$(get_state_icon "$state")
@@ -75,7 +96,7 @@ draw_tiles() {
     local count=${#SESSIONS[@]}
 
     # Header
-    echo -e "${BOLD}${CYAN}━━━ Tile Mode ━━━${NC}  ${DIM}j/k:nav 1-9:jump Enter:attach r:refresh q:quit${NC}"
+    echo -e "${BOLD}${CYAN}━━━ Tile View ━━━${NC}  ${DIM}j/k:nav 1-9:select Tab:list Enter:select q:quit${NC}"
     echo ""
 
     if [[ $count -eq 0 ]]; then
@@ -86,7 +107,7 @@ draw_tiles() {
     # Calculate grid layout
     local cols=2
     local preview_height=8
-    local preview_width=$(( (TERM_WIDTH - 4) / cols ))
+    local preview_width=$(((TERM_WIDTH - 4) / cols))
 
     # Draw sessions in grid
     local row=0
@@ -119,7 +140,7 @@ draw_tiles() {
             tput cup "$((tile_y + 1 + line_num))" "$tile_x"
             printf "${DIM}%s${NC}" "${line:0:$preview_width}"
             ((line_num++)) || true
-        done <<< "$content"
+        done <<<"$content"
 
         # Next tile position
         ((col++)) || true
@@ -135,6 +156,22 @@ draw_tiles() {
     done
 }
 
+# Return to list view with selected session
+return_to_list_view() {
+    local selected_id="$1"
+
+    # Save selection to state file
+    if [[ -n "$selected_id" ]]; then
+        set_nav_selected "$selected_id"
+    fi
+
+    cleanup
+
+    # Return to Navigator
+    TMUX= tmux -L "$TOWER_NAV_SOCKET" attach-session -t "$TOWER_NAV_SESSION" 2>/dev/null || exit 0
+    exit 0
+}
+
 # Handle input
 handle_input() {
     local key
@@ -144,7 +181,9 @@ handle_input() {
     if [[ "$key" == $'\x1b' ]]; then
         read -rsn2 -t 0.1 key2 || true
         if [[ -z "$key2" ]]; then
-            return 1  # Pure Escape
+            # Pure Escape - quit navigator
+            quit_navigator
+            return 1
         fi
         key="${key}${key2}"
     fi
@@ -152,36 +191,39 @@ handle_input() {
     local count=${#SESSIONS[@]}
 
     case "$key" in
-        j|$'\x1b[B')  # Down / Next
+        j | $'\x1b[B') # Down / Next
             if [[ $count -gt 0 && $SELECTED_INDEX -lt $((count - 1)) ]]; then
                 ((SELECTED_INDEX++)) || true
             fi
             ;;
-        k|$'\x1b[A')  # Up / Previous
+        k | $'\x1b[A') # Up / Previous
             if [[ $SELECTED_INDEX -gt 0 ]]; then
                 ((SELECTED_INDEX--)) || true
             fi
             ;;
-        [1-9])  # Number jump
+        [1-9]) # Number select + return to list view
             local target=$((key - 1))
             if [[ $target -lt $count ]]; then
-                SELECTED_INDEX=$target
+                return_to_list_view "${SESSION_IDS[$target]}"
             fi
             ;;
-        ""|$'\n')  # Enter - attach to selected
+        "" | $'\n') # Enter - return to list view with current selection
             if [[ $count -gt 0 ]]; then
-                local selected_id="${SESSION_IDS[$SELECTED_INDEX]}"
-                tput rmcup
-                stty echo
-                tmux switch-client -t "$selected_id" 2>/dev/null || \
-                tmux attach-session -t "$selected_id" 2>/dev/null || true
-                exit 0
+                return_to_list_view "${SESSION_IDS[$SELECTED_INDEX]}"
             fi
             ;;
-        r)  # Refresh
+        $'\t') # Tab - return to list view
+            if [[ $count -gt 0 ]]; then
+                return_to_list_view "${SESSION_IDS[$SELECTED_INDEX]}"
+            else
+                return_to_list_view ""
+            fi
+            ;;
+        r) # Refresh
             load_sessions
             ;;
-        q)  # Quit
+        q) # Quit navigator
+            quit_navigator
             return 1
             ;;
     esac

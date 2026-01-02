@@ -48,7 +48,9 @@ get_first_tower_session() {
 
 # Count tower sessions on default server
 count_tower_sessions() {
-    TMUX= tmux list-sessions -F '#{session_name}' 2>/dev/null | grep -c '^tower_' || echo "0"
+    local count
+    count=$(TMUX= tmux list-sessions -F '#{session_name}' 2>/dev/null | grep -c '^tower_') || true
+    echo "${count:-0}"
 }
 
 # ============================================================================
@@ -74,16 +76,16 @@ create_navigator() {
     # Unset TMUX to allow nested tmux
     TMUX= nav_tmux new-session -d -s "$TOWER_NAV_SESSION" -x "$(tput cols)" -y "$(tput lines)"
 
-    # Split into left (list) and right (preview) panes
+    # Split into left (list) and right (view) panes
     nav_tmux split-window -t "$TOWER_NAV_SESSION" -h -l "70%"
 
     # Set up left pane (session list)
     nav_tmux send-keys -t "$TOWER_NAV_SESSION:0.0" \
         "$SCRIPT_DIR/navigator-list.sh" Enter
 
-    # Set up right pane (preview wrapper)
+    # Set up right pane (view)
     nav_tmux send-keys -t "$TOWER_NAV_SESSION:0.1" \
-        "$SCRIPT_DIR/navigator-preview.sh" Enter
+        "$SCRIPT_DIR/navigator-view.sh" Enter
 
     # Focus on left pane
     nav_tmux select-pane -t "$TOWER_NAV_SESSION:0.0"
@@ -253,7 +255,7 @@ full_attach() {
     info_log "Full attach to session: $session_id"
 
     # DON'T kill Navigator session - keep it for fast re-entry
-    # The session list and preview will continue running in background
+    # The session list and view will continue running in background
 
     # Use exec to seamlessly attach to the target session
     # TMUX= clears the Navigator server context to allow default server attach
@@ -266,30 +268,15 @@ full_attach() {
 
 # Direct mode entry point - called from detach-client -E
 # This runs AFTER detaching from default server, directly in the user's terminal
-# Arguments:
-#   --caller <session>  The session to return to when exiting Navigator
+# Note: The caller session is written to state file by run-shell BEFORE detach-client -E
+#       because detach-client -E does not expand tmux format strings
 open_navigator_direct() {
-    local caller_session=""
-
-    # Parse arguments
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            --caller)
-                caller_session="$2"
-                shift 2
-                ;;
-            *)
-                shift
-                ;;
-        esac
-    done
+    # Caller session is already written to state file by the keybinding
+    # (run-shell expands #{session_name} and writes it before detach-client -E runs)
+    local caller_session
+    caller_session=$(get_nav_caller)
 
     info_log "Opening Navigator (direct mode), caller: ${caller_session:-<none>}"
-
-    # Save caller session for return
-    if [[ -n "$caller_session" ]]; then
-        set_nav_caller "$caller_session"
-    fi
 
     # Check if Navigator session already exists
     if is_nav_session_exists; then
@@ -331,16 +318,16 @@ open_navigator_direct() {
     # Create Navigator session
     TMUX= nav_tmux new-session -d -s "$TOWER_NAV_SESSION" -x "$(tput cols)" -y "$(tput lines)"
 
-    # Split into left (list) and right (preview) panes
+    # Split into left (list) and right (view) panes
     nav_tmux split-window -t "$TOWER_NAV_SESSION" -h -l "70%"
 
     # Set up left pane (session list)
     nav_tmux send-keys -t "$TOWER_NAV_SESSION:0.0" \
         "$SCRIPT_DIR/navigator-list.sh" Enter
 
-    # Set up right pane (preview wrapper)
+    # Set up right pane (view)
     nav_tmux send-keys -t "$TOWER_NAV_SESSION:0.1" \
-        "$SCRIPT_DIR/navigator-preview.sh" Enter
+        "$SCRIPT_DIR/navigator-view.sh" Enter
 
     # Focus on left pane
     nav_tmux select-pane -t "$TOWER_NAV_SESSION:0.0"
@@ -371,17 +358,20 @@ Commands:
 
 Navigator Architecture:
     Uses socket separation with dedicated tmux server (-L $TOWER_NAV_SOCKET)
-    Left pane shows session list, right pane shows live preview
+    Left pane shows session list, right pane shows live view
 
 Invocation:
-    From tmux:     prefix + t, c  (uses detach-client -E for seamless switching)
+    From tmux:     prefix + t, c  (seamless server switching)
     Direct:        ./navigator.sh --direct
+
+Note: Caller session is read from state file (/tmp/claude-tower/caller)
+      which is written by tmux run-shell before detach-client -E
 
 Keybindings in Navigator:
     j/k, ↓/↑     Navigate sessions
     g/G          Go to first/last session
     Enter        Full attach to selected session
-    i            Input mode (focus on preview pane)
+    i            Focus view pane (input mode)
     Esc          Return to list from input mode
     n            Create new session
     d            Delete selected session
@@ -403,7 +393,7 @@ main() {
             shift
             open_navigator_direct "$@"
             ;;
-        --open|"")
+        --open | "")
             # Legacy popup mode
             open_navigator
             ;;
@@ -416,7 +406,7 @@ main() {
         --kill)
             kill_nav_server
             ;;
-        --help|-h)
+        --help | -h)
             usage
             ;;
         *)

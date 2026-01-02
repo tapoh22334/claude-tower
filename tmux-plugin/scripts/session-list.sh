@@ -14,10 +14,10 @@ source "$SCRIPT_DIR/../lib/common.sh"
 format="${1:-raw}"
 
 case "$format" in
-    raw|--raw)
+    raw | --raw)
         list_all_sessions
         ;;
-    pretty|--pretty)
+    pretty | --pretty)
         while IFS=':' read -r session_id state type display_name branch diff_stats; do
             [[ -z "$session_id" ]] && continue
 
@@ -34,13 +34,13 @@ case "$format" in
                 "$state_icon" "$type_icon" "$display_name" "$branch_info" "$diff_info"
         done < <(list_all_sessions)
         ;;
-    json|--json)
+    json | --json)
         echo "["
         first=true
         while IFS=':' read -r session_id state type display_name branch diff_stats; do
             [[ -z "$session_id" ]] && continue
             [[ "$first" == "true" ]] && first=false || echo ","
-            cat << EOF
+            cat <<EOF
   {
     "session_id": "$session_id",
     "state": "$state",

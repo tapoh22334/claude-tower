@@ -120,7 +120,7 @@ main() {
         stats)
             get_workspace_stats
             ;;
-        full|*)
+        full | *)
             echo "$(get_session_info) │ $(get_workspace_stats)"
             ;;
     esac

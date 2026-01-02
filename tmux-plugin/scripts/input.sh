@@ -75,7 +75,7 @@ main() {
 
         # Read input
         echo -ne "${YELLOW}>>> ${NC}"
-        read -r input || break  # Ctrl-D exits
+        read -r input || break # Ctrl-D exits
 
         if [[ -n "$input" ]]; then
             send_to_session "$session_id" "$input"

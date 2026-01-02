@@ -15,7 +15,7 @@ if [[ -z "$INPUT" ]]; then
     exit 1
 fi
 
-IFS=':' read -r type selected_session selected_window selected_pane _ <<< "$INPUT"
+IFS=':' read -r type selected_session selected_window selected_pane _ <<<"$INPUT"
 
 debug_log "Rename request: type=$type, session=$selected_session, window=$selected_window"
 
@@ -34,8 +34,8 @@ rename_session() {
     new_name=$(echo "" | fzf-tmux -p 50%,20% \
         --print-query \
         --prompt="New name for session '$session': " \
-        --bind="enter:accept-or-print-query" \
-    | head -1) || {
+        --bind="enter:accept-or-print-query" |
+        head -1) || {
         debug_log "Rename cancelled by user"
         exit 0
     }
@@ -88,8 +88,8 @@ rename_window() {
     new_name=$(echo "" | fzf-tmux -p 50%,20% \
         --print-query \
         --prompt="New name for window '$current_window_name': " \
-        --bind="enter:accept-or-print-query" \
-    | head -1) || {
+        --bind="enter:accept-or-print-query" |
+        head -1) || {
         debug_log "Rename cancelled by user"
         exit 0
     }

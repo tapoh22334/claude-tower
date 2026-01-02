@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/common.sh"
 
 INPUT="$1"
-IFS=':' read -r type selected_session _ <<< "$INPUT"
+IFS=':' read -r type selected_session _ <<<"$INPUT"
 
 # Get session metadata
 session_type=$(tmux show-option -t "$selected_session" -qv @tower_session_type 2>/dev/null || echo "")

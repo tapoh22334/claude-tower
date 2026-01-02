@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Show help
 
-cat << 'EOF'
+cat <<'EOF'
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   claude-tower - Session/Window/Pane Manager
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

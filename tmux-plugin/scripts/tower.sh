@@ -29,7 +29,7 @@ source "$SCRIPT_DIR/../lib/common.sh"
 
 # Show help
 show_help() {
-    cat << 'EOF'
+    cat <<'EOF'
 claude-tower - Parallel Claude Code Orchestrator
 
 Usage: tower.sh [command] [args...]
@@ -87,7 +87,7 @@ main() {
     local cmd="${1:-}"
 
     case "$cmd" in
-        ""|navigator)
+        "" | navigator)
             # Default: Launch Navigator
             "$SCRIPT_DIR/navigator.sh"
             ;;
@@ -110,7 +110,7 @@ main() {
         tile)
             "$SCRIPT_DIR/tile.sh"
             ;;
-        help|--help|-h)
+        help | --help | -h)
             show_help
             ;;
         *)

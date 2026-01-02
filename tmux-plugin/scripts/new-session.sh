@@ -25,8 +25,8 @@ get_session_name() {
         --print-query \
         --prompt="Session name: " \
         --header="Enter session name (default: $default_name)" \
-        --bind="enter:accept-or-print-query" \
-    | head -1 || echo "$default_name"
+        --bind="enter:accept-or-print-query" |
+        head -1 || echo "$default_name"
 }
 
 # Create workspace session (git repo)

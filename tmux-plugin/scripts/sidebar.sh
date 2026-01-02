@@ -30,7 +30,7 @@ is_sidebar_open() {
 get_sidebar_pane_id() {
     local current_window
     current_window=$(tmux display-message -p '#{window_id}')
-    tmux list-panes -t "$current_window" -F '#{pane_id}:#{pane_title}' 2>/dev/null | \
+    tmux list-panes -t "$current_window" -F '#{pane_id}:#{pane_title}' 2>/dev/null |
         grep ":${SIDEBAR_PANE_NAME}$" | cut -d: -f1
 }
 
@@ -158,13 +158,13 @@ render_sidebar() {
                     # Open full tree view overlay
                     tmux run-shell -t ":.!" "$SCRIPT_DIR/tower.sh"
                     ;;
-                j|"$(printf '\e[B')")
+                j | "$(printf '\e[B')")
                     # Navigate down (future: select session)
                     ;;
-                k|"$(printf '\e[A')")
+                k | "$(printf '\e[A')")
                     # Navigate up (future: select session)
                     ;;
-                "$(printf '\e')")  # Escape
+                "$(printf '\e')") # Escape
                     exit 0
                     ;;
                 q)
@@ -197,7 +197,7 @@ case "${1:-}" in
     --close)
         close_sidebar
         ;;
-    --toggle|*)
+    --toggle | *)
         toggle_sidebar
         ;;
 esac
