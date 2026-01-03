@@ -3,8 +3,10 @@
 # Shows all sessions in a grid layout for overview/selection
 #
 # Key bindings:
-#   j/↓       Move to next session
-#   k/↑       Move to previous session
+#   j/↓       Move to next session (wraps around)
+#   k/↑       Move to previous session (wraps around)
+#   g         Go to first session
+#   G         Go to last session
 #   1-9       Select session + return to list view
 #   Enter     Return to list view with current selection
 #   Tab       Return to list view
@@ -53,21 +55,27 @@ quit_navigator() {
     exit 0
 }
 
-# Load active sessions
+# Load all sessions including dormant
 load_sessions() {
     SESSIONS=()
     SESSION_IDS=()
 
     while IFS=':' read -r session_id state type display_name branch diff_stats; do
         [[ -z "$session_id" ]] && continue
-        [[ "$state" == "$STATE_DORMANT" ]] && continue # Only active sessions
 
         local state_icon type_icon line
         state_icon=$(get_state_icon "$state")
         type_icon=$(get_type_icon "$type")
 
-        line="${state_icon} ${type_icon} ${display_name}"
-        [[ -n "$branch" ]] && line="${line} ${ICON_GIT}${branch}"
+        local name="${session_id#tower_}"
+
+        # Dormant sessions shown with dim color
+        if [[ "$state" == "$STATE_DORMANT" ]]; then
+            line="${DIM}${state_icon} ${type_icon} ${name}${NC}"
+        else
+            line="${state_icon} ${type_icon} ${name}"
+            [[ -n "$branch" ]] && line="${line} ${ICON_GIT}${branch}"
+        fi
 
         SESSIONS+=("$line")
         SESSION_IDS+=("$session_id")
@@ -96,7 +104,7 @@ draw_tiles() {
     local count=${#SESSIONS[@]}
 
     # Header
-    echo -e "${BOLD}${CYAN}━━━ Tile View ━━━${NC}  ${DIM}j/k:nav 1-9:select Tab:list Enter:select q:quit${NC}"
+    echo -e "${BOLD}${CYAN}━━━ Tile View ━━━${NC}  ${DIM}j/k:nav g/G:first/last 1-9:select Tab:list q:quit${NC}"
     echo ""
 
     if [[ $count -eq 0 ]]; then
@@ -131,9 +139,15 @@ draw_tiles() {
             printf "${BOLD}[%d]${NC} %s" "$((idx + 1))" "${display:0:$((preview_width - 5))}"
         fi
 
-        # Draw session content
-        local content
-        content=$(tmux capture-pane -t "$sid" -p -S -"$preview_height" 2>/dev/null | tail -"$((preview_height - 1))" || echo "(unavailable)")
+        # Draw session content (check if dormant first)
+        local content state
+        state=$(get_session_state "$sid")
+
+        if [[ "$state" == "$STATE_DORMANT" ]]; then
+            content="Dormant - Press 'r' to restore"
+        else
+            content=$(tmux capture-pane -t "$sid" -p -S -"$preview_height" 2>/dev/null | tail -"$((preview_height - 1))" || echo "(unavailable)")
+        fi
 
         local line_num=0
         while IFS= read -r line && [[ $line_num -lt $((preview_height - 1)) ]]; do
@@ -191,14 +205,22 @@ handle_input() {
     local count=${#SESSIONS[@]}
 
     case "$key" in
-        j | $'\x1b[B') # Down / Next
-            if [[ $count -gt 0 && $SELECTED_INDEX -lt $((count - 1)) ]]; then
-                ((SELECTED_INDEX++)) || true
+        j | $'\x1b[B') # Down / Next (with wraparound)
+            if [[ $count -gt 0 ]]; then
+                SELECTED_INDEX=$(( (SELECTED_INDEX + 1) % count ))
             fi
             ;;
-        k | $'\x1b[A') # Up / Previous
-            if [[ $SELECTED_INDEX -gt 0 ]]; then
-                ((SELECTED_INDEX--)) || true
+        k | $'\x1b[A') # Up / Previous (with wraparound)
+            if [[ $count -gt 0 ]]; then
+                SELECTED_INDEX=$(( (SELECTED_INDEX - 1 + count) % count ))
+            fi
+            ;;
+        g) # Go to first
+            SELECTED_INDEX=0
+            ;;
+        G) # Go to last
+            if [[ $count -gt 0 ]]; then
+                SELECTED_INDEX=$((count - 1))
             fi
             ;;
         [1-9]) # Number select + return to list view

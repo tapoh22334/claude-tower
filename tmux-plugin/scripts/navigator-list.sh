@@ -31,6 +31,8 @@ readonly NAV_C_HEADER=$'\033[1;36m'
 readonly NAV_C_SELECTED=$'\033[7m' # Reverse video
 readonly NAV_C_NORMAL=$'\033[0m'
 readonly NAV_C_DIM=$'\033[2m'
+readonly NAV_C_ACCENT=$'\033[1;32m'  # Green bold - for highlights
+readonly NAV_C_ERROR=$'\033[1;31m'   # Red bold - for errors
 # Colors (NAV_C_RUNNING used in future state detection)
 # shellcheck disable=SC2034
 readonly NAV_C_RUNNING=$'\033[32m'
@@ -138,46 +140,51 @@ render_list() {
     local selected_index="$1"
     local term_height
     term_height=$(tput lines 2>/dev/null || echo 24)
-    local max_lines=$((term_height - 8)) # Reserve space for header/footer
+    local max_lines=$((term_height - 4)) # Reserve space for footer
 
     # Build output in variable first (double buffering)
     local output=""
 
-    # Header
-    output+="${NAV_C_HEADER}┌─ Sessions ─────────────┐${NAV_C_NORMAL}\n"
+    # Get current focus state
+    local focus
+    focus=$(get_nav_focus)
+
+    # Focus indicator
+    local focus_indicator=""
+    if [[ "$focus" == "list" ]]; then
+        focus_indicator="${NAV_C_ACCENT}[ACTIVE]${NAV_C_NORMAL}"
+    else
+        focus_indicator="${NAV_C_DIM}[─────]${NAV_C_NORMAL}"
+    fi
+
+    # Header with focus indicator
+    output+="${NAV_C_HEADER}Sessions${NAV_C_NORMAL} ${focus_indicator}\n"
+    output+="\n"
 
     if [[ ${#SESSION_IDS[@]} -eq 0 ]]; then
-        output+="│ ${NAV_C_DIM}(no sessions)${NAV_C_NORMAL}           │\n"
+        output+="${NAV_C_DIM}(no sessions)${NAV_C_NORMAL}\n"
     else
         local i=0
         for display in "${SESSION_DISPLAYS[@]}"; do
             if [[ $i -ge $max_lines ]]; then
                 local remaining=$((${#SESSION_IDS[@]} - max_lines))
-                output+="│ ${NAV_C_DIM}... +${remaining} more${NAV_C_NORMAL}\n"
+                output+="${NAV_C_DIM}... +${remaining} more${NAV_C_NORMAL}\n"
                 break
             fi
 
-            # Strip ANSI codes and truncate for display
-            local plain_text
-            plain_text=$(printf '%s' "$display" | sed 's/\x1b\[[0-9;]*m//g' | cut -c1-22)
-
             if [[ $i -eq $selected_index ]]; then
                 # Highlight selected row
-                output+=$(printf "│${NAV_C_SELECTED}%-23s${NAV_C_NORMAL}│\n" " ${plain_text}")
+                output+="${NAV_C_SELECTED} ${display} ${NAV_C_NORMAL}\n"
             else
-                output+=$(printf "│ %-22s │\n" "$plain_text")
+                output+=" ${display}\n"
             fi
             ((i++)) || true
         done
     fi
 
-    # Footer with keybindings
-    output+="${NAV_C_HEADER}├─────────────────────────┤${NAV_C_NORMAL}\n"
-    output+="│ ${NAV_C_DIM}j/k${NAV_C_NORMAL}:nav ${NAV_C_DIM}Enter${NAV_C_NORMAL}:attach   │\n"
-    output+="│ ${NAV_C_DIM}i${NAV_C_NORMAL}:input ${NAV_C_DIM}n${NAV_C_NORMAL}:new ${NAV_C_DIM}d${NAV_C_NORMAL}:del   │\n"
-    output+="│ ${NAV_C_DIM}R${NAV_C_NORMAL}:restart ${NAV_C_DIM}Tab${NAV_C_NORMAL}:tile    │\n"
-    output+="│ ${NAV_C_DIM}?${NAV_C_NORMAL}:help ${NAV_C_DIM}q${NAV_C_NORMAL}:quit          │\n"
-    output+="${NAV_C_HEADER}└─────────────────────────┘${NAV_C_NORMAL}\n"
+    # Footer with keybindings (compact)
+    output+="\n"
+    output+="${NAV_C_DIM}j/k:nav Enter:attach i:input n:new d:del r:restore q:quit${NAV_C_NORMAL}\n"
 
     # Clear to end of screen code
     local clear_eos
@@ -203,7 +210,8 @@ show_help() {
     echo "    i          Focus view pane (input mode)"
     echo "    n          Create new session"
     echo "    d          Delete selected session"
-    echo "    R          Restart Claude in session"
+    echo "    r          Restore selected dormant session"
+    echo "    R          Restore all dormant sessions"
     echo "    Tab        Switch to Tile view"
     echo ""
     echo "  Other:"
@@ -218,9 +226,17 @@ show_help() {
 # Actions
 # ============================================================================
 
-# Signal view pane to update
+# Signal view pane to update by writing to a signal file
+# The view pane monitors this file and reconnects when it changes
 signal_view_update() {
-    # Send Escape to right pane to trigger detach/reattach
+    # Write timestamp to signal file - view pane monitors this
+    local signal_file="${TOWER_NAV_STATE_DIR}/view_signal"
+    date +%s%N > "$signal_file" 2>/dev/null || true
+
+    # Also send Escape to right pane to trigger detach from inner session
+    # Send multiple times with small delay for reliability
+    nav_tmux send-keys -t "$TOWER_NAV_SESSION:0.1" Escape 2>/dev/null || true
+    sleep 0.05
     nav_tmux send-keys -t "$TOWER_NAV_SESSION:0.1" Escape 2>/dev/null || true
 }
 
@@ -367,21 +383,83 @@ delete_selected() {
     fi
 }
 
-# Restart Claude in selected session
-restart_selected() {
+# Restore selected dormant session
+# Only works if the selected session is in dormant state
+restore_selected() {
     local selected
     selected=$(get_nav_selected)
 
     if [[ -z "$selected" ]]; then
+        return 1
+    fi
+
+    # Check if session is dormant
+    local state
+    state=$(get_session_state "$selected")
+
+    if [[ "$state" != "$STATE_DORMANT" ]]; then
+        # Session is not dormant - show brief message
+        echo ""
+        echo "  ${NAV_C_DIM}Not dormant${NAV_C_NORMAL}"
+        sleep 0.5
+        return 1
+    fi
+
+    # Show restoring message
+    echo ""
+    echo "  ${NAV_C_ACCENT}Restoring...${NAV_C_NORMAL}"
+
+    # Restore the session
+    if "$SCRIPT_DIR/session-restore.sh" "$selected" 2>/dev/null; then
+        echo "  ${NAV_C_ACCENT}✓${NAV_C_NORMAL} Restored: ${selected#tower_}"
+        signal_view_update
+    else
+        echo "  ${NAV_C_ERROR}✗${NAV_C_NORMAL} Failed to restore"
+    fi
+    sleep 0.5
+}
+
+# Restore all dormant sessions
+restore_all_dormant_sessions() {
+    local dormant_count=0
+    local restored=0
+    local failed=0
+
+    # Count dormant sessions
+    for id in "${SESSION_IDS[@]:-}"; do
+        local state
+        state=$(get_session_state "$id")
+        [[ "$state" == "$STATE_DORMANT" ]] && ((dormant_count++)) || true
+    done
+
+    if [[ $dormant_count -eq 0 ]]; then
+        echo ""
+        echo "  ${NAV_C_DIM}No dormant sessions${NAV_C_NORMAL}"
+        sleep 0.5
         return
     fi
 
-    # Send Ctrl-C and restart on DEFAULT server
-    TMUX= tmux send-keys -t "$selected" C-c 2>/dev/null || true
-    sleep 0.2
-    TMUX= tmux send-keys -t "$selected" "${TOWER_PROGRAM:-claude}" C-m 2>/dev/null || true
-    echo -e "\n${C_GREEN}Restarted Claude${C_RESET}"
-    sleep 0.5
+    echo ""
+    echo "  ${NAV_C_ACCENT}Restoring $dormant_count dormant sessions...${NAV_C_NORMAL}"
+
+    # Restore each dormant session
+    for id in "${SESSION_IDS[@]:-}"; do
+        local state
+        state=$(get_session_state "$id")
+        if [[ "$state" == "$STATE_DORMANT" ]]; then
+            if "$SCRIPT_DIR/session-restore.sh" "$id" 2>/dev/null; then
+                ((restored++)) || true
+                echo "  ${NAV_C_ACCENT}✓${NAV_C_NORMAL} ${id#tower_}"
+            else
+                ((failed++)) || true
+                echo "  ${NAV_C_ERROR}✗${NAV_C_NORMAL} ${id#tower_}"
+            fi
+        fi
+    done
+
+    echo ""
+    echo "  ${NAV_C_ACCENT}Done:${NAV_C_NORMAL} $restored restored, $failed failed"
+    sleep 1
 }
 
 # Switch to Tile mode
@@ -553,8 +631,19 @@ main_loop() {
                     selected_index=$(get_selection_index)
                     clear  # Clear screen after input mode
                     ;;
+                r)
+                    # Restore selected dormant session
+                    restore_selected
+                    build_session_list
+                    selected_index=$(get_selection_index)
+                    clear
+                    ;;
                 R)
-                    restart_selected
+                    # Restore all dormant sessions
+                    restore_all_dormant_sessions
+                    build_session_list
+                    selected_index=$(get_selection_index)
+                    clear
                     ;;
                 $'\t') # Tab key
                     switch_to_tile

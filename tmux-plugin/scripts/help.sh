@@ -1,69 +1,57 @@
 #!/usr/bin/env bash
-# Show help
+# Show help - Updated to match SPECIFICATION.md v3.2
 
-cat <<'EOF'
+show_help() {
+    clear
+    cat <<'EOF'
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  claude-tower - Session/Window/Pane Manager
+  Claude Tower Navigator Help
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-KEYBINDINGS (in picker):
+NAVIGATION (focus: list):
 
-  Enter      Select and switch to item
+  j / ↓      Move down
+  k / ↑      Move up
+  g          Go to first session
+  G          Go to last session
+  1-9        Select session by number
+
+ACTIONS:
+
+  Enter      Full attach to selected session
+  i          Focus view pane (input mode)
+  Tab        Switch to Tile view
   n          Create new session
-  r          Rename session/window
-  x          Kill session/window/pane
-  D          Show git diff (workspace session type only)
+  d          Delete selected session
+  r          Restore selected dormant session
+  R          Restore all dormant sessions
+
+INPUT MODE (focus: view):
+
+  Escape     Return to list navigation
+  (other)    Keys sent to session
+
+OTHER:
+
   ?          Show this help
-  Esc        Close picker
+  q          Quit Navigator
 
-NAVIGATION:
+SESSION STATES:
 
-  j/↓        Move down
-  k/↑        Move up
-  /          Search
-  Tab        Toggle preview
+  ▶  Active   Claude is running
+  !  Exited   Claude has exited
+  ○  Dormant  Session saved, not running
 
 SESSION TYPES:
 
-  [W] Workspace    Git-managed with worktree isolation
-                   - Creates separate git worktree
-                   - Shows diff stats from source commit
-                   - Branch: tower/<session-name>
-
-  [S] Simple       Regular session in any directory
-                   - No git integration
-                   - Just runs the program
-
-ICONS:
-
-  📁  Session
-  🪟  Window
-  ▫   Pane
-  ●   Active (currently selected)
-  ⎇   Git branch
-
-CONFIGURATION (in .tmux.conf):
-
-  set -g @tower-key 'C'           # Key to open picker (default: C)
-  set -g @tower-new-key 'T'       # Key for new session (default: T)
-
-ENVIRONMENT VARIABLES:
-
-  CLAUDE_TOWER_PROGRAM       Program to run (default: claude)
-  CLAUDE_TOWER_WORKTREE_DIR  Worktree storage (default: ~/.claude-tower/worktrees)
-  CLAUDE_TOWER_METADATA_DIR  Metadata storage (default: ~/.claude-tower/metadata)
-
-DATA STORAGE:
-
-  ~/.claude-tower/metadata/   Session metadata files
-  ~/.claude-tower/worktrees/  Git worktrees
-
-CLEANUP:
-
-  Run cleanup.sh to remove orphaned worktrees:
-    cleanup.sh --list     List orphaned worktrees
-    cleanup.sh            Interactive cleanup
-    cleanup.sh --force    Remove all orphaned worktrees
+  [W] Workspace   Git worktree managed
+  [S] Simple      Regular session
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Press any key to return...
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 EOF
+    read -rsn1
+}
+
+show_help

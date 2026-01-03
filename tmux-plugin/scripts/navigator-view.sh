@@ -80,8 +80,18 @@ show_error() {
 show_connecting() {
     local session_id="$1"
     local name="${session_id#tower_}"
+
+    # Get focus state for indicator
+    local focus
+    focus=$(get_nav_focus)
+    local focus_header=""
+    if [[ "$focus" == "view" ]]; then
+        focus_header="  [INPUT MODE] Press Escape to return\n\n"
+    fi
+
     clear
     echo ""
+    printf "%b" "$focus_header"
     echo "  ┌───────────────────────────────────────┐"
     echo "  │                                       │"
     printf "  │  Connecting to: %-20s │\n" "${name:0:20}"
