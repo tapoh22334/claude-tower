@@ -923,25 +923,22 @@ readonly ICON_TYPE_SIMPLE="[S]"
 #   $1 - Session ID (with tower_ prefix)
 # Returns:
 #   State string: active, exited, or dormant
+# Optimized: Uses single tmux command (display-message) instead of has-session + display-message
 get_session_state() {
     local session_id="$1"
+    local pane_cmd
 
-    # Check if tmux session exists on default server
-    if ! TMUX= tmux has-session -t "$session_id" 2>/dev/null; then
-        # No tmux session - check if metadata exists (Dormant)
+    # Try display-message first - fails if session doesn't exist
+    # This combines session existence check with command retrieval in one call
+    if ! pane_cmd=$(TMUX= tmux display-message -t "$session_id" -p '#{pane_current_command}' 2>/dev/null); then
+        # Session doesn't exist - check if metadata exists (Dormant)
         if has_metadata "$session_id"; then
             echo "$STATE_DORMANT"
-        else
-            echo "" # Session doesn't exist at all
         fi
         return 0
     fi
 
-    # tmux session exists - check Claude process
-    local pane_cmd
-    pane_cmd=$(TMUX= tmux display-message -t "$session_id" -p '#{pane_current_command}' 2>/dev/null || echo "")
-
-    # Check if Claude (or configured program) is running
+    # Session exists - check if Claude is running
     local program_name
     program_name=$(basename "$TOWER_PROGRAM")
 
@@ -950,7 +947,6 @@ get_session_state() {
         return 0
     fi
 
-    # Claude is running (active state - simplified from running/idle)
     echo "$STATE_ACTIVE"
 }
 

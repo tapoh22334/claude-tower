@@ -104,7 +104,9 @@ show_dormant_info() {
     echo "  │   Session: $name"
     echo "  │   Status: Dormant (not running)       │"
     echo "  │                                       │"
-    echo "  │   Press Enter to restore and attach   │"
+    echo "  │   r      Restore session              │"
+    echo "  │   Enter  Restore and attach           │"
+    echo "  │   R      Restore all dormant          │"
     echo "  │                                       │"
     echo "  └───────────────────────────────────────┘"
     echo ""
@@ -122,39 +124,19 @@ show_dormant_info() {
 attach_to_session() {
     local session_id="$1"
 
-    info_log "Attempting to attach to session: $session_id"
+    info_log "Attaching to session: $session_id"
 
-    # Show connecting message briefly
-    show_connecting "$session_id"
-
-    # Check if session exists in DEFAULT server (TMUX= to unset Navigator context)
-    if ! TMUX= tmux has-session -t "$session_id" 2>/dev/null; then
-        error_log "Session not found on default server: $session_id"
-        show_error "Session not found"
-        return 1
-    fi
-
-    info_log "Session exists on default server, attaching with nested tmux"
-
-    # Use nested tmux to attach to the session
-    # TMUX= unsets the environment variable to allow nesting
-    # -f loads our custom config that makes Escape detach
-    local attach_result
+    # Direct attach - tmux will update the screen
+    # Session existence was already verified by get_session_state() in main_loop
     if [[ -f "$INNER_CONF" ]]; then
-        info_log "Using view-focus.conf for nested attachment"
         if ! TMUX= tmux -f "$INNER_CONF" attach-session -t "$session_id" 2>&1; then
-            error_log "Failed to attach with inner config, trying without"
-            if ! TMUX= tmux attach-session -t "$session_id" 2>&1; then
-                error_log "Attach failed completely"
-                show_error "Failed to attach to session"
-                return 1
-            fi
+            error_log "Failed to attach: $session_id"
+            show_error "Failed to attach"
+            return 1
         fi
     else
-        error_log "INNER_CONF not found: $INNER_CONF"
-        show_error "Config file missing"
         if ! TMUX= tmux attach-session -t "$session_id" 2>&1; then
-            error_log "Attach failed without config"
+            error_log "Failed to attach: $session_id"
             show_error "Failed to attach"
             return 1
         fi
@@ -168,6 +150,28 @@ attach_to_session() {
 # Main Loop
 # ============================================================================
 
+# Track last known selection for change detection
+LAST_SELECTED=""
+SIGNAL_FILE="${TOWER_NAV_STATE_DIR}/view_signal"
+LAST_SIGNAL=""
+
+# Check if selection changed
+selection_changed() {
+    local current_selected
+    current_selected=$(get_nav_selected)
+
+    # Check signal file for forced update
+    local current_signal=""
+    [[ -f "$SIGNAL_FILE" ]] && current_signal=$(cat "$SIGNAL_FILE" 2>/dev/null || echo "")
+
+    if [[ "$current_selected" != "$LAST_SELECTED" ]] || [[ "$current_signal" != "$LAST_SIGNAL" ]]; then
+        LAST_SELECTED="$current_selected"
+        LAST_SIGNAL="$current_signal"
+        return 0  # Changed
+    fi
+    return 1  # Not changed
+}
+
 main_loop() {
     info_log "Starting main view loop"
 
@@ -175,12 +179,14 @@ main_loop() {
         # Get currently selected session
         local selected
         selected=$(get_nav_selected)
+        LAST_SELECTED="$selected"
+        [[ -f "$SIGNAL_FILE" ]] && LAST_SIGNAL=$(cat "$SIGNAL_FILE" 2>/dev/null || echo "")
 
         if [[ -z "$selected" ]]; then
             # No selection - show placeholder
             debug_log "No session selected, showing placeholder"
             show_placeholder
-            sleep 1
+            sleep 0.5
             continue
         fi
 
@@ -197,15 +203,19 @@ main_loop() {
                 # Show dormant info
                 info_log "Session is dormant: $selected"
                 show_dormant_info "$selected"
-                # Wait for signal (Escape from left pane)
-                # shellcheck disable=SC2034
-                read -rsn1 -t 1 _key || true
+                # Poll for selection change (short interval)
+                while ! selection_changed; do
+                    sleep 0.2
+                done
                 ;;
             "")
                 # Session doesn't exist
                 debug_log "Session state empty, showing placeholder"
                 show_placeholder
-                sleep 1
+                # Poll for selection change
+                while ! selection_changed; do
+                    sleep 0.3
+                done
                 ;;
             *)
                 # Active session - attach to it
@@ -214,7 +224,7 @@ main_loop() {
                 if ! attach_to_session "$selected"; then
                     error_log "Failed to attach to session: $selected"
                     show_placeholder
-                    sleep 1
+                    sleep 0.5
                 fi
                 # After detach, loop back to check new selection
                 info_log "Returned from session attachment, checking for new selection"
