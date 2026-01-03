@@ -1,8 +1,9 @@
 # claude-tower
 
-> **⚠️ UNDER DEVELOPMENT**
-> This project is currently under active development and not ready for production use.
-> Features may be incomplete, and breaking changes may occur without notice.
+> **🚧 UNDER DEVELOPMENT - NOT FUNCTIONAL 🚧**
+>
+> This project is in early development. **Most features do not work yet.**
+> Do not install for actual use. Breaking changes will occur without notice.
 
 A tmux plugin for managing Claude Code sessions with tree-style navigation and git worktree integration.
 
