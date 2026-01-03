@@ -1,7 +1,7 @@
 # Claude Tower Navigator 仕様書
 
-Version: 3.0
-Date: 2026-01-02
+Version: 3.1
+Date: 2026-01-03
 
 ## 1. 概要
 
@@ -75,7 +75,7 @@ Claude Tower は tmux プラグインであり、複数の Claude Code セッシ
 ### 3.1 ユーザーターミナル状態
 
 ```
-                              prefix+tc
+                               prefix+t
     ┌──────────────┐ ────────────────────────> ┌──────────────┐
     │              │                           │              │
     │   WORKING    │                           │  NAVIGATOR   │
@@ -84,7 +84,7 @@ Claude Tower は tmux プラグインであり、複数の Claude Code セッシ
     └──────────────┘                           └──────────────┘
            ▲                                          │
            │                                          │
-           └──────────── prefix+tc ───────────────────┘
+           └──────────── prefix+t ────────────────────┘
                       (from full attach)
 ```
 
@@ -125,7 +125,7 @@ Claude Tower は tmux プラグインであり、複数の Claude Code セッシ
 
 | 項目 | 内容 |
 |------|------|
-| トリガー | `prefix + t, c` |
+| トリガー | `prefix + t` |
 | コンテキスト | default server のセッションにアタッチ中 |
 | 前提条件 | current ∈ Session(default) |
 | 事後条件 | caller := current, user attached to navigator, focus := list |
@@ -208,7 +208,29 @@ Claude Tower は tmux プラグインであり、複数の Claude Code セッシ
 | コンテキスト | Navigator, focus = list, selected ≠ none |
 | 事後条件 | selected session deleted, selected := next available or none |
 
-### 4.9 switch_to_tile_view
+### 4.9 restore_session
+
+| 項目 | 内容 |
+|------|------|
+| トリガー | `r` |
+| コンテキスト | Navigator, focus = list, selected ≠ none |
+| 前提条件 | selected.state = dormant |
+| 事後条件 | selected session restored (state := active), focus := list |
+
+**active/exited セッションの場合**: 無視（何もしない）
+
+### 4.10 restore_all_sessions
+
+| 項目 | 内容 |
+|------|------|
+| トリガー | `R` |
+| コンテキスト | Navigator, focus = list |
+| 前提条件 | dormant_sessions.count > 0 |
+| 事後条件 | all dormant sessions restored, リスト更新 |
+
+**dormant セッションがない場合**: "No dormant sessions" を表示
+
+### 4.11 switch_to_tile_view
 
 | 項目 | 内容 |
 |------|------|
@@ -255,10 +277,9 @@ Claude Tower は tmux プラグインであり、複数の Claude Code セッシ
 
 | キー | 動作 |
 |------|------|
-| `prefix + t, c` | Navigator 起動 |
-| `prefix + t, n` | 新規セッション作成（Navigator 外から） |
-| `prefix + t, l` | セッション一覧表示 |
-| `prefix + t, r` | 全 Dormant セッション復元 |
+| `prefix + t` | Navigator 起動（直接） |
+
+**廃止**: `prefix + t, c/n/l/r` の2段階キーバインドを廃止。すべての操作は Navigator 内で行う。
 
 ### 6.2 Navigator キーバインド（list_view, focus: list）
 
@@ -269,12 +290,13 @@ Claude Tower は tmux プラグインであり、複数の Claude Code セッシ
 | `g` | 最初のセッションを選択 |
 | `G` | 最後のセッションを選択 |
 | `1-9` | 該当セッションを選択 |
-| `Enter` | Full Attach（選択セッションに直接アタッチ） |
+| `Enter` | Full Attach（dormant の場合は復元してアタッチ） |
 | `i` | focus:view に切り替え（入力可能） |
 | `Tab` | tile_view に切り替え |
 | `n` | 新規セッション作成 |
 | `d` | 選択セッション削除 |
-| `R` | Claude 再起動 |
+| `r` | 選択中の dormant セッションを復元 |
+| `R` | 全 dormant セッションを復元 |
 | `q` | Navigator 終了（caller に戻る） |
 | `?` | ヘルプ表示 |
 
@@ -351,6 +373,7 @@ tmux-plugin/
 
 | バージョン | 日付 | 内容 |
 |------------|------|------|
+| 3.2 | 2026-01-03 | キーバインド簡素化: `prefix+t` で直接 Navigator 起動。dormant 復元キー追加 (`r`, `R`) |
 | 3.1 | 2026-01-02 | tile_view 追加。list_view/tile_view の2ビュー切替方式を採用 |
 | 3.0 | 2026-01-02 | 厳密な仕様書として再作成。ドメイン語彙・操作定義・エッジケースを明確化 |
 | 2.x | - | 旧仕様（navigator-architecture.md 参照） |

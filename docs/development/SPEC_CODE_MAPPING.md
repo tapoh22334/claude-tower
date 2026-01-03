@@ -33,7 +33,7 @@ tmux-plugin/
     ├── tower.sh               ✅ 存在
     ├── navigator.sh           ✅ 存在
     ├── navigator-list.sh      ⚠️ 追加（仕様書に記載なし）
-    ├── navigator-preview.sh   ⚠️ 追加（仕様書に記載なし）
+    ├── navigator-view.sh      ⚠️ 追加（仕様書に記載なし）
     ├── tile.sh                ✅ 存在
     ├── session-new.sh         ✅ 存在
     ├── session-delete.sh      ✅ 存在
@@ -58,7 +58,7 @@ tmux-plugin/
 |--------|------|------------|------|
 | session-status.sh | - | ❌ 不在 | common.sh内の`get_session_state()`に機能統合 |
 | - | navigator-list.sh | ⚠️ 追加 | Navigatorの左ペイン（リスト表示）を分離 |
-| - | navigator-preview.sh | ⚠️ 追加 | Navigatorの右ペイン（プレビュー）を分離 |
+| - | navigator-view.sh | ⚠️ 追加 | Navigatorの右ペイン（ビュー）を分離 |
 | - | cleanup.sh | ⚠️ 追加 | 不要リソースのクリーンアップ |
 | - | diff.sh | ⚠️ 追加 | 差分表示機能 |
 | - | help.sh | ⚠️ 追加 | ヘルプ表示 |

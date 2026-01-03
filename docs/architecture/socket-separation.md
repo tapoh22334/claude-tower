@@ -54,8 +54,8 @@ Navigator uses a dedicated tmux server (`-L claude-tower`) separate from the use
 
 1. **navigator.sh**: Entry point, manages Navigator lifecycle
 2. **navigator-list.sh**: Left pane, session list with vim-style navigation
-3. **navigator-preview.sh**: Right pane wrapper, manages connection to default server
-4. **inner-tmux.conf**: Configuration for the nested tmux client
+3. **navigator-view.sh**: Right pane wrapper, manages connection to default server
+4. **view-focus.conf**: Configuration for the nested tmux client
 
 ## User Flow
 
@@ -82,7 +82,7 @@ User presses: prefix + t c
 ┌─────────────────────────────────┐
 │ 3. Setup panes                  │
 │    - Left: navigator-list.sh    │
-│    - Right: navigator-preview.sh│
+│    - Right: navigator-view.sh   │
 └─────────────────────────────────┘
          │
          ▼
@@ -187,11 +187,11 @@ tmux-plugin/
 ├── scripts/
 │   ├── navigator.sh          # Entry point
 │   ├── navigator-list.sh     # Left pane (session list)
-│   └── navigator-preview.sh  # Right pane (preview wrapper)
+│   └── navigator-view.sh     # Right pane (view wrapper)
 ├── conf/
-│   └── inner-tmux.conf       # Config for nested tmux
+│   └── view-focus.conf       # Config for nested tmux
 └── lib/
-    └── common.sh             # Shared functions (updated)
+    └── common.sh             # Shared functions
 ```
 
 ## State Files
@@ -200,7 +200,7 @@ tmux-plugin/
 /tmp/claude-tower/
 ├── selected          # Currently selected session ID
 ├── caller            # Session to return to on quit
-└── focus             # Current focus (list|preview)
+└── focus             # Current focus (list|view)
 ```
 
 ## Configuration
@@ -212,7 +212,7 @@ tmux-plugin/
 | `CLAUDE_TOWER_NAV_WIDTH` | 30 | Left pane width |
 | `CLAUDE_TOWER_SOCKET` | claude-tower | Navigator server socket name |
 
-### inner-tmux.conf
+### view-focus.conf
 
 ```bash
 # No prefix - all keys pass through
