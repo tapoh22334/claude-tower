@@ -160,55 +160,61 @@ attach_to_session() {
 # Main Loop
 # ============================================================================
 
-# Wait for update signal from list pane using tmux wait-for
-# This blocks until signal is received - no polling needed
+# Wait for update signal from list pane
+# Uses polling to avoid missing signals from tmux wait-for
 wait_for_update() {
-    nav_tmux wait-for "$TOWER_VIEW_UPDATE_CHANNEL" 2>/dev/null || true
+    # Poll for selection changes every 0.2 seconds
+    # This prevents the signal timing issue where wait-for -S signals
+    # can be lost if sent before wait-for is called
+    sleep 0.2
 }
 
 main_loop() {
     info_log "Starting main view loop"
+
+    # Track last selected session to detect changes
+    local last_selected=""
 
     while true; do
         # Get currently selected session
         local selected
         selected=$(get_nav_selected)
 
-        if [[ -z "$selected" ]]; then
-            # No selection - show placeholder and wait for signal
-            debug_log "No session selected, showing placeholder"
-            show_placeholder
-            wait_for_update
-            continue
-        fi
+        # Only update display if selection changed
+        if [[ "$selected" != "$last_selected" ]]; then
+            last_selected="$selected"
 
-        debug_log "Selected session: $selected"
-
-        # Check if session exists on DEFAULT server
-        if ! TMUX= tmux has-session -t "$selected" 2>/dev/null; then
-            # Session doesn't exist in tmux - check if dormant
-            if has_metadata "$selected"; then
-                info_log "Session is dormant: $selected"
-                show_dormant_info "$selected"
-            else
-                debug_log "Session not found, showing placeholder"
+            if [[ -z "$selected" ]]; then
+                # No selection - show placeholder
+                debug_log "No session selected, showing placeholder"
                 show_placeholder
+            elif ! TMUX= tmux has-session -t "$selected" 2>/dev/null; then
+                # Session doesn't exist in tmux - check if dormant
+                if has_metadata "$selected"; then
+                    info_log "Session is dormant: $selected"
+                    show_dormant_info "$selected"
+                else
+                    debug_log "Session not found, showing placeholder"
+                    show_placeholder
+                fi
+            else
+                # Session exists - attach to it (blocks until Escape pressed)
+                info_log "Attaching to session: $selected"
+                if ! attach_to_session "$selected"; then
+                    error_log "Failed to attach to session: $selected"
+                    show_error "Cannot attach to session"
+                    sleep 0.5
+                fi
+
+                # After detach (Escape pressed), loop back to check new selection
+                info_log "Returned from session attachment"
+                # Force re-check on next iteration
+                last_selected=""
             fi
-            wait_for_update
-            continue
         fi
 
-        # Session exists - attach to it
-        info_log "Attaching to session: $selected"
-        if ! attach_to_session "$selected"; then
-            error_log "Failed to attach to session: $selected"
-            show_error "Cannot attach to session"
-            wait_for_update
-            continue
-        fi
-
-        # After detach (Escape pressed), loop back to check new selection
-        info_log "Returned from session attachment"
+        # Wait briefly before checking for selection changes again
+        wait_for_update
     done
 }
 
