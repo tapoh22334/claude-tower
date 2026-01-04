@@ -1,7 +1,7 @@
 # Claude Tower - Development Makefile
 # Usage: make <target>
 
-.PHONY: help lint lint-fix format format-fix test test-docker clean reload reset
+.PHONY: help lint lint-fix format format-fix test test-docker clean reload reset status
 
 # Default target
 help:
@@ -10,6 +10,7 @@ help:
 	@echo "  Development:"
 	@echo "    make reload     - Reload tmux plugin"
 	@echo "    make reset      - Kill Navigator, clear caches, reload"
+	@echo "    make status     - Show servers, sessions, state files"
 	@echo ""
 	@echo "  Linting & Formatting:"
 	@echo "    make lint       - Run shellcheck on all scripts"
@@ -130,6 +131,37 @@ reset:
 		echo "  (not in tmux, skipping reload)"; \
 	fi
 	@echo "=== Done ==="
+
+# Show status of servers, sessions, and state files
+status:
+	@echo "=== Navigator Server (claude-tower) ==="
+	@tmux -L claude-tower list-sessions 2>/dev/null || echo "  (not running)"
+	@echo ""
+	@echo "=== Session Server (claude-tower-sessions) ==="
+	@tmux -L claude-tower-sessions list-sessions 2>/dev/null || echo "  (not running)"
+	@echo ""
+	@echo "=== State Files (/tmp/claude-tower/) ==="
+	@if [ -d /tmp/claude-tower ]; then \
+		ls -la /tmp/claude-tower/ 2>/dev/null || echo "  (empty)"; \
+		echo ""; \
+		echo "--- Contents ---"; \
+		for f in /tmp/claude-tower/*; do \
+			if [ -f "$$f" ]; then \
+				echo "$$f:"; \
+				cat "$$f" 2>/dev/null | head -3; \
+				echo ""; \
+			fi; \
+		done; \
+	else \
+		echo "  (directory not found)"; \
+	fi
+	@echo ""
+	@echo "=== Metadata Files (~/.claude-tower/sessions/) ==="
+	@if [ -d ~/.claude-tower/sessions ]; then \
+		ls ~/.claude-tower/sessions/*.meta 2>/dev/null | head -10 || echo "  (no metadata)"; \
+	else \
+		echo "  (directory not found)"; \
+	fi
 
 # ============================================================================
 # Cleanup
