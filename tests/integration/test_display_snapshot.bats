@@ -106,11 +106,12 @@ create_test_navigator_session() {
     run get_state_icon "active"
     [ "$output" = "▶" ]
 
-    run get_state_icon "exited"
-    [ "$output" = "!" ]
-
     run get_state_icon "dormant"
     [ "$output" = "○" ]
+
+    # Unknown states return ?
+    run get_state_icon "unknown"
+    [ "$output" = "?" ]
 }
 
 @test "display: type icons are correct" {

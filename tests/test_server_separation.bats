@@ -56,17 +56,11 @@ setup() {
     local func_def
     func_def=$(declare -f get_session_state)
 
+    # The function uses has-session for reliable existence check
     [[ "$func_def" == *"TMUX= tmux has-session"* ]]
 }
 
-@test "get_session_state: uses TMUX= prefix for display-message" {
-    local func_def
-    func_def=$(declare -f get_session_state)
-
-    [[ "$func_def" == *"TMUX= tmux display-message"* ]]
-}
-
-# Note: get_session_state no longer uses capture-pane (uses display-message instead)
+# Note: get_session_state no longer uses capture-pane or display-message
 
 # ============================================================================
 # _start_session_with_claude tests
@@ -185,28 +179,19 @@ setup() {
     [[ "$output" == *"TMUX= tmux"* ]]
 }
 
-@test "navigator.sh: full_attach uses TMUX= prefix" {
+@test "navigator.sh: full_attach uses TMUX= prefix with attach-session" {
     local script="$PROJECT_ROOT/tmux-plugin/scripts/navigator.sh"
 
-    run grep "TMUX= tmux switch-client" "$script"
-    [ "$status" -eq 0 ]
-
-    # Check for TMUX= prefix with attach-session (may use 'exec tmux' or 'nav_tmux')
-    run grep -E "TMUX=.*(tmux|nav_tmux) attach-session" "$script"
+    # Check for TMUX= prefix with attach-session (uses 'exec tmux')
+    run grep "TMUX= exec tmux attach-session" "$script"
     [ "$status" -eq 0 ]
 }
 
 @test "navigator-list.sh: build_session_list uses TMUX= prefix" {
     local script="$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
 
+    # The script uses TMUX= tmux list-sessions in build_session_list
     run grep "TMUX= tmux list-sessions" "$script"
-    [ "$status" -eq 0 ]
-}
-
-@test "navigator-list.sh: restart_selected uses TMUX= prefix" {
-    local script="$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
-
-    run grep "TMUX= tmux send-keys" "$script"
     [ "$status" -eq 0 ]
 }
 

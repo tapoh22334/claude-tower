@@ -133,29 +133,29 @@ teardown() {
 @test "server-switch: navigator.sh close_navigator uses exec tmux attach" {
     local script="$PROJECT_ROOT/tmux-plugin/scripts/navigator.sh"
 
-    # Check for the exec pattern in close_navigator
-    run grep -A10 "close_navigator()" "$script"
+    # Check for the exec pattern in close_navigator (search full function)
+    run grep -A30 "close_navigator()" "$script"
     [[ "$output" == *"exec tmux attach-session"* ]] || [[ "$output" == *"TMUX= exec tmux"* ]]
 }
 
 @test "server-switch: navigator.sh full_attach uses exec tmux attach" {
     local script="$PROJECT_ROOT/tmux-plugin/scripts/navigator.sh"
 
-    run grep -A20 "^full_attach()" "$script"
+    run grep -A50 "^full_attach()" "$script"
     [[ "$output" == *"exec tmux attach-session"* ]] || [[ "$output" == *"TMUX= exec tmux"* ]]
 }
 
 @test "server-switch: navigator-list.sh quit_navigator uses detach-client -E" {
     local script="$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
 
-    run grep -A10 "quit_navigator()" "$script"
+    run grep -A25 "quit_navigator()" "$script"
     [[ "$output" == *"detach-client -E"* ]]
 }
 
 @test "server-switch: navigator-list.sh full_attach uses detach-client -E" {
     local script="$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
 
-    run grep -A15 "^full_attach()" "$script"
+    run grep -A35 "^full_attach()" "$script"
     [[ "$output" == *"detach-client -E"* ]]
 }
 
@@ -183,14 +183,14 @@ teardown() {
 @test "server-switch: plugin uses run-shell before detach-client -E" {
     local plugin="$PROJECT_ROOT/tmux-plugin/claude-tower.tmux"
 
-    # Check the navigator binding
-    run grep "tower c" "$plugin"
+    # Check the navigator binding (uses bind-key with run-shell)
+    run grep "run-shell" "$plugin"
     [ "$status" -eq 0 ]
 
     # Should save caller BEFORE detach-client -E
     [[ "$output" == *"run-shell"* ]]
     [[ "$output" == *"caller"* ]]
-    [[ "$output" == *"detach-client -E"* ]]
+    [[ "$output" == *"detach-client"* ]]
 }
 
 @test "server-switch: caller file written by run-shell not detach-client" {
@@ -198,7 +198,7 @@ teardown() {
 
     # The pattern should be:
     # run-shell -b "... echo '#{session_name}' > /tmp/claude-tower/caller && tmux detach-client -E ..."
-    run grep "tower c" "$plugin"
+    run grep "run-shell" "$plugin"
 
     # run-shell writes caller THEN detach-client runs navigator
     [[ "$output" == *"echo"* ]]

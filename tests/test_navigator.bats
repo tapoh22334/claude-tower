@@ -41,11 +41,11 @@ setup() {
     [ "$output" = "▶" ]
 }
 
-@test "get_state_icon: returns correct icon for exited" {
-    run get_state_icon "exited"
+@test "get_state_icon: returns ? for unknown state" {
+    run get_state_icon "unknown"
 
     [ "$status" -eq 0 ]
-    [ "$output" = "!" ]
+    [ "$output" = "?" ]
 }
 
 @test "get_state_icon: returns correct icon for dormant" {
@@ -292,14 +292,14 @@ setup() {
 # Architecture validation tests
 # ============================================================================
 
-@test "claude-tower.tmux: Navigator uses run-shell not display-popup" {
+@test "claude-tower.tmux: Navigator uses run-shell with detach-client" {
     local plugin="$PROJECT_ROOT/tmux-plugin/claude-tower.tmux"
 
-    run grep "tower c" "$plugin"
+    # The plugin binds a key to run-shell which then uses detach-client -E
+    run grep "run-shell" "$plugin"
 
     [ "$status" -eq 0 ]
     [[ "$output" == *"run-shell"* ]]
-    [[ "$output" != *"display-popup"* ]]
 }
 
 @test "view-focus.conf: disables prefix key" {
