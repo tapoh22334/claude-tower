@@ -1,7 +1,7 @@
 # Claude Tower Navigator 疑似コード
 
-Version: 3.0
-Date: 2026-01-02
+Version: 3.2
+Date: 2026-01-03
 
 本ドキュメントは SPECIFICATION.md の操作定義を実装するための疑似コードを提供する。
 
@@ -16,24 +16,15 @@ Date: 2026-01-02
 
 TOWER_PREFIX = get_option("@tower-prefix", "t")
 
-# Tower key table
-bind $TOWER_PREFIX switch-client -T tower
-
-# prefix + t, c → Navigator起動
-bind -T tower c  run-shell -b {
+# prefix + t → Navigator起動（直接）
+# v3.2で2段階キーバインド (prefix + t, c) は廃止
+bind $TOWER_PREFIX run-shell -b {
     # caller を保存（run-shell は format string を展開する）
     mkdir -p /tmp/claude-tower
     echo '#{session_name}' > /tmp/claude-tower/caller
 
     # detach-client -E で現在のセッションから離脱し、navigator.sh を実行
     tmux detach-client -E "$SCRIPT_DIR/navigator.sh"
-}
-
-# prefix + t, n → セッション作成（Navigator外から）
-bind -T tower n  run-shell -b {
-    # 現在のpane_current_pathを環境変数で渡す
-    env TOWER_WORKING_DIR='#{pane_current_path}' \
-        tmux new-window -n "tower-new" "$SCRIPT_DIR/session-new.sh"
 }
 ```
 
@@ -381,7 +372,7 @@ main_loop():
                 show_dormant_info(selected)
                 wait_for_signal()  # Escape待ち
 
-            CASE "active", "exited":
+            CASE "active":
                 attach_to_session(selected, focus)
                 # Escape で戻ってくる
                 # focus を list に戻す
@@ -549,12 +540,9 @@ get_session_state(session_id):
         END
     END
 
-    pane_cmd = TMUX= tmux display-message -t "$session_id" -p '#{pane_current_command}'
-    IF pane_cmd in ["claude", TOWER_PROGRAM]:
-        RETURN "active"
-    ELSE:
-        RETURN "exited"
-    END
+    # v3.2: exited状態は廃止。tmuxセッションが存在すればactive
+    # Claudeの実行状態はセッション内で判断すべき
+    RETURN "active"
 
 get_any_session_from_default():
     sessions = TMUX= tmux list-sessions -F '#{session_name}' 2>/dev/null

@@ -13,6 +13,15 @@ All contributors should use these terms consistently in code, comments, and docu
 | **Session ID** | The tmux session identifier with `tower_` prefix (e.g., `tower_my-project`) | Internal implementation |
 | **Session Type** | The kind of session: `workspace` or `simple` | `@tower_session_type` option, metadata |
 
+## Session State (v3.2)
+
+| Term | Definition | Icon | Usage Context |
+|------|------------|------|---------------|
+| **active** | tmux session exists (`tmux has-session` succeeds) | `▶` | Navigator display, state determination |
+| **dormant** | tmux session does not exist, but metadata file exists | `○` | Session restoration, Navigator display |
+
+**Note**: The `exited` state (Claude process finished) was removed in v3.2. If a tmux session exists, it is treated as `active`. Claude's running state should be determined within the session itself, not at the Navigator level.
+
 ## Session Types
 
 | Term | Definition | Usage Context |

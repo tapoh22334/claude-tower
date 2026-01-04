@@ -44,16 +44,7 @@ run-shell ~/.tmux/plugins/claude-tower/tmux-plugin/claude-tower.tmux
 
 ## Usage
 
-Press `prefix + t` to enter Tower mode, then use one of the following keys:
-
-| Key | Action |
-|-----|--------|
-| `prefix + t c` | Open Navigator (session picker) |
-| `prefix + t t` | Create new session |
-| `prefix + t n` | Create new session (alias) |
-| `prefix + t l` | List sessions |
-| `prefix + t r` | Restore sessions |
-| `prefix + t ?` | Show help |
+Press `prefix + t` to open the Navigator directly.
 
 ### Navigator
 
@@ -67,13 +58,15 @@ Navigator opens in a dedicated tmux session with a sidebar layout:
 | `k` / `↑` | Move up |
 | `g` | Go to first session |
 | `G` | Go to last session |
-| `Enter` | Attach to selected session |
-| `i` | Input mode (send command) |
+| `Enter` | Attach to selected session (restores dormant sessions) |
+| `i` | Input mode (send command to session) |
+| `Tab` | Switch to tile view |
 | `n` | Create new session |
 | `d` | Delete session |
-| `R` | Restart Claude |
+| `r` | Restore selected dormant session |
+| `R` | Restore all dormant sessions |
 | `?` | Show help |
-| `q` | Exit Navigator |
+| `q` | Exit Navigator
 
 ## Tree View
 
@@ -116,8 +109,11 @@ For non-git directories:
 # ~/.tmux.conf
 
 # Change tower prefix key (default: t)
-# Usage: prefix + <tower-prefix>, then c/t/n/l/r/?
+# Usage: prefix + <tower-prefix> opens Navigator directly
 set -g @tower-prefix 't'
+
+# Auto-restore dormant sessions on plugin load (default: 0)
+set -g @tower-auto-restore '1'
 ```
 
 ### Environment Variables
@@ -129,9 +125,20 @@ export CLAUDE_TOWER_PROGRAM="claude"
 # Worktree directory (default: ~/.claude-tower/worktrees)
 export CLAUDE_TOWER_WORKTREE_DIR="$HOME/.claude-tower/worktrees"
 
+# Metadata directory (default: ~/.claude-tower/metadata)
+export CLAUDE_TOWER_METADATA_DIR="$HOME/.claude-tower/metadata"
+
+# Navigator socket name (default: claude-tower)
+export CLAUDE_TOWER_NAV_SOCKET="claude-tower"
+
+# Navigator width percentage (default: 40)
+export CLAUDE_TOWER_NAV_WIDTH="40"
+
 # Enable debug logging
 export CLAUDE_TOWER_DEBUG=1
 ```
+
+See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for complete configuration reference.
 
 ## Troubleshooting
 
@@ -157,17 +164,17 @@ tmux list-keys | grep tower
    tmux source ~/.tmux.conf
    ```
 
-2. Check if tower key table exists:
+2. Check if keybinding exists:
    ```bash
-   tmux list-keys -T tower
+   tmux list-keys | grep tower
    ```
 
-3. Verify tmux version (requires 3.2+ for display-popup):
+3. Verify tmux version (requires 3.2+):
    ```bash
    tmux -V
    ```
 
-### Navigator (prefix + t, c) returns error
+### Navigator returns error
 
 1. Check if scripts are executable:
    ```bash

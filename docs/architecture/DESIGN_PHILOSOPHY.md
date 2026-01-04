@@ -88,7 +88,7 @@ Inspired by the Zen of Python, Unix Philosophy, and successful tmux plugins.
 **Rationale**: Modal interfaces confuse when state is invisible. Transparency builds trust.
 
 **In Practice**:
-- Session states indicated by icons (▶ active, ! exited, ○ dormant)
+- Session states indicated by icons (▶ active, ○ dormant)
 - Session types shown ([W] worktree, [S] simple)
 - Current focus position clearly highlighted
 - Help available via `?` key in all modes
@@ -231,18 +231,19 @@ export CLAUDE_TOWER_PREFIX='s'
   - Pro: No additional dependencies
   - Con: Manual serialization/parsing required
 
-#### DR-003: Session States (Active/Exited/Dormant)
+#### DR-003: Session States (Active/Dormant)
 
 - **Context**: Users need to understand session status at a glance
 - **Options Considered**:
   1. Binary (running/not running)
   2. Three states (active/exited/dormant)
   3. Fine-grained states (idle/typing/streaming/etc.)
-- **Decision**: Option 2 - Three states
+- **Decision**: Option 1 - Binary states (v3.2 simplification)
+- **Rationale**: The `exited` state was removed in v3.2. If a tmux session exists, it is `active`. Claude's running state should be determined within the session itself, not at the Navigator level.
 - **Consequences**:
-  - Pro: Captures meaningful distinctions
-  - Pro: Simple mental model
-  - Con: Cannot distinguish Claude idle vs. working
+  - Pro: Simpler mental model
+  - Pro: Idempotent state detection
+  - Con: Cannot distinguish Claude idle vs. working at Navigator level
 
 #### DR-004: Nested Tmux for Session Preview
 

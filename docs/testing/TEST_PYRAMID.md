@@ -73,7 +73,7 @@
 ## SPECIFICATION.md へのマッピング
 
 ### 1. Navigator ライフサイクル
-- **SPEC**: `prefix + t, c` でNavigator起動
+- **SPEC**: `prefix + t` でNavigator起動（v3.2で直接起動に変更）
 - **Tests**: `test_navigator.bats` (35 tests)
   - `TOWER_NAV_SOCKET: is set to claude-tower`
   - `navigator.sh: exists and is executable`
@@ -85,11 +85,13 @@
   - `test_navigator.bats`: `get_nav_focus: returns 'list' as default`
   - `test_navigation_contract.bats`: `focus can switch to view`
 
-### 3. セッション状態管理
-- **SPEC**: `running`, `idle`, `exited`, `dormant`
+### 3. セッション状態管理 (v3.2)
+- **SPEC**: `active`, `dormant` (v3.2で2状態に簡略化)
 - **Tests**: `test_navigator.bats`
-  - `get_state_icon: returns correct icon for running`
+  - `get_state_icon: returns correct icon for active`
   - `get_session_state: returns dormant for session with metadata but no tmux session`
+
+**Note**: `exited` 状態はv3.2で廃止。tmuxセッションが存在すれば `active`。
 
 ### 4. サーバー分離アーキテクチャ
 - **SPEC**: Navigator専用サーバー (`-L claude-tower`)

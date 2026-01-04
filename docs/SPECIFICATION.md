@@ -1,6 +1,6 @@
 # Claude Tower Navigator 仕様書
 
-Version: 3.1
+Version: 3.2
 Date: 2026-01-03
 
 ## 1. 概要
@@ -159,7 +159,7 @@ Claude Tower は tmux プラグインであり、複数の Claude Code セッシ
 |------|------|
 | トリガー | `i` |
 | コンテキスト | Navigator, focus = list, selected ≠ none |
-| 前提条件 | selected.state ∈ {active, exited} |
+| 前提条件 | selected.state = active |
 | 事後条件 | focus := view, user input → selected session |
 | 不変条件 | Navigator visible, list pane visible |
 

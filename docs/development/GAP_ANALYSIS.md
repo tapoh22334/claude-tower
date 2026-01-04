@@ -1,9 +1,12 @@
 # 仕様書と実装の差分分析
 
-Date: 2026-01-02
-Based on: SPECIFICATION.md v3.1, PSEUDOCODE.md v3.0
+> **ARCHIVED**: This document is historical. All gaps have been resolved.
+> Current version: SPECIFICATION.md v3.2, PSEUDOCODE.md v3.2
 
-**Status: 完了** - 全 Phase 完了、テスト通過 (171/175)
+Date: 2026-01-02 (Updated: 2026-01-04)
+Based on: SPECIFICATION.md v3.2, PSEUDOCODE.md v3.2
+
+**Status: 完了・アーカイブ** - 全 Phase 完了。v3.2への更新も完了。
 
 ---
 

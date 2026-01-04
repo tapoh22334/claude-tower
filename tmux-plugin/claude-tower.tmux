@@ -54,4 +54,4 @@ if [[ "$(get_tmux_option "@tower-auto-restore" "0")" == "1" ]]; then
 fi
 
 # Display initialization message
-tmux display-message "claude-tower loaded. Press prefix + $TOWER_PREFIX, then c/t/n/l/r/?" 2>/dev/null || true
+tmux display-message "claude-tower loaded. Press prefix + $TOWER_PREFIX to open Navigator" 2>/dev/null || true
