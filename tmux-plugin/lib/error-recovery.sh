@@ -259,20 +259,40 @@ return_to_caller() {
 
     _log_to_file "INFO" "Returning to caller session: ${caller:-<none>}"
 
-    if [[ -n "$caller" ]] && TMUX= tmux has-session -t "$caller" 2>/dev/null; then
-        nav_tmux detach-client -E "TMUX= tmux attach-session -t '$caller'" 2>/dev/null || true
-    else
-        # Fallback to any available session
-        local fallback
-        fallback=$(TMUX= tmux list-sessions -F '#{session_name}' 2>/dev/null | head -1 || echo "")
+    # Determine target - check session server first, then default server
+    local target_session=""
+    local target_socket=""
 
-        if [[ -n "$fallback" ]]; then
-            _log_to_file "INFO" "Caller not found, falling back to: $fallback"
-            nav_tmux detach-client -E "TMUX= tmux attach-session -t '$fallback'" 2>/dev/null || true
-        else
-            _log_to_file "WARN" "No sessions available, just detaching"
-            nav_tmux detach-client 2>/dev/null || true
+    if [[ -n "$caller" ]]; then
+        if session_tmux has-session -t "$caller" 2>/dev/null; then
+            target_session="$caller"
+            target_socket="$TOWER_SESSION_SOCKET"
+        elif TMUX= tmux has-session -t "$caller" 2>/dev/null; then
+            target_session="$caller"
+            target_socket=""
         fi
+    fi
+
+    # Fallback: find any session on session server first, then default server
+    if [[ -z "$target_session" ]]; then
+        target_session=$(session_tmux list-sessions -F '#{session_name}' 2>/dev/null | head -1 || echo "")
+        [[ -n "$target_session" ]] && target_socket="$TOWER_SESSION_SOCKET"
+    fi
+    if [[ -z "$target_session" ]]; then
+        target_session=$(TMUX= tmux list-sessions -F '#{session_name}' 2>/dev/null | head -1 || echo "")
+        target_socket=""
+    fi
+
+    if [[ -n "$target_session" ]]; then
+        _log_to_file "INFO" "Attaching to: $target_session (socket: ${target_socket:-default})"
+        if [[ -n "$target_socket" ]]; then
+            nav_tmux detach-client -E "TMUX= tmux -L '$target_socket' attach-session -t '$target_session'" 2>/dev/null || true
+        else
+            nav_tmux detach-client -E "TMUX= tmux attach-session -t '$target_session'" 2>/dev/null || true
+        fi
+    else
+        _log_to_file "WARN" "No sessions available, just detaching"
+        nav_tmux detach-client 2>/dev/null || true
     fi
 }
 

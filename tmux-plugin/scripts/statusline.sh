@@ -98,9 +98,9 @@ get_workspace_stats() {
             session_id=$(basename "$meta_file" .meta)
             if tmux has-session -t "$session_id" 2>/dev/null; then
                 if grep -q "session_type=workspace" "$meta_file" 2>/dev/null; then
-                    ((workspace_count++))
+                    ((workspace_count++)) || true
                 else
-                    ((simple_count++))
+                    ((simple_count++)) || true
                 fi
             fi
         fi

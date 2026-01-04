@@ -42,15 +42,15 @@ source "$SCRIPT_DIR/../lib/error-recovery.sh"
 # Helper Functions
 # ============================================================================
 
-# Get first tower session from default server
+# Get first tower session from session server
 get_first_tower_session() {
-    TMUX= tmux list-sessions -F '#{session_name}' 2>/dev/null | grep '^tower_' | head -1 || echo ""
+    session_tmux list-sessions -F '#{session_name}' 2>/dev/null | grep '^tower_' | head -1 || echo ""
 }
 
-# Count tower sessions on default server
+# Count tower sessions on session server
 count_tower_sessions() {
     local count
-    count=$(TMUX= tmux list-sessions -F '#{session_name}' 2>/dev/null | grep -c '^tower_') || true
+    count=$(session_tmux list-sessions -F '#{session_name}' 2>/dev/null | grep -c '^tower_') || true
     echo "${count:-0}"
 }
 
@@ -168,24 +168,43 @@ close_navigator() {
 
     info_log "Closing Navigator (keeping session alive), returning to caller: ${caller:-<none>}"
 
-    # Determine target session on default server
+    # Determine target session - check session server first, then fall back to default server
     local target_session=""
-    if [[ -n "$caller" ]] && TMUX= tmux has-session -t "$caller" 2>/dev/null; then
-        target_session="$caller"
-    else
-        # Fallback: find any session on default server
+    local target_socket=""
+
+    if [[ -n "$caller" ]]; then
+        if session_tmux has-session -t "$caller" 2>/dev/null; then
+            target_session="$caller"
+            target_socket="$TOWER_SESSION_SOCKET"
+        elif TMUX= tmux has-session -t "$caller" 2>/dev/null; then
+            target_session="$caller"
+            target_socket=""  # default server
+        fi
+    fi
+
+    # Fallback: find any session on session server first, then default server
+    if [[ -z "$target_session" ]]; then
+        target_session=$(session_tmux list-sessions -F '#{session_name}' 2>/dev/null | head -1 || echo "")
+        [[ -n "$target_session" ]] && target_socket="$TOWER_SESSION_SOCKET"
+    fi
+    if [[ -z "$target_session" ]]; then
         target_session=$(TMUX= tmux list-sessions -F '#{session_name}' 2>/dev/null | head -1 || echo "")
+        target_socket=""
     fi
 
     # DON'T kill Navigator session - keep it for fast re-entry
     # Just clear the caller state (will be set again on next entry)
     # cleanup_nav_state  # Don't clear - keep selected state too
 
-    # Use exec to seamlessly return to default server
-    # TMUX= clears the Navigator server context to allow default server attach
+    # Use exec to seamlessly return to appropriate server
+    # TMUX= clears the Navigator server context to allow cross-server attach
     if [[ -n "$target_session" ]]; then
-        info_log "Detaching and attaching to: $target_session"
-        TMUX= exec tmux attach-session -t "$target_session"
+        info_log "Detaching and attaching to: $target_session (socket: ${target_socket:-default})"
+        if [[ -n "$target_socket" ]]; then
+            TMUX= exec tmux -L "$target_socket" attach-session -t "$target_session"
+        else
+            TMUX= exec tmux attach-session -t "$target_session"
+        fi
     else
         info_log "No target session, just exiting"
         exit 0
@@ -213,8 +232,8 @@ full_attach() {
         return 1
     fi
 
-    # Check if session exists on default server
-    if ! TMUX= tmux has-session -t "$session_id" 2>/dev/null; then
+    # Check if session exists on session server
+    if ! session_tmux has-session -t "$session_id" 2>/dev/null; then
         # Try to restore if dormant
         local state
         state=$(get_session_state "$session_id")
@@ -233,9 +252,9 @@ full_attach() {
     # DON'T kill Navigator session - keep it for fast re-entry
     # The session list and view will continue running in background
 
-    # Use exec to seamlessly attach to the target session
-    # TMUX= clears the Navigator server context to allow default server attach
-    TMUX= exec tmux attach-session -t "$session_id"
+    # Use exec to seamlessly attach to the target session on session server
+    # TMUX= clears the Navigator server context to allow cross-server attach
+    TMUX= exec tmux -L "$TOWER_SESSION_SOCKET" attach-session -t "$session_id"
 }
 
 # ============================================================================
@@ -297,6 +316,14 @@ open_navigator_direct() {
         # Try to return to caller session
         local target="${caller_session:-}"
         if [[ -z "$target" ]]; then
+            # Try session server first, then default server
+            target=$(session_tmux list-sessions -F '#{session_name}' 2>/dev/null | head -1 || echo "")
+            if [[ -n "$target" ]]; then
+                echo "Navigator error: $create_error"
+                echo "Returning to session: $target"
+                sleep 1
+                TMUX= exec tmux -L "$TOWER_SESSION_SOCKET" attach-session -t "$target"
+            fi
             target=$(TMUX= tmux list-sessions -F '#{session_name}' 2>/dev/null | head -1 || echo "")
         fi
         if [[ -n "$target" ]]; then

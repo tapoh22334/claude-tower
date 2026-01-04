@@ -42,16 +42,28 @@ quit_navigator() {
     local caller
     caller=$(get_nav_caller)
 
-    if [[ -n "$caller" ]] && TMUX= tmux has-session -t "$caller" 2>/dev/null; then
-        TMUX= tmux attach-session -t "$caller" 2>/dev/null || exit 0
-    else
-        # Fall back to any tower session
-        local target
-        target=$(TMUX= tmux list-sessions -F '#{session_name}' 2>/dev/null | grep '^tower_' | head -1 || echo "")
-        if [[ -n "$target" ]]; then
-            TMUX= tmux attach-session -t "$target" 2>/dev/null || exit 0
+    # Check session server first, then default server
+    if [[ -n "$caller" ]]; then
+        if session_tmux has-session -t "$caller" 2>/dev/null; then
+            session_tmux attach-session -t "$caller" 2>/dev/null || exit 0
+        elif TMUX= tmux has-session -t "$caller" 2>/dev/null; then
+            TMUX= tmux attach-session -t "$caller" 2>/dev/null || exit 0
         fi
     fi
+
+    # Fall back to any tower session on session server
+    local target
+    target=$(session_tmux list-sessions -F '#{session_name}' 2>/dev/null | grep '^tower_' | head -1 || echo "")
+    if [[ -n "$target" ]]; then
+        session_tmux attach-session -t "$target" 2>/dev/null || exit 0
+    fi
+
+    # Final fallback to default server
+    target=$(TMUX= tmux list-sessions -F '#{session_name}' 2>/dev/null | head -1 || echo "")
+    if [[ -n "$target" ]]; then
+        TMUX= tmux attach-session -t "$target" 2>/dev/null || exit 0
+    fi
+
     exit 0
 }
 
@@ -146,7 +158,8 @@ draw_tiles() {
         if [[ "$state" == "$STATE_DORMANT" ]]; then
             content="Dormant - Press 'r' to restore"
         else
-            content=$(tmux capture-pane -t "$sid" -p -S -"$preview_height" 2>/dev/null | tail -"$((preview_height - 1))" || echo "(unavailable)")
+            # Capture from session server where Claude sessions live
+            content=$(session_tmux capture-pane -t "$sid" -p -S -"$preview_height" 2>/dev/null | tail -"$((preview_height - 1))" || echo "(unavailable)")
         fi
 
         local line_num=0

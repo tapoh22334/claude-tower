@@ -103,21 +103,23 @@ User presses: j (move down)
 │ 1. Update selection index       │
 │ 2. Write to selection file      │
 │    /tmp/claude-tower/selected   │
-│ 3. Send Escape to right pane    │
-│    tmux -L claude-tower         │
-│    send-keys -t navigator:0.1   │
-│    Escape                       │
+│ 3. Get view pane's tty          │
+│    #{pane_tty} → /dev/ttysXXX   │
+│ 4. Switch inner tmux client     │
+│    TMUX= tmux switch-client     │
+│    -c /dev/ttysXXX -t $session  │
 └─────────────────────────────────┘
          │
          ▼
 ┌─────────────────────────────────┐
-│ 4. Right pane's inner tmux      │
-│    detaches (Esc binding)       │
-│ 5. Wrapper script loops back    │
-│ 6. Reads new selection          │
-│ 7. Attaches to new session      │
+│ Inner tmux client instantly     │
+│ switches to new session         │
+│ (no detach/re-attach cycle)     │
 └─────────────────────────────────┘
 ```
+
+Note: Using `switch-client` provides instant session switching without
+detach/re-attach cycles, providing a smoother user experience.
 
 ### Input Mode (i key)
 
@@ -140,10 +142,10 @@ User presses: i (input mode)
          │
          ▼
 ┌─────────────────────────────────┐
-│ 3. User presses Esc             │
-│    - Inner tmux detaches        │
-│    - Wrapper re-attaches        │
-│    - Focus returns to left pane │
+│ 3. User navigates back          │
+│    - prefix + arrow to list     │
+│    - j/k triggers focus:list    │
+│    - View re-attaches with -r   │
 └─────────────────────────────────┘
 ```
 
@@ -212,22 +214,14 @@ tmux-plugin/
 | `CLAUDE_TOWER_NAV_WIDTH` | 30 | Left pane width |
 | `CLAUDE_TOWER_SOCKET` | claude-tower | Navigator server socket name |
 
-### view-focus.conf
+### View Mode Control
 
-```bash
-# No prefix - all keys pass through
-set -g prefix None
-set -g prefix2 None
+View pane always attaches in input mode (no `-r` flag). Pane focus determines whether the user can interact with the session:
 
-# Escape detaches (returns to Navigator)
-bind -n Escape detach-client
+- **List pane focused**: User navigates sessions with j/k keys
+- **View pane focused**: User can type directly into the Claude Code session (activated with `i` key)
 
-# Hide status bar for clean look
-set -g status off
-
-# Disable mouse (let outer tmux handle it)
-set -g mouse off
-```
+Session switching uses `switch-client` for instant transitions without detach/re-attach cycles.
 
 ## Error Handling
 
@@ -240,7 +234,7 @@ set -g mouse off
 
 ## Performance Considerations
 
-1. **Session switching**: ~100ms (detach + attach)
+1. **Session switching**: Instant (switch-client, no detach/attach cycle)
 2. **List refresh**: Every 2 seconds via timeout
 3. **Preview update**: Real-time (native tmux)
 

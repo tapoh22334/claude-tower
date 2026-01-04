@@ -1,7 +1,7 @@
 # Claude Tower Navigator 疑似コード
 
-Version: 3.2
-Date: 2026-01-03
+Version: 3.3
+Date: 2026-01-04
 
 本ドキュメントは SPECIFICATION.md の操作定義を実装するための疑似コードを提供する。
 
@@ -185,9 +185,11 @@ update_selection():
     signal_view_update()
 
 signal_view_update():
-    # view pane に更新シグナル送信
-    # Escape を送って現在の接続を切断させる
-    tmux -L claude-tower send-keys -t navigator:0.1 Escape
+    # view pane の内側 tmux クライアントを新しいセッションに切り替え
+    # switch-client を使用することで、detach/re-attach なしで瞬時に切り替え
+    selected = get_selected()
+    view_tty = tmux -L claude-tower display-message -t navigator:0.1 -p '#{pane_tty}'
+    TMUX= tmux switch-client -c $view_tty -t $selected
 
 # ─────────────────────────────────────────────────────────────────────────
 # フォーカス切り替え
@@ -384,14 +386,10 @@ main_loop():
         END
     END
 
-attach_to_session(session_id, focus):
-    IF focus == "view":
-        # 入力可能モード
-        TMUX= tmux -f $CONF_DIR/view-focus.conf attach -t $session_id
-    ELSE:
-        # 表示のみモード（read-only）
-        TMUX= tmux -f $CONF_DIR/view-focus.conf attach -t $session_id -r
-    END
+attach_to_session(session_id):
+    # 常に入力可能モードでアタッチ（pane focusで入力可否が決まる）
+    TMUX= tmux attach -t $session_id
+END
 
 show_no_session_message():
     clear()

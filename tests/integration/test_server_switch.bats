@@ -1,12 +1,13 @@
 #!/usr/bin/env bats
 # Server switch integration tests
-# Tests seamless switching between default server and Navigator server
-# Verifies the detach-client -E pattern works correctly
+# Tests seamless switching between Navigator server, Session server, and default server
+# Verifies the 3-server architecture works correctly
 
 load '../test_helper'
 
 # Test tmux sockets
 NAV_SOCKET="ct-switch-nav"
+SESSION_SOCKET="ct-switch-session"
 DEFAULT_SOCKET="ct-switch-default"
 
 setup_file() {
@@ -14,21 +15,25 @@ setup_file() {
     mkdir -p "$TMUX_TMPDIR"
     chmod 700 "$TMUX_TMPDIR"
 
-    # Start default server with test sessions (TMUX= to allow nesting)
-    TMUX= tmux -L "$DEFAULT_SOCKET" new-session -d -s "tower_switch_a" -c /tmp
-    TMUX= tmux -L "$DEFAULT_SOCKET" new-session -d -s "tower_switch_b" -c /tmp
+    # Start session server with tower sessions (TMUX= to allow nesting)
+    TMUX= tmux -L "$SESSION_SOCKET" new-session -d -s "tower_switch_a" -c /tmp
+    TMUX= tmux -L "$SESSION_SOCKET" new-session -d -s "tower_switch_b" -c /tmp
+
+    # Start default server with caller session
     TMUX= tmux -L "$DEFAULT_SOCKET" new-session -d -s "caller_session" -c /tmp
 }
 
 teardown_file() {
     TMUX= tmux -L "$NAV_SOCKET" kill-server 2>/dev/null || true
+    TMUX= tmux -L "$SESSION_SOCKET" kill-server 2>/dev/null || true
     TMUX= tmux -L "$DEFAULT_SOCKET" kill-server 2>/dev/null || true
     rm -rf "/tmp/claude-tower-switch-test" 2>/dev/null || true
 }
 
 setup() {
-    # Set env var BEFORE sourcing (TOWER_NAV_SOCKET is readonly)
+    # Set env vars BEFORE sourcing (sockets are readonly)
     export CLAUDE_TOWER_NAV_SOCKET="$NAV_SOCKET"
+    export CLAUDE_TOWER_SESSION_SOCKET="$SESSION_SOCKET"
     source_common
     setup_test_env
     ensure_nav_state_dir
@@ -49,6 +54,10 @@ teardown() {
     [ "$TOWER_NAV_SOCKET" = "claude-tower" ] || [ "$TOWER_NAV_SOCKET" = "$NAV_SOCKET" ]
 }
 
+@test "server-switch: Session server uses dedicated socket" {
+    [ "$TOWER_SESSION_SOCKET" = "claude-tower-sessions" ] || [ "$TOWER_SESSION_SOCKET" = "$SESSION_SOCKET" ]
+}
+
 @test "server-switch: nav_tmux targets Navigator socket" {
     # Create session on Navigator socket
     nav_tmux new-session -d -s "nav-test"
@@ -64,15 +73,17 @@ teardown() {
     nav_tmux kill-session -t "nav-test"
 }
 
-@test "server-switch: tower sessions exist on default server only" {
-    tmux() { command tmux -L "$DEFAULT_SOCKET" "$@"; }
-    export -f tmux
-
-    run session_exists "tower_switch_a"
+@test "server-switch: tower sessions exist on session server" {
+    # Tower sessions should exist on session server
+    run session_tmux has-session -t "tower_switch_a"
     [ "$status" -eq 0 ]
 
     # Should NOT exist on Navigator socket
-    run tmux -L "$NAV_SOCKET" has-session -t "tower_switch_a"
+    run nav_tmux has-session -t "tower_switch_a"
+    [ "$status" -ne 0 ]
+
+    # Should NOT exist on default server
+    run tmux -L "$DEFAULT_SOCKET" has-session -t "tower_switch_a"
     [ "$status" -ne 0 ]
 }
 
@@ -115,15 +126,15 @@ teardown() {
     unset TMUX
 }
 
-@test "server-switch: _start_session_with_claude uses TMUX= prefix" {
+@test "server-switch: _start_session_with_claude uses session_tmux" {
     local func_def
     func_def=$(declare -f _start_session_with_claude)
 
-    # Should use TMUX= for new-session
-    [[ "$func_def" == *"TMUX= tmux new-session"* ]]
+    # Should use session_tmux for new-session
+    [[ "$func_def" == *"session_tmux new-session"* ]]
 
-    # Should use TMUX= for send-keys
-    [[ "$func_def" == *"TMUX= tmux send-keys"* ]]
+    # Should use session_tmux for send-keys
+    [[ "$func_def" == *"session_tmux send-keys"* ]]
 }
 
 # ============================================================================
@@ -163,16 +174,16 @@ teardown() {
 # Session Existence Checks Use Correct Server
 # ============================================================================
 
-@test "server-switch: has-session checks use TMUX= prefix" {
+@test "server-switch: has-session checks use session_tmux" {
     local script="$PROJECT_ROOT/tmux-plugin/scripts/navigator.sh"
 
-    # All has-session checks should use TMUX= to check default server
+    # All has-session checks should use session_tmux for session server
     run grep "has-session" "$script"
     [ "$status" -eq 0 ]
 
-    # Every has-session should be prefixed with TMUX=
+    # Every has-session should use proper server helpers
     while IFS= read -r line; do
-        [[ "$line" == *"nav_tmux"* ]] || [[ "$line" == *"TMUX= tmux"* ]] || [[ "$line" == *"TMUX="* ]]
+        [[ "$line" == *"nav_tmux"* ]] || [[ "$line" == *"session_tmux"* ]] || [[ "$line" == *"TMUX= tmux"* ]]
     done < <(grep "has-session" "$script")
 }
 
@@ -224,8 +235,8 @@ teardown() {
     # 3. User selects a session
     set_nav_selected "tower_switch_a"
 
-    # 4. Verify target exists on default server
-    run tmux -L "$DEFAULT_SOCKET" has-session -t "tower_switch_a"
+    # 4. Verify target exists on session server
+    run session_tmux has-session -t "tower_switch_a"
     [ "$status" -eq 0 ]
 
     # 5. Navigator would use detach-client -E to attach to target
@@ -250,8 +261,12 @@ teardown() {
     result=$(get_nav_caller)
     [ "$result" = "caller_session" ]
 
-    # And caller exists on default server
+    # Caller exists on default server (user's non-tower session)
     run tmux -L "$DEFAULT_SOCKET" has-session -t "caller_session"
+    [ "$status" -eq 0 ]
+
+    # Tower session exists on session server
+    run session_tmux has-session -t "tower_switch_b"
     [ "$status" -eq 0 ]
 
     nav_tmux kill-session -t "$TOWER_NAV_SESSION"
@@ -279,11 +294,8 @@ teardown() {
     run validate_tower_session_id "tower_nonexistent"
     [ "$status" -eq 0 ]  # Format is valid
 
-    # But session doesn't exist
-    tmux() { command tmux -L "$DEFAULT_SOCKET" "$@"; }
-    export -f tmux
-
-    run session_exists "tower_nonexistent"
+    # But session doesn't exist on session server
+    run session_tmux has-session -t "tower_nonexistent"
     [ "$status" -ne 0 ]
 }
 

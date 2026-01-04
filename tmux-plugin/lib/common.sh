@@ -51,7 +51,7 @@ _tower_error_trap() {
         echo "DEBUG: Stack trace:" >&2
         local frame=0
         while caller $frame; do
-            ((frame++))
+            ((frame++)) || true
         done 2>/dev/null >&2
     fi
 }
@@ -117,14 +117,30 @@ readonly TOWER_METADATA_DIR="${CLAUDE_TOWER_METADATA_DIR:-$HOME/.claude-tower/me
 readonly PREVIEW_LINES=30
 
 # ============================================================================
-# Navigator Configuration (Socket Separation)
 # ============================================================================
-# Navigator uses a dedicated tmux server separate from the user's default server.
-# This allows Navigator to act as a control center while Claude Code sessions
-# remain in the user's familiar environment.
+# Socket Separation Configuration
+# ============================================================================
+# Claude Tower uses TWO dedicated tmux servers, completely separate from
+# the user's default tmux server:
+#
+#   1. Navigator Server (-L claude-tower): Runs the Navigator UI
+#   2. Session Server (-L claude-tower-sessions): Runs Claude Code sessions
+#
+# This architecture provides:
+#   - Complete isolation from user's default tmux environment
+#   - Navigator can control sessions without interference
+#   - Sessions can be managed independently
+#   - Clean separation of concerns
+
+# Navigator server socket (control plane)
 readonly TOWER_NAV_SOCKET="${CLAUDE_TOWER_NAV_SOCKET:-claude-tower}"
 readonly TOWER_NAV_SESSION="navigator"
-readonly TOWER_NAV_WIDTH="${CLAUDE_TOWER_NAV_WIDTH:-30}"
+readonly TOWER_NAV_WIDTH="${CLAUDE_TOWER_NAV_WIDTH:-24}"
+
+# Session server socket (data plane)
+readonly TOWER_SESSION_SOCKET="${CLAUDE_TOWER_SESSION_SOCKET:-claude-tower-sessions}"
+
+# State files for cross-server communication
 readonly TOWER_NAV_STATE_DIR="/tmp/claude-tower"
 readonly TOWER_NAV_SELECTED_FILE="${TOWER_NAV_STATE_DIR}/selected"
 readonly TOWER_NAV_CALLER_FILE="${TOWER_NAV_STATE_DIR}/caller"
@@ -203,6 +219,12 @@ is_nav_session_exists() {
 # Run command on Navigator server
 nav_tmux() {
     tmux -L "$TOWER_NAV_SOCKET" "$@"
+}
+
+# Execute tmux command on SESSION server (for Claude Code sessions)
+# This isolates all Claude sessions from the user's default tmux server
+session_tmux() {
+    TMUX= tmux -L "$TOWER_SESSION_SOCKET" "$@"
 }
 
 # Get currently selected session from state file
@@ -616,9 +638,9 @@ has_metadata() {
 # active tmux session. These can occur when sessions are terminated
 # unexpectedly or when cleanup fails.
 
-# Get list of active tmux sessions from default server
+# Get list of active tmux sessions from session server
 get_active_sessions() {
-    TMUX= tmux list-sessions -F '#{session_name}' 2>/dev/null || true
+    session_tmux list-sessions -F '#{session_name}' 2>/dev/null || true
 }
 
 # Find orphaned worktrees (worktrees without active sessions)
@@ -773,7 +795,7 @@ start_spinner() {
         while true; do
             local char="${SPINNER_CHARS:i%chars_len:1}"
             printf "\r%s %s " "$char" "$msg" >&2
-            ((i++))
+            ((i++)) || true
             sleep 0.1
         done
     ) &
@@ -886,7 +908,7 @@ validate_session_name() {
 #   0 if exists, 1 if not
 session_exists() {
     local session_id="$1"
-    TMUX= tmux has-session -t "$session_id" 2>/dev/null
+    session_tmux has-session -t "$session_id" 2>/dev/null
 }
 
 # Check if worktree exists
@@ -931,7 +953,7 @@ get_session_state() {
     local session_id="$1"
 
     # Check if tmux session exists using has-session (most reliable)
-    if TMUX= tmux has-session -t "$session_id" 2>/dev/null; then
+    if session_tmux has-session -t "$session_id" 2>/dev/null; then
         echo "$STATE_ACTIVE"
         return 0
     fi
@@ -1020,7 +1042,7 @@ list_all_sessions() {
         fi
 
         echo "${session_id}:${state}:${type}"
-    done < <(TMUX= tmux list-sessions -F '#{session_name}' 2>/dev/null || true)
+    done < <(session_tmux list-sessions -F '#{session_name}' 2>/dev/null || true)
 
     # Check metadata for dormant sessions
     for meta_file in "${TOWER_METADATA_DIR}"/*.meta; do
@@ -1162,7 +1184,7 @@ _wait_for_shell_ready() {
     while [[ $attempt -lt $max_attempts ]]; do
         # Capture pane content and check for common prompt indicators
         local content
-        content=$(TMUX= tmux capture-pane -t "$session_id" -p 2>/dev/null || echo "")
+        content=$(session_tmux capture-pane -t "$session_id" -p 2>/dev/null || echo "")
 
         # Check for prompt characters: $, >, ❯, %, #
         if [[ "$content" =~ [\$\>❯%#][[:space:]]*$ ]]; then
@@ -1171,7 +1193,7 @@ _wait_for_shell_ready() {
         fi
 
         sleep 0.1
-        ((attempt++))
+        ((attempt++)) || true  # Prevent exit on attempt=0 (returns 1 with set -e)
     done
 
     # Timeout - proceed anyway but log warning
@@ -1180,22 +1202,21 @@ _wait_for_shell_ready() {
 }
 
 # Start tmux session with Claude (internal)
-# Note: TMUX= prefix ensures sessions are always created on the default server,
-# even when this function is called from within Navigator's popup context
+# Start a tmux session with Claude on the SESSION server
+# This isolates Claude sessions from the user's default tmux server
 _start_session_with_claude() {
     local session_id="$1"
     local working_dir="$2"
     local continue_flag="${3:-}"
 
-    # Create detached tmux session on DEFAULT server (not Navigator server)
-    # TMUX= clears the environment variable to prevent inheriting Navigator's context
-    TMUX= tmux new-session -d -s "$session_id" -c "$working_dir"
+    # Create detached tmux session on SESSION server (isolated from user's default)
+    session_tmux new-session -d -s "$session_id" -c "$working_dir"
 
     # Wait for shell prompt to be ready before sending keys
     _wait_for_shell_ready "$session_id"
 
     # Clear screen first to flush any terminal initialization noise
-    TMUX= tmux send-keys -t "$session_id" C-l
+    session_tmux send-keys -t "$session_id" C-l
 
     # Wait for clear to complete
     _wait_for_shell_ready "$session_id"
@@ -1205,7 +1226,7 @@ _start_session_with_claude() {
     [[ -n "$continue_flag" ]] && claude_cmd="$TOWER_PROGRAM --continue"
 
     # Use C-m (Ctrl-M) instead of Enter for more reliable key sending
-    TMUX= tmux send-keys -t "$session_id" "$claude_cmd" C-m
+    session_tmux send-keys -t "$session_id" "$claude_cmd" C-m
 
     handle_success "Session created: ${session_id#tower_}"
 }
@@ -1292,9 +1313,9 @@ delete_session() {
         fi
     fi
 
-    # Kill tmux session if active (on default server)
+    # Kill tmux session if active (on session server)
     if [[ "$state" != "$STATE_DORMANT" ]]; then
-        TMUX= tmux kill-session -t "$session_id" 2>/dev/null || true
+        session_tmux kill-session -t "$session_id" 2>/dev/null || true
     fi
 
     # For worktree sessions, cleanup worktree and branch
@@ -1359,8 +1380,8 @@ restart_session() {
         return 1
     fi
 
-    # Kill current process and start Claude again (on default server)
-    TMUX= tmux send-keys -t "$session_id" C-c 2>/dev/null || true
+    # Kill current process and start Claude again (on session server)
+    session_tmux send-keys -t "$session_id" C-c 2>/dev/null || true
     sleep 0.5
 
     local type
@@ -1369,7 +1390,7 @@ restart_session() {
     local claude_cmd="$TOWER_PROGRAM"
     [[ "$type" == "$TYPE_WORKTREE" ]] && claude_cmd="$TOWER_PROGRAM --continue"
 
-    TMUX= tmux send-keys -t "$session_id" "$claude_cmd" C-m
+    session_tmux send-keys -t "$session_id" "$claude_cmd" C-m
 
     handle_success "Session restarted: ${session_id#tower_}"
 }
@@ -1392,7 +1413,7 @@ send_to_session() {
         return 1
     fi
 
-    TMUX= tmux send-keys -t "$session_id" "$input" C-m
+    session_tmux send-keys -t "$session_id" "$input" C-m
 }
 
 # ============================================================================

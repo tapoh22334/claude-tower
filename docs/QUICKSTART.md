@@ -87,7 +87,7 @@ After creating a session:
 2. Select a session with `j`/`k`
 3. Press `i` to focus the preview pane
 4. Type your command
-5. Press `Escape` to return to list
+5. Press `prefix + Left/Right` to return to list pane, then `j`/`k`
 
 ### Restoring Dormant Sessions
 

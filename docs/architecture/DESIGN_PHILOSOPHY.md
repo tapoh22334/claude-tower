@@ -104,7 +104,7 @@ Inspired by the Zen of Python, Unix Philosophy, and successful tmux plugins.
 **Rationale**: Users should feel safe to explore. Fear of getting stuck inhibits adoption.
 
 **In Practice**:
-- Escape always returns to a known state
+- Standard tmux pane navigation returns to list pane
 - `q` always quits to caller session
 - No operation without confirmation for destructive actions
 - Error recovery shows context, not raw terminals
@@ -252,18 +252,20 @@ export CLAUDE_TOWER_PREFIX='s'
   1. `capture-pane` with periodic refresh (static snapshot)
   2. Nested tmux attach (live connection)
   3. Custom PTY forwarding
-- **Decision**: Option 2 - Nested tmux attach with dedicated config
+- **Decision**: Option 2 - Nested tmux attach with instant switching
 - **Rationale**: Claude Code frequently outputs streaming logs and real-time responses. Users need to see this live output, not periodic snapshots. The view pane must feel like "looking into" the session, not "looking at a photo of" it.
 - **Implementation**:
-  - Inner tmux uses `view-focus.conf` with Escape bound to detach
+  - View always attaches in input mode (pane focus determines interaction)
   - `TMUX=` prefix ensures connection to default server
-  - Escape returns control to Navigator without killing the session
+  - `switch-client` for instant session switching (no detach/re-attach cycle)
+  - `i` key moves pane focus to view for input
+  - Standard tmux pane navigation returns to list pane
 - **Consequences**:
   - Pro: Real-time streaming output visibility
   - Pro: Seamless input when focused (`i` key)
   - Pro: Full terminal capability (colors, cursor, etc.)
-  - Con: Slightly more complex attach/detach coordination
-  - Con: Requires signal mechanism for session switching
+  - Pro: Instant session switching with switch-client (no flicker)
+  - Pro: Simple implementation without mode tracking
 
 ---
 

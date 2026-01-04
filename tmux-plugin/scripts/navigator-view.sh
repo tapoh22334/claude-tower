@@ -81,17 +81,8 @@ show_connecting() {
     local session_id="$1"
     local name="${session_id#tower_}"
 
-    # Get focus state for indicator
-    local focus
-    focus=$(get_nav_focus)
-    local focus_header=""
-    if [[ "$focus" == "view" ]]; then
-        focus_header="  [INPUT MODE] Press Escape to return\n\n"
-    fi
-
     clear
     echo ""
-    printf "%b" "$focus_header"
     echo "  ┌───────────────────────────────────────┐"
     echo "  │                                       │"
     printf "  │  Connecting to: %-20s │\n" "${name:0:20}"
@@ -130,68 +121,22 @@ show_dormant_info() {
     fi
 }
 
-# Show active session info (preview without attaching)
-show_active_info() {
-    local session_id="$1"
-    local name="${session_id#tower_}"
-
-    clear
-    echo ""
-    echo "  ┌───────────────────────────────────────┐"
-    echo "  │                                       │"
-    printf "  │   Session: %-27s │\n" "$name"
-    echo "  │   Status: Active ▶                    │"
-    echo "  │                                       │"
-
-    # Get window list
-    local windows
-    windows=$(TMUX= tmux list-windows -t "$session_id" -F '#{window_index}:#{window_name}#{?window_active, *,}' 2>/dev/null || echo "")
-
-    if [[ -n "$windows" ]]; then
-        echo "  │   Windows:                            │"
-        local count=0
-        while IFS= read -r line && [[ $count -lt 5 ]]; do
-            printf "  │     %-33s │\n" "${line:0:33}"
-            ((count++))
-        done <<< "$windows"
-    fi
-
-    echo "  │                                       │"
-    echo "  │   i      Enter input mode (preview)   │"
-    echo "  │   Enter  Full attach to session       │"
-    echo "  │                                       │"
-    echo "  └───────────────────────────────────────┘"
-    echo ""
-
-    # Show metadata if available
-    if load_metadata "$session_id" 2>/dev/null; then
-        echo "  Metadata:"
-        [[ -n "$META_REPOSITORY_PATH" ]] && echo "    Repository: $META_REPOSITORY_PATH"
-        [[ -n "$META_WORKTREE_PATH" ]] && echo "    Worktree: $META_WORKTREE_PATH"
-        [[ -n "$META_CREATED_AT" ]] && echo "    Created: $META_CREATED_AT"
-    fi
-}
-
 # Attach to session in default server using nested tmux
+# Arguments:
+#   $1 - session_id: Target session ID
+# Note: Always attaches in input mode (no -r flag) for simplicity.
+#       Pane focus determines whether user can interact.
 attach_to_session() {
     local session_id="$1"
 
     info_log "Attaching to session: $session_id"
 
-    # Direct attach - tmux will update the screen
-    # Session existence was already verified by get_session_state() in main_loop
-    if [[ -f "$INNER_CONF" ]]; then
-        if ! TMUX= tmux -f "$INNER_CONF" attach-session -t "$session_id" 2>&1; then
-            error_log "Failed to attach: $session_id"
-            show_error "Failed to attach"
-            return 1
-        fi
-    else
-        if ! TMUX= tmux attach-session -t "$session_id" 2>&1; then
-            error_log "Failed to attach: $session_id"
-            show_error "Failed to attach"
-            return 1
-        fi
+    # Direct attach to session server - tmux will update the screen
+    # Session existence was already verified in main_loop
+    if ! session_tmux attach-session -t "$session_id" 2>&1; then
+        error_log "Failed to attach: $session_id"
+        show_error "Failed to attach"
+        return 1
     fi
 
     info_log "Detached from session: $session_id"
@@ -214,65 +159,52 @@ wait_for_update() {
 main_loop() {
     info_log "Starting main view loop"
 
-    # Track last selected session to detect changes
-    local last_selected=""
+    # Track last attached session to avoid re-attaching to the same active session
+    local last_attached=""
 
     while true; do
         # Get currently selected session
         local selected
         selected=$(get_nav_selected)
 
-        # Check if Input mode is requested (i key pressed)
-        local focus
-        focus=$(get_nav_focus)
-
-        # Handle Input mode - attach to active session
-        if [[ "$focus" == "view" && -n "$selected" ]]; then
-            if TMUX= tmux has-session -t "$selected" 2>/dev/null; then
-                info_log "Entering input mode for session: $selected"
-
-                # Attach to session (blocks until Escape pressed)
-                if attach_to_session "$selected"; then
-                    info_log "Returned from input mode"
-                else
+        if [[ -z "$selected" ]]; then
+            # No selection - show placeholder
+            if [[ "$last_attached" != "__placeholder__" ]]; then
+                debug_log "No session selected, showing placeholder"
+                show_placeholder
+                last_attached="__placeholder__"
+            fi
+        elif ! session_tmux has-session -t "$selected" 2>/dev/null; then
+            # Session doesn't exist in tmux - check if dormant
+            if has_metadata "$selected"; then
+                # Dormant session - show info, but DON'T set last_attached
+                # This ensures we re-check on next poll (for restore detection)
+                if [[ "$last_attached" != "__dormant_${selected}__" ]]; then
+                    info_log "Session is dormant: $selected"
+                    show_dormant_info "$selected"
+                    last_attached="__dormant_${selected}__"
+                fi
+            else
+                # No metadata - show placeholder
+                if [[ "$last_attached" != "__placeholder__" ]]; then
+                    debug_log "Session not found, showing placeholder"
+                    show_placeholder
+                    last_attached="__placeholder__"
+                fi
+            fi
+        else
+            # Session exists and is active - attach if different from last attached
+            if [[ "$selected" != "$last_attached" ]]; then
+                if ! attach_to_session "$selected"; then
                     error_log "Failed to attach to session: $selected"
                     show_error "Cannot attach to session"
                     sleep 0.5
-                fi
-
-                # Return to list mode
-                set_nav_focus "list"
-                # Force re-check on next iteration
-                last_selected=""
-                continue
-            else
-                # Session doesn't exist - cannot enter input mode
-                debug_log "Cannot enter input mode: session not active"
-                set_nav_focus "list"
-            fi
-        fi
-
-        # Only update display if selection changed
-        if [[ "$selected" != "$last_selected" ]]; then
-            last_selected="$selected"
-
-            if [[ -z "$selected" ]]; then
-                # No selection - show placeholder
-                debug_log "No session selected, showing placeholder"
-                show_placeholder
-            elif ! TMUX= tmux has-session -t "$selected" 2>/dev/null; then
-                # Session doesn't exist in tmux - check if dormant
-                if has_metadata "$selected"; then
-                    info_log "Session is dormant: $selected"
-                    show_dormant_info "$selected"
+                    last_attached=""
                 else
-                    debug_log "Session not found, showing placeholder"
-                    show_placeholder
+                    # After detach (via switch-client), re-check state on next iteration
+                    info_log "Returned from session attachment"
+                    last_attached="$selected"
                 fi
-            else
-                # Session exists - show info only (don't auto-attach)
-                info_log "Showing active session info: $selected"
-                show_active_info "$selected"
             fi
         fi
 

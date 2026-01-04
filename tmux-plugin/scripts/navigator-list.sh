@@ -73,7 +73,7 @@ build_session_list() {
         SESSION_IDS+=("$session_id")
         # tmux session exists = active (simplified)
         SESSION_DISPLAYS+=("${NAV_C_ACTIVE}▶${NAV_C_NORMAL} ${type_icon} ${name}")
-    done < <(TMUX= tmux list-sessions -F '#{session_name}' 2>/dev/null || true)
+    done < <(session_tmux list-sessions -F '#{session_name}' 2>/dev/null || true)
 
     # Add dormant sessions (metadata exists but no tmux session)
     for meta_file in "${TOWER_METADATA_DIR}"/*.meta; do
@@ -210,11 +210,26 @@ show_help() {
 # ============================================================================
 
 # Signal view pane to update
-# Sends Escape to detach inner tmux, then signals via wait-for
+# Uses tmux switch-client for instant session switching in inner tmux
 signal_view_update() {
-    # Send Escape to view pane to trigger detach from inner session
-    # Use C-[ which is equivalent to Escape (ASCII 27)
-    nav_tmux send-keys -t "$TOWER_NAV_SESSION:0.1" 'C-[' 2>/dev/null || true
+    local selected view_tty
+    selected=$(get_nav_selected)
+
+    if [[ -z "$selected" ]]; then
+        return
+    fi
+
+    # Get the tty of the view pane (pane 1 in navigator session)
+    view_tty=$(nav_tmux display-message -t "$TOWER_NAV_SESSION:0.1" -p '#{pane_tty}' 2>/dev/null)
+
+    if [[ -z "$view_tty" ]]; then
+        return
+    fi
+
+    # Use switch-client for instant session switching
+    # This switches the inner tmux client to the new session without detach/re-attach cycle
+    session_tmux switch-client -c "$view_tty" -t "$selected" 2>/dev/null || true
+    debug_log "switch-client: tty=$view_tty session=$selected"
 
     # Signal the view pane via tmux wait-for (wakes up if waiting)
     nav_tmux wait-for -S "$TOWER_VIEW_UPDATE_CHANNEL" 2>/dev/null || true
@@ -266,6 +281,7 @@ go_last() {
 }
 
 # Focus on view pane (enables input to selected session)
+# Simply moves tmux pane focus - no mode switching needed since view always attaches in input mode
 focus_view() {
     set_nav_focus "view"
     nav_tmux select-pane -t "$TOWER_NAV_SESSION:0.1"
@@ -314,7 +330,10 @@ create_session_inline() {
         local caller
         caller=$(get_nav_caller)
         if [[ -n "$caller" ]]; then
-            working_dir=$(TMUX= tmux display-message -t "$caller" -p '#{pane_current_path}' 2>/dev/null)
+            # Caller could be on session server or default server
+            # Try session server first (for tower_* sessions), then fall back to default
+            working_dir=$(session_tmux display-message -t "$caller" -p '#{pane_current_path}' 2>/dev/null) ||
+                working_dir=$(TMUX= tmux display-message -t "$caller" -p '#{pane_current_path}' 2>/dev/null)
         fi
         # Fallback to home directory if caller not available
         working_dir="${working_dir:-$HOME}"
@@ -375,8 +394,8 @@ restore_selected() {
         return 0
     fi
 
-    # Check if session already exists (active)
-    if TMUX= tmux has-session -t "$selected" 2>/dev/null; then
+    # Check if session already exists (active) on session server
+    if session_tmux has-session -t "$selected" 2>/dev/null; then
         # Already active - idempotent success
         echo ""
         echo "  ${NAV_C_DIM}Already active${NAV_C_NORMAL}"
@@ -453,19 +472,16 @@ restore_all_dormant_sessions() {
 switch_to_tile() {
     info_log "Switching to Tile mode"
 
-    # Create tile window on default server first
-    TMUX= tmux new-window -n "tower-tile" "$SCRIPT_DIR/tile.sh" 2>/dev/null || true
+    # Create tile window on session server (where Claude sessions live)
+    session_tmux new-window -n "tower-tile" "$SCRIPT_DIR/tile.sh" 2>/dev/null || true
 
-    # Get the current session to return to (should have the new tile window)
+    # Get the first available session on session server
     local target_session
-    target_session=$(TMUX= tmux display-message -p '#S' 2>/dev/null || echo "")
-
-    if [[ -z "$target_session" ]]; then
-        target_session=$(TMUX= tmux list-sessions -F '#{session_name}' 2>/dev/null | head -1 || echo "")
-    fi
+    target_session=$(session_tmux list-sessions -F '#{session_name}' 2>/dev/null | head -1 || echo "")
 
     if [[ -n "$target_session" ]]; then
-        nav_tmux detach-client -E "TMUX= tmux attach-session -t '$target_session'"
+        # Detach from Navigator and attach to session server
+        nav_tmux detach-client -E "TMUX= tmux -L '$TOWER_SESSION_SOCKET' attach-session -t '$target_session'"
     fi
 }
 
@@ -491,18 +507,18 @@ full_attach() {
         state=$(get_session_state "$selected")
     fi
 
-    # Verify session exists on default server
-    if ! TMUX= tmux has-session -t "$selected" 2>/dev/null; then
+    # Verify session exists on session server
+    if ! session_tmux has-session -t "$selected" 2>/dev/null; then
         handle_error "Session not found: ${selected#tower_}"
         return 1
     fi
 
     info_log "Full attach to session: $selected"
 
-    # Use detach-client -E to seamlessly switch from Navigator server to default server
+    # Use detach-client -E to seamlessly switch from Navigator server to session server
     # This detaches the client from Navigator and immediately attaches to the target session
     # The Navigator session remains alive in the background for fast re-entry
-    nav_tmux detach-client -E "TMUX= tmux attach-session -t '$selected'"
+    nav_tmux detach-client -E "TMUX= tmux -L '$TOWER_SESSION_SOCKET' attach-session -t '$selected'"
 }
 
 # Quit Navigator
@@ -513,18 +529,37 @@ quit_navigator() {
 
     info_log "Quitting Navigator, returning to caller: ${caller:-<none>}"
 
-    # Determine target session on default server
+    # Determine target session - check session server first, then fall back to default server
     local target_session=""
-    if [[ -n "$caller" ]] && TMUX= tmux has-session -t "$caller" 2>/dev/null; then
-        target_session="$caller"
-    else
-        # Fallback: find any session on default server
+    local target_socket=""
+
+    if [[ -n "$caller" ]]; then
+        if session_tmux has-session -t "$caller" 2>/dev/null; then
+            target_session="$caller"
+            target_socket="$TOWER_SESSION_SOCKET"
+        elif TMUX= tmux has-session -t "$caller" 2>/dev/null; then
+            target_session="$caller"
+            target_socket=""  # default server
+        fi
+    fi
+
+    # Fallback: find any session on session server first, then default server
+    if [[ -z "$target_session" ]]; then
+        target_session=$(session_tmux list-sessions -F '#{session_name}' 2>/dev/null | head -1 || echo "")
+        [[ -n "$target_session" ]] && target_socket="$TOWER_SESSION_SOCKET"
+    fi
+    if [[ -z "$target_session" ]]; then
         target_session=$(TMUX= tmux list-sessions -F '#{session_name}' 2>/dev/null | head -1 || echo "")
+        target_socket=""
     fi
 
     if [[ -n "$target_session" ]]; then
-        # Use detach-client -E to seamlessly return to default server
-        nav_tmux detach-client -E "TMUX= tmux attach-session -t '$target_session'"
+        # Use detach-client -E to seamlessly return to appropriate server
+        if [[ -n "$target_socket" ]]; then
+            nav_tmux detach-client -E "TMUX= tmux -L '$target_socket' attach-session -t '$target_session'"
+        else
+            nav_tmux detach-client -E "TMUX= tmux attach-session -t '$target_session'"
+        fi
     else
         # No sessions available, just exit
         nav_tmux detach-client

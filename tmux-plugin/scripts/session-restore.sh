@@ -45,7 +45,7 @@ else
     for sid in "${dormant_sessions[@]}"; do
         # Menu format: "label" "key" "command"
         menu_items+=("$sid" "$idx" "run-shell '$SCRIPT_DIR/session-restore.sh tower_$sid'")
-        ((idx++))
+        ((idx++)) || true
     done
 
     # Show menu

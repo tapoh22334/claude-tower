@@ -1,6 +1,7 @@
 #!/usr/bin/env bats
-# Unit tests for server separation (TMUX= prefix) ensuring tower sessions
-# are always created/accessed on the default server, not Navigator server
+# Unit tests for server separation ensuring tower sessions
+# are created/accessed on the dedicated session server (-L claude-tower-sessions)
+# not the Navigator server or user's default server
 
 load 'test_helper'
 
@@ -18,11 +19,11 @@ setup() {
     [[ "$output" == *"function"* ]]
 }
 
-@test "get_active_sessions: uses TMUX= prefix" {
+@test "get_active_sessions: uses session_tmux helper" {
     local func_def
     func_def=$(declare -f get_active_sessions)
 
-    [[ "$func_def" == *"TMUX= tmux"* ]]
+    [[ "$func_def" == *"session_tmux"* ]]
 }
 
 # ============================================================================
@@ -35,11 +36,11 @@ setup() {
     [[ "$output" == *"function"* ]]
 }
 
-@test "session_exists: uses TMUX= prefix" {
+@test "session_exists: uses session_tmux helper" {
     local func_def
     func_def=$(declare -f session_exists)
 
-    [[ "$func_def" == *"TMUX= tmux"* ]]
+    [[ "$func_def" == *"session_tmux"* ]]
 }
 
 # ============================================================================
@@ -52,12 +53,12 @@ setup() {
     [[ "$output" == *"function"* ]]
 }
 
-@test "get_session_state: uses TMUX= prefix for has-session" {
+@test "get_session_state: uses session_tmux for has-session" {
     local func_def
     func_def=$(declare -f get_session_state)
 
-    # The function uses has-session for reliable existence check
-    [[ "$func_def" == *"TMUX= tmux has-session"* ]]
+    # The function uses session_tmux has-session for reliable existence check
+    [[ "$func_def" == *"session_tmux has-session"* ]]
 }
 
 # Note: get_session_state no longer uses capture-pane or display-message
@@ -72,18 +73,18 @@ setup() {
     [[ "$output" == *"function"* ]]
 }
 
-@test "_start_session_with_claude: uses TMUX= prefix for new-session" {
+@test "_start_session_with_claude: uses session_tmux for new-session" {
     local func_def
     func_def=$(declare -f _start_session_with_claude)
 
-    [[ "$func_def" == *"TMUX= tmux new-session"* ]]
+    [[ "$func_def" == *"session_tmux new-session"* ]]
 }
 
-@test "_start_session_with_claude: uses TMUX= prefix for send-keys" {
+@test "_start_session_with_claude: uses session_tmux for send-keys" {
     local func_def
     func_def=$(declare -f _start_session_with_claude)
 
-    [[ "$func_def" == *"TMUX= tmux send-keys"* ]]
+    [[ "$func_def" == *"session_tmux send-keys"* ]]
 }
 
 # ============================================================================
@@ -96,11 +97,11 @@ setup() {
     [[ "$output" == *"function"* ]]
 }
 
-@test "delete_session: uses TMUX= prefix for kill-session" {
+@test "delete_session: uses session_tmux for kill-session" {
     local func_def
     func_def=$(declare -f delete_session)
 
-    [[ "$func_def" == *"TMUX= tmux kill-session"* ]]
+    [[ "$func_def" == *"session_tmux kill-session"* ]]
 }
 
 # ============================================================================
@@ -113,11 +114,11 @@ setup() {
     [[ "$output" == *"function"* ]]
 }
 
-@test "restart_session: uses TMUX= prefix for send-keys" {
+@test "restart_session: uses session_tmux for send-keys" {
     local func_def
     func_def=$(declare -f restart_session)
 
-    [[ "$func_def" == *"TMUX= tmux send-keys"* ]]
+    [[ "$func_def" == *"session_tmux send-keys"* ]]
 }
 
 # ============================================================================
@@ -130,11 +131,11 @@ setup() {
     [[ "$output" == *"function"* ]]
 }
 
-@test "send_to_session: uses TMUX= prefix for send-keys" {
+@test "send_to_session: uses session_tmux for send-keys" {
     local func_def
     func_def=$(declare -f send_to_session)
 
-    [[ "$func_def" == *"TMUX= tmux send-keys"* ]]
+    [[ "$func_def" == *"session_tmux send-keys"* ]]
 }
 
 # ============================================================================
@@ -147,64 +148,68 @@ setup() {
     [[ "$output" == *"function"* ]]
 }
 
-@test "list_all_sessions: uses TMUX= prefix for list-sessions" {
+@test "list_all_sessions: uses session_tmux for list-sessions" {
     local func_def
     func_def=$(declare -f list_all_sessions)
 
-    [[ "$func_def" == *"TMUX= tmux list-sessions"* ]]
+    [[ "$func_def" == *"session_tmux list-sessions"* ]]
 }
 
 # ============================================================================
 # Navigator script tests
 # ============================================================================
 
-@test "navigator.sh: get_first_tower_session uses TMUX= prefix" {
+@test "navigator.sh: get_first_tower_session uses session_tmux" {
     local script="$PROJECT_ROOT/tmux-plugin/scripts/navigator.sh"
 
     run grep "get_first_tower_session" "$script"
     [ "$status" -eq 0 ]
 
-    run grep "TMUX= tmux list-sessions" "$script"
+    run grep "session_tmux list-sessions" "$script"
     [ "$status" -eq 0 ]
 }
 
-@test "navigator.sh: count_tower_sessions uses TMUX= prefix" {
+@test "navigator.sh: count_tower_sessions uses session_tmux" {
     local script="$PROJECT_ROOT/tmux-plugin/scripts/navigator.sh"
 
     run grep "count_tower_sessions" "$script"
     [ "$status" -eq 0 ]
 
-    # Verify the function uses TMUX= prefix
+    # Verify the function uses session_tmux
     run grep -A2 "^count_tower_sessions()" "$script"
-    [[ "$output" == *"TMUX= tmux"* ]]
+    [[ "$output" == *"session_tmux"* ]]
 }
 
-@test "navigator.sh: full_attach uses TMUX= prefix with attach-session" {
+@test "navigator.sh: full_attach uses session server attach" {
     local script="$PROJECT_ROOT/tmux-plugin/scripts/navigator.sh"
 
-    # Check for TMUX= prefix with attach-session (uses 'exec tmux')
-    run grep "TMUX= exec tmux attach-session" "$script"
+    # Check for session server attach pattern
+    run grep "TOWER_SESSION_SOCKET" "$script"
     [ "$status" -eq 0 ]
 }
 
-@test "navigator-list.sh: build_session_list uses TMUX= prefix" {
+@test "navigator-list.sh: build_session_list uses session_tmux" {
     local script="$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
 
-    # The script uses TMUX= tmux list-sessions in build_session_list
-    run grep "TMUX= tmux list-sessions" "$script"
+    # The script uses session_tmux list-sessions in build_session_list
+    run grep "session_tmux list-sessions" "$script"
     [ "$status" -eq 0 ]
 }
 
-@test "session-new.sh: uses TMUX= prefix for switch-client" {
+@test "session-new.sh: uses session_tmux for switch-client" {
     local script="$PROJECT_ROOT/tmux-plugin/scripts/session-new.sh"
 
-    run grep "TMUX= tmux switch-client" "$script"
+    run grep "session_tmux switch-client" "$script"
     [ "$status" -eq 0 ]
 }
 
-@test "session-new.sh: uses TMUX= prefix for display-message" {
-    local script="$PROJECT_ROOT/tmux-plugin/scripts/session-new.sh"
-
-    run grep "TMUX= tmux display-message" "$script"
+@test "session_tmux: helper function exists and uses session socket" {
+    run type session_tmux
     [ "$status" -eq 0 ]
+
+    local func_def
+    func_def=$(declare -f session_tmux)
+
+    # Should use TOWER_SESSION_SOCKET
+    [[ "$func_def" == *"TOWER_SESSION_SOCKET"* ]]
 }

@@ -1,7 +1,7 @@
 # Claude Tower Navigator 仕様書
 
-Version: 3.2
-Date: 2026-01-03
+Version: 3.3
+Date: 2026-01-04
 
 ## 1. 概要
 
@@ -21,18 +21,25 @@ Claude Tower は tmux プラグインであり、複数の Claude Code セッシ
 
 ### 2.1 Server（tmuxサーバー）
 
-| 名前 | 説明 |
-|------|------|
-| `default` | ユーザーの通常の tmux サーバー（ソケット指定なし） |
-| `navigator` | Navigator 専用サーバー（`-L claude-tower`） |
+| 名前 | ソケット | 説明 |
+|------|----------|------|
+| `default` | (なし) | ユーザーの通常の tmux サーバー |
+| `navigator` | `-L claude-tower` | Navigator UI 専用サーバー（制御プレーン） |
+| `session` | `-L claude-tower-sessions` | Claude Code セッション専用サーバー（データプレーン） |
+
+**ソケット分離アーキテクチャ**:
+- ユーザーの default サーバーから完全に分離
+- Navigator がセッションを干渉なく管理可能
+- セッションは独立して管理可能
+- 懸念事項の明確な分離
 
 ### 2.2 Session（tmuxセッション）
 
 | 名前 | 説明 | 所属サーバー |
 |------|------|--------------|
-| `tower_session` | `tower_{name}` 形式の Claude 作業用セッション | default |
+| `tower_session` | `tower_{name}` 形式の Claude 作業用セッション | session |
 | `navigator` | Navigator UI セッション（常に1つ） | navigator |
-| `caller` | Navigator 起動前のセッション（戻り先として記録） | default |
+| `caller` | Navigator 起動前のセッション（戻り先として記録） | session または default |
 
 ### 2.3 View（Navigator の表示モード）
 
@@ -69,9 +76,11 @@ Claude Tower は tmux プラグインであり、複数の Claude Code セッシ
 | `dormant` | `○` | tmux セッションなし、メタデータのみ存在 |
 
 **状態判定ルール**（冪等性のため単純化）:
-- `tmux has-session -t $session_id` が成功 → `active`
-- `tmux has-session` が失敗 かつ メタデータ存在 → `dormant`
+- `session_tmux has-session -t $session_id` が成功 → `active`
+- `session_tmux has-session` が失敗 かつ メタデータ存在 → `dormant`
 - どちらでもない → 存在しない
+
+**注記**: `session_tmux` は session サーバー (`-L claude-tower-sessions`) へのコマンド実行ヘルパー
 
 **注意**: `exited` 状態（Claude が終了済み）は廃止。tmux セッションが存在すれば `active` として扱う。Claude の実行状態はセッション内で判断すべき情報であり、Navigator の状態判定を複雑化させない。
 
@@ -121,8 +130,12 @@ Claude Tower は tmux プラグインであり、複数の Claude Code セッシ
     │              │                           │              │
     │  focus:list  │                           │  focus:view  │
     │              │ <──────────────────────── │              │
-    └──────────────┘         Escape            └──────────────┘
+    └──────────────┘      j/k または            └──────────────┘
+                       ペイン移動で戻る
 ```
+
+**注意**: focus:view から focus:list への遷移は、ユーザーがペイン移動（prefix + 矢印など）で
+list ペインに戻り、j/k を押した時に発生する。Escape キーによる戻りは廃止。
 
 ---
 
@@ -167,10 +180,13 @@ Claude Tower は tmux プラグインであり、複数の Claude Code セッシ
 
 | 項目 | 内容 |
 |------|------|
-| トリガー | `Escape` |
-| コンテキスト | Navigator, focus = view |
+| トリガー | `j/k` または ペイン移動 |
+| コンテキスト | Navigator, focus = view, user navigated to list pane |
 | 前提条件 | focus = view |
-| 事後条件 | focus := list, view continues showing selected |
+| 事後条件 | focus := list, view uses switch-client for session switching |
+
+**注意**: Escape キーによる戻りは廃止。ユーザーは tmux のペイン移動（prefix + 矢印など）で
+list ペインに戻り、j/k を押すことで focus:list に遷移する。
 
 ### 4.5 full_attach
 
@@ -179,7 +195,7 @@ Claude Tower は tmux プラグインであり、複数の Claude Code セッシ
 | トリガー | `Enter` |
 | コンテキスト | Navigator, focus = list, selected ≠ none |
 | 前提条件 | selected ∈ tower_sessions |
-| 事後条件 | user attached to selected (default server), navigator session alive |
+| 事後条件 | user attached to selected (session server), navigator session alive |
 
 **dormant セッションの場合**: 自動 restore 後にアタッチ
 
@@ -191,7 +207,7 @@ Claude Tower は tmux プラグインであり、複数の Claude Code セッシ
 | コンテキスト | Navigator, focus = list |
 | 事後条件 | user attached to caller (or any session), navigator session alive |
 
-**caller が存在しない場合**: default server の任意のセッションにアタッチ
+**caller が存在しない場合**: session server を優先して検索し、見つからなければ default server の任意のセッションにアタッチ
 
 ### 4.7 create_session
 
@@ -275,11 +291,10 @@ Claude Tower は tmux プラグインであり、複数の Claude Code セッシ
 | ケース | 挙動 |
 |--------|------|
 | tower_sessions.count = 0 at open | Navigator 表示、view に案内メッセージ |
-| caller not exists at quit | default server の任意のセッションにアタッチ |
+| caller not exists at quit | session server → default server の順で検索してアタッチ |
 | selected deleted externally | リスト再構築、次のセッションを選択 |
 | full_attach to dormant session | 自動 restore 後にアタッチ |
-| Escape when focus = list | 無視（何もしない） |
-| view pane で Escape 連打 | 最初の Escape で focus:list、以降は無視 |
+| focus:view から戻る | ペイン移動で list に戻り、j/k で focus:list に遷移 |
 
 ---
 
@@ -316,8 +331,10 @@ Claude Tower は tmux プラグインであり、複数の Claude Code セッシ
 
 | キー | 動作 |
 |------|------|
-| `Escape` | focus:list に戻る |
-| その他 | 選択セッションに送信 |
+| すべて | 選択セッションに送信 |
+
+**注意**: focus:view からの戻りは、ペイン移動（prefix + 矢印など）で list ペインに戻り、
+j/k を押すことで実現する。Escape キーによる戻りは廃止。
 
 ### 6.4 Navigator キーバインド（tile_view）
 
@@ -341,7 +358,8 @@ Claude Tower は tmux プラグインであり、複数の Claude Code セッシ
 tmux-plugin/
 ├── claude-tower.tmux          # キーバインド設定
 ├── lib/
-│   └── common.sh              # 共通関数・定数・ドメインロジック
+│   ├── common.sh              # 共通関数・定数・ドメインロジック
+│   └── error-recovery.sh      # エラー処理・リカバリーユーティリティ
 ├── scripts/
 │   ├── navigator.sh           # Navigator エントリーポイント
 │   ├── navigator-list.sh      # list_view: list pane プロセス
@@ -353,6 +371,18 @@ tmux-plugin/
 └── conf/
     └── view-focus.conf        # focus:view 時の tmux 設定
 ```
+
+## 7.1 ソケット設定
+
+| 変数名 | デフォルト値 | 説明 |
+|--------|--------------|------|
+| `TOWER_NAV_SOCKET` | `claude-tower` | Navigator サーバーソケット |
+| `TOWER_SESSION_SOCKET` | `claude-tower-sessions` | セッションサーバーソケット |
+| `TOWER_NAV_WIDTH` | `24` | Navigator list ペイン幅（文字数） |
+
+**ヘルパー関数**:
+- `nav_tmux`: Navigator サーバーへのコマンド実行 (`tmux -L $TOWER_NAV_SOCKET`)
+- `session_tmux`: Session サーバーへのコマンド実行 (`TMUX= tmux -L $TOWER_SESSION_SOCKET`)
 
 ---
 
@@ -375,7 +405,8 @@ tmux-plugin/
 | セッション作成後の動作 | Navigator に留まる | 連続作成を可能に |
 | Navigator の永続性 | 常に生存 | 高速な再表示 |
 | セッション作成 UI | Navigator 内でインライン | コンテキスト切り替えなし |
-| view からの戻り | Escape | 直感的、vim と競合しても Full Attach を使う |
+| view からの戻り | ペイン移動 + j/k | Escape キーによる戻りは廃止 |
+| セッションサーバー分離 | session server で隔離 | ユーザー環境から完全に分離 |
 | tile_view の役割 | 俯瞰・選択のみ | list_view で詳細操作する設計 |
 | tile_view からの Full Attach | なし | シンプルさ優先、list_view 経由で操作 |
 
@@ -385,6 +416,7 @@ tmux-plugin/
 
 | バージョン | 日付 | 内容 |
 |------------|------|------|
+| 3.3 | 2026-01-04 | ソケット分離: セッションを専用サーバー (`claude-tower-sessions`) に隔離。Navigator 幅を 24 に変更 |
 | 3.2 | 2026-01-03 | キーバインド簡素化: `prefix+t` で直接 Navigator 起動。dormant 復元キー追加 (`r`, `R`) |
 | 3.1 | 2026-01-02 | tile_view 追加。list_view/tile_view の2ビュー切替方式を採用 |
 | 3.0 | 2026-01-02 | 厳密な仕様書として再作成。ドメイン語彙・操作定義・エッジケースを明確化 |
