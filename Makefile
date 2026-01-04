@@ -114,16 +114,14 @@ reload:
 		exit 1; \
 	fi
 
-# Reset: kill Navigator server, clear caches, reload plugin
+# Reset: kill Navigator and Session servers, clear caches, reload plugin
 reset:
 	@echo "=== Killing Navigator server ==="
 	@tmux -L claude-tower kill-server 2>/dev/null && echo "✓ Navigator killed" || echo "  (not running)"
+	@echo "=== Killing Session server ==="
+	@tmux -L claude-tower-sessions kill-server 2>/dev/null && echo "✓ Session server killed" || echo "  (not running)"
 	@echo "=== Clearing state files ==="
 	@rm -rf /tmp/claude-tower && mkdir -p /tmp/claude-tower && echo "✓ State cleared"
-	@echo "=== Clearing tower sessions ==="
-	@for s in $$(TMUX= tmux list-sessions -F '#{session_name}' 2>/dev/null | grep '^tower_'); do \
-		TMUX= tmux kill-session -t "$$s" 2>/dev/null && echo "  Killed: $$s"; \
-	done || echo "  (no tower sessions)"
 	@echo "=== Reloading plugin ==="
 	@if [ -n "$$TMUX" ]; then \
 		tmux run-shell "$(PWD)/tmux-plugin/claude-tower.tmux" && \
