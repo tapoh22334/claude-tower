@@ -1237,10 +1237,25 @@ restore_session() {
         return 1
     fi
 
-    local working_dir="$META_WORKTREE_PATH"
+    # Determine working directory based on session type
+    local working_dir=""
+    if [[ "$META_SESSION_TYPE" == "worktree" ]]; then
+        # Worktree session - use worktree path
+        working_dir="$META_WORKTREE_PATH"
+        if [[ ! -d "$working_dir" ]]; then
+            handle_error "Worktree directory not found: $working_dir"
+            return 1
+        fi
+    elif [[ -n "$META_REPOSITORY_PATH" && -d "$META_REPOSITORY_PATH" ]]; then
+        # Simple session - use repository path
+        working_dir="$META_REPOSITORY_PATH"
+    else
+        # Fallback to home directory if no valid path
+        working_dir="$HOME"
+    fi
 
     if [[ ! -d "$working_dir" ]]; then
-        handle_error "Worktree directory not found: $working_dir"
+        handle_error "Working directory not found: $working_dir"
         return 1
     fi
 

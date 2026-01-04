@@ -130,6 +130,48 @@ show_dormant_info() {
     fi
 }
 
+# Show active session info (preview without attaching)
+show_active_info() {
+    local session_id="$1"
+    local name="${session_id#tower_}"
+
+    clear
+    echo ""
+    echo "  ┌───────────────────────────────────────┐"
+    echo "  │                                       │"
+    printf "  │   Session: %-27s │\n" "$name"
+    echo "  │   Status: Active ▶                    │"
+    echo "  │                                       │"
+
+    # Get window list
+    local windows
+    windows=$(TMUX= tmux list-windows -t "$session_id" -F '#{window_index}:#{window_name}#{?window_active, *,}' 2>/dev/null || echo "")
+
+    if [[ -n "$windows" ]]; then
+        echo "  │   Windows:                            │"
+        local count=0
+        while IFS= read -r line && [[ $count -lt 5 ]]; do
+            printf "  │     %-33s │\n" "${line:0:33}"
+            ((count++))
+        done <<< "$windows"
+    fi
+
+    echo "  │                                       │"
+    echo "  │   i      Enter input mode (preview)   │"
+    echo "  │   Enter  Full attach to session       │"
+    echo "  │                                       │"
+    echo "  └───────────────────────────────────────┘"
+    echo ""
+
+    # Show metadata if available
+    if load_metadata "$session_id" 2>/dev/null; then
+        echo "  Metadata:"
+        [[ -n "$META_REPOSITORY_PATH" ]] && echo "    Repository: $META_REPOSITORY_PATH"
+        [[ -n "$META_WORKTREE_PATH" ]] && echo "    Worktree: $META_WORKTREE_PATH"
+        [[ -n "$META_CREATED_AT" ]] && echo "    Created: $META_CREATED_AT"
+    fi
+}
+
 # Attach to session in default server using nested tmux
 attach_to_session() {
     local session_id="$1"
@@ -160,55 +202,82 @@ attach_to_session() {
 # Main Loop
 # ============================================================================
 
-# Wait for update signal from list pane using tmux wait-for
-# This blocks until signal is received - no polling needed
+# Wait for update signal from list pane
+# Uses polling to avoid missing signals from tmux wait-for
 wait_for_update() {
-    nav_tmux wait-for "$TOWER_VIEW_UPDATE_CHANNEL" 2>/dev/null || true
+    # Poll for selection changes every 0.2 seconds
+    # This prevents the signal timing issue where wait-for -S signals
+    # can be lost if sent before wait-for is called
+    sleep 0.2
 }
 
 main_loop() {
     info_log "Starting main view loop"
+
+    # Track last selected session to detect changes
+    local last_selected=""
 
     while true; do
         # Get currently selected session
         local selected
         selected=$(get_nav_selected)
 
-        if [[ -z "$selected" ]]; then
-            # No selection - show placeholder and wait for signal
-            debug_log "No session selected, showing placeholder"
-            show_placeholder
-            wait_for_update
-            continue
-        fi
+        # Check if Input mode is requested (i key pressed)
+        local focus
+        focus=$(get_nav_focus)
 
-        debug_log "Selected session: $selected"
+        # Handle Input mode - attach to active session
+        if [[ "$focus" == "view" && -n "$selected" ]]; then
+            if TMUX= tmux has-session -t "$selected" 2>/dev/null; then
+                info_log "Entering input mode for session: $selected"
 
-        # Check if session exists on DEFAULT server
-        if ! TMUX= tmux has-session -t "$selected" 2>/dev/null; then
-            # Session doesn't exist in tmux - check if dormant
-            if has_metadata "$selected"; then
-                info_log "Session is dormant: $selected"
-                show_dormant_info "$selected"
+                # Attach to session (blocks until Escape pressed)
+                if attach_to_session "$selected"; then
+                    info_log "Returned from input mode"
+                else
+                    error_log "Failed to attach to session: $selected"
+                    show_error "Cannot attach to session"
+                    sleep 0.5
+                fi
+
+                # Return to list mode
+                set_nav_focus "list"
+                # Force re-check on next iteration
+                last_selected=""
+                continue
             else
-                debug_log "Session not found, showing placeholder"
-                show_placeholder
+                # Session doesn't exist - cannot enter input mode
+                debug_log "Cannot enter input mode: session not active"
+                set_nav_focus "list"
             fi
-            wait_for_update
-            continue
         fi
 
-        # Session exists - attach to it
-        info_log "Attaching to session: $selected"
-        if ! attach_to_session "$selected"; then
-            error_log "Failed to attach to session: $selected"
-            show_error "Cannot attach to session"
-            wait_for_update
-            continue
+        # Only update display if selection changed
+        if [[ "$selected" != "$last_selected" ]]; then
+            last_selected="$selected"
+
+            if [[ -z "$selected" ]]; then
+                # No selection - show placeholder
+                debug_log "No session selected, showing placeholder"
+                show_placeholder
+            elif ! TMUX= tmux has-session -t "$selected" 2>/dev/null; then
+                # Session doesn't exist in tmux - check if dormant
+                if has_metadata "$selected"; then
+                    info_log "Session is dormant: $selected"
+                    show_dormant_info "$selected"
+                else
+                    debug_log "Session not found, showing placeholder"
+                    show_placeholder
+                fi
+            else
+                # Session exists - show info only (don't auto-attach)
+                info_log "Showing active session info: $selected"
+                show_active_info "$selected"
+            fi
         fi
 
-        # After detach (Escape pressed), loop back to check new selection
-        info_log "Returned from session attachment"
+        # Wait briefly before checking for selection changes again
+        wait_for_update
     done
 }
 
