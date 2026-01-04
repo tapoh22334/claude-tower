@@ -29,6 +29,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/common.sh"
+source "$SCRIPT_DIR/../lib/error-recovery.sh"
 
 # ============================================================================
 # Configuration
@@ -320,6 +321,10 @@ open_navigator_direct() {
     # Focus on left pane
     nav_tmux select-pane -t "$TOWER_NAV_SESSION:0.0"
 
+    # Setup auto-restart hooks for crashed panes
+    # This ensures Navigator never shows a shell prompt if a pane crashes
+    setup_pane_auto_restart
+
     info_log "Navigator session created, attaching"
 
     # Attach to Navigator (this replaces the current process)
@@ -349,7 +354,7 @@ Navigator Architecture:
     Left pane shows session list, right pane shows live view
 
 Invocation:
-    From tmux:     prefix + t, c  (seamless server switching)
+    From tmux:     prefix + t  (direct Navigator launch)
     Direct:        ./navigator.sh --direct
 
 Note: Caller session is read from state file (/tmp/claude-tower/caller)
@@ -363,7 +368,8 @@ Keybindings in Navigator:
     Esc          Return to list from input mode
     n            Create new session
     d            Delete selected session
-    R            Restart Claude in session
+    r            Restore selected dormant session
+    R            Restore all dormant sessions
     ?            Show help
     q            Quit Navigator
 

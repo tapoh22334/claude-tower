@@ -13,6 +13,7 @@ Claude Tower は tmux プラグインであり、複数の Claude Code セッシ
 - **ソケット分離**: Navigator は専用の tmux サーバーで動作し、ユーザーのセッションと分離
 - **永続性**: Navigator セッションは常に生存し、高速な再表示を実現
 - **シンプルなフォーカスモデル**: list / view の2つのフォーカス状態のみ
+- **冪等性**: 同じ操作を複数回実行しても結果は同じ。状態の不整合があっても安全に動作する
 
 ---
 
@@ -64,9 +65,15 @@ Claude Tower は tmux プラグインであり、複数の Claude Code セッシ
 
 | 状態 | アイコン | 説明 |
 |------|----------|------|
-| `active` | `▶` | claude が動作中 |
-| `exited` | `!` | claude が終了済み |
+| `active` | `▶` | tmux セッションが存在する |
 | `dormant` | `○` | tmux セッションなし、メタデータのみ存在 |
+
+**状態判定ルール**（冪等性のため単純化）:
+- `tmux has-session -t $session_id` が成功 → `active`
+- `tmux has-session` が失敗 かつ メタデータ存在 → `dormant`
+- どちらでもない → 存在しない
+
+**注意**: `exited` 状態（Claude が終了済み）は廃止。tmux セッションが存在すれば `active` として扱う。Claude の実行状態はセッション内で判断すべき情報であり、Navigator の状態判定を複雑化させない。
 
 ---
 
@@ -214,10 +221,15 @@ Claude Tower は tmux プラグインであり、複数の Claude Code セッシ
 |------|------|
 | トリガー | `r` |
 | コンテキスト | Navigator, focus = list, selected ≠ none |
-| 前提条件 | selected.state = dormant |
-| 事後条件 | selected session restored (state := active), focus := list |
+| 前提条件 | なし（冪等） |
+| 事後条件 | selected session が active 状態になる |
 
-**active/exited セッションの場合**: 無視（何もしない）
+**冪等動作**:
+- `dormant` → 復元して `active` に
+- `active` → 何もしない（すでに active）
+- メタデータなし → 何もしない（復元不可）
+
+**注意**: エラーにしない。状態不整合があっても安全に最終状態を達成する。
 
 ### 4.10 restore_all_sessions
 

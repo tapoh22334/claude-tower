@@ -160,26 +160,10 @@ attach_to_session() {
 # Main Loop
 # ============================================================================
 
-# Track last known selection for change detection
-LAST_SELECTED=""
-SIGNAL_FILE="${TOWER_NAV_STATE_DIR}/view_signal"
-LAST_SIGNAL=""
-
-# Check if selection changed
-selection_changed() {
-    local current_selected
-    current_selected=$(get_nav_selected)
-
-    # Check signal file for forced update
-    local current_signal=""
-    [[ -f "$SIGNAL_FILE" ]] && current_signal=$(cat "$SIGNAL_FILE" 2>/dev/null || echo "")
-
-    if [[ "$current_selected" != "$LAST_SELECTED" ]] || [[ "$current_signal" != "$LAST_SIGNAL" ]]; then
-        LAST_SELECTED="$current_selected"
-        LAST_SIGNAL="$current_signal"
-        return 0  # Changed
-    fi
-    return 1  # Not changed
+# Wait for update signal from list pane using tmux wait-for
+# This blocks until signal is received - no polling needed
+wait_for_update() {
+    nav_tmux wait-for "$TOWER_VIEW_UPDATE_CHANNEL" 2>/dev/null || true
 }
 
 main_loop() {
@@ -189,57 +173,42 @@ main_loop() {
         # Get currently selected session
         local selected
         selected=$(get_nav_selected)
-        LAST_SELECTED="$selected"
-        [[ -f "$SIGNAL_FILE" ]] && LAST_SIGNAL=$(cat "$SIGNAL_FILE" 2>/dev/null || echo "")
 
         if [[ -z "$selected" ]]; then
-            # No selection - show placeholder
+            # No selection - show placeholder and wait for signal
             debug_log "No session selected, showing placeholder"
             show_placeholder
-            sleep 0.5
+            wait_for_update
             continue
         fi
 
         debug_log "Selected session: $selected"
 
-        # Check session state (on DEFAULT server)
-        local state
-        state=$(get_session_state "$selected")
-
-        debug_log "Session state: $state"
-
-        case "$state" in
-            "$STATE_DORMANT")
-                # Show dormant info
+        # Check if session exists on DEFAULT server
+        if ! TMUX= tmux has-session -t "$selected" 2>/dev/null; then
+            # Session doesn't exist in tmux - check if dormant
+            if has_metadata "$selected"; then
                 info_log "Session is dormant: $selected"
                 show_dormant_info "$selected"
-                # Poll for selection change (short interval)
-                while ! selection_changed; do
-                    sleep 0.2
-                done
-                ;;
-            "")
-                # Session doesn't exist
-                debug_log "Session state empty, showing placeholder"
+            else
+                debug_log "Session not found, showing placeholder"
                 show_placeholder
-                # Poll for selection change
-                while ! selection_changed; do
-                    sleep 0.3
-                done
-                ;;
-            *)
-                # Active session - attach to it
-                info_log "Attaching to active session: $selected (state: $state)"
-                # This will block until user presses Escape (which detaches)
-                if ! attach_to_session "$selected"; then
-                    error_log "Failed to attach to session: $selected"
-                    show_placeholder
-                    sleep 0.5
-                fi
-                # After detach, loop back to check new selection
-                info_log "Returned from session attachment, checking for new selection"
-                ;;
-        esac
+            fi
+            wait_for_update
+            continue
+        fi
+
+        # Session exists - attach to it
+        info_log "Attaching to session: $selected"
+        if ! attach_to_session "$selected"; then
+            error_log "Failed to attach to session: $selected"
+            show_error "Cannot attach to session"
+            wait_for_update
+            continue
+        fi
+
+        # After detach (Escape pressed), loop back to check new selection
+        info_log "Returned from session attachment"
     done
 }
 

@@ -130,6 +130,9 @@ readonly TOWER_NAV_SELECTED_FILE="${TOWER_NAV_STATE_DIR}/selected"
 readonly TOWER_NAV_CALLER_FILE="${TOWER_NAV_STATE_DIR}/caller"
 readonly TOWER_NAV_FOCUS_FILE="${TOWER_NAV_STATE_DIR}/focus"
 
+# tmux wait-for channel for view pane updates
+readonly TOWER_VIEW_UPDATE_CHANNEL="tower-view-update"
+
 # ============================================================================
 # Navigator Helper Functions
 # ============================================================================
@@ -897,19 +900,19 @@ worktree_exists() {
 }
 
 # ============================================================================
-# Session State Detection (v2.0)
+# Session State Detection (v3.0 - Idempotent)
 # ============================================================================
-# Session states:
-#   Active (▶)  - Claude is running (waiting for input or outputting)
-#   Exited (!)  - Claude process has exited
+# Session states (simplified for idempotency):
+#   Active (▶)  - tmux session exists
 #   Dormant (○) - Metadata exists but no tmux session
+#
+# Note: "exited" state was removed. If tmux session exists, it's active.
+# Claude's running state is an internal detail, not Navigator's concern.
 
 readonly STATE_ACTIVE="active"
-readonly STATE_EXITED="exited"
 readonly STATE_DORMANT="dormant"
 
 readonly ICON_STATE_ACTIVE="▶"
-readonly ICON_STATE_EXITED="!"
 readonly ICON_STATE_DORMANT="○"
 
 readonly TYPE_WORKTREE="worktree"
@@ -922,32 +925,25 @@ readonly ICON_TYPE_SIMPLE="[S]"
 # Arguments:
 #   $1 - Session ID (with tower_ prefix)
 # Returns:
-#   State string: active, exited, or dormant
-# Optimized: Uses single tmux command (display-message) instead of has-session + display-message
+#   State string: active or dormant (empty if not exists)
+# Idempotent: Uses has-session for reliable existence check
 get_session_state() {
     local session_id="$1"
-    local pane_cmd
 
-    # Try display-message first - fails if session doesn't exist
-    # This combines session existence check with command retrieval in one call
-    if ! pane_cmd=$(TMUX= tmux display-message -t "$session_id" -p '#{pane_current_command}' 2>/dev/null); then
-        # Session doesn't exist - check if metadata exists (Dormant)
-        if has_metadata "$session_id"; then
-            echo "$STATE_DORMANT"
-        fi
+    # Check if tmux session exists using has-session (most reliable)
+    if TMUX= tmux has-session -t "$session_id" 2>/dev/null; then
+        echo "$STATE_ACTIVE"
         return 0
     fi
 
-    # Session exists - check if Claude is running
-    local program_name
-    program_name=$(basename "$TOWER_PROGRAM")
-
-    if [[ "$pane_cmd" != "$program_name" && "$pane_cmd" != "claude" ]]; then
-        echo "$STATE_EXITED"
+    # Session doesn't exist - check if metadata exists (Dormant)
+    if has_metadata "$session_id"; then
+        echo "$STATE_DORMANT"
         return 0
     fi
 
-    echo "$STATE_ACTIVE"
+    # Neither session nor metadata exists
+    return 0
 }
 
 # Get state icon
@@ -959,7 +955,6 @@ get_state_icon() {
     local state="$1"
     case "$state" in
         "$STATE_ACTIVE") echo "$ICON_STATE_ACTIVE" ;;
-        "$STATE_EXITED") echo "$ICON_STATE_EXITED" ;;
         "$STATE_DORMANT") echo "$ICON_STATE_DORMANT" ;;
         *) echo "?" ;;
     esac
@@ -1007,23 +1002,16 @@ get_type_icon() {
 # Uses single tmux call for all active sessions
 list_all_sessions() {
     local -A active_sessions=()
-    local program_name
-    program_name=$(basename "$TOWER_PROGRAM")
 
-    # Get all tower sessions with their pane command in ONE tmux call
-    while IFS=$'\t' read -r session_id pane_cmd; do
+    # Get all tower sessions in ONE tmux call
+    while IFS=$'\t' read -r session_id _; do
         [[ -z "$session_id" ]] && continue
         [[ "$session_id" != tower_* ]] && continue
 
         active_sessions["$session_id"]=1
 
-        # Determine state based on pane command
-        local state
-        if [[ "$pane_cmd" == "$program_name" || "$pane_cmd" == "claude" ]]; then
-            state="$STATE_ACTIVE" # Claude is running
-        else
-            state="$STATE_EXITED"
-        fi
+        # tmux session exists = active (simplified, idempotent)
+        local state="$STATE_ACTIVE"
 
         # Get type
         local type="$TYPE_SIMPLE"
@@ -1032,7 +1020,7 @@ list_all_sessions() {
         fi
 
         echo "${session_id}:${state}:${type}"
-    done < <(TMUX= tmux list-sessions -F '#{session_name}	#{pane_current_command}' 2>/dev/null || true)
+    done < <(TMUX= tmux list-sessions -F '#{session_name}' 2>/dev/null || true)
 
     # Check metadata for dormant sessions
     for meta_file in "${TOWER_METADATA_DIR}"/*.meta; do

@@ -199,6 +199,7 @@ export CLAUDE_TOWER_PREFIX='s'
 | Server Model | Separate socket | Shared server | Isolation, won't affect user sessions |
 | UI Model | Two-pane (list + view) | Single complex view | Each pane optimized for purpose |
 | Navigation | vim-style (hjkl) | Arrow keys only | Terminal efficiency tradition |
+| Session Preview | Nested tmux attach | capture-pane snapshot | Real-time streaming logs, interactive input |
 
 ### 3.2 Decision Records
 
@@ -242,6 +243,26 @@ export CLAUDE_TOWER_PREFIX='s'
   - Pro: Captures meaningful distinctions
   - Pro: Simple mental model
   - Con: Cannot distinguish Claude idle vs. working
+
+#### DR-004: Nested Tmux for Session Preview
+
+- **Context**: View pane needs to display selected session content in real-time
+- **Options Considered**:
+  1. `capture-pane` with periodic refresh (static snapshot)
+  2. Nested tmux attach (live connection)
+  3. Custom PTY forwarding
+- **Decision**: Option 2 - Nested tmux attach with dedicated config
+- **Rationale**: Claude Code frequently outputs streaming logs and real-time responses. Users need to see this live output, not periodic snapshots. The view pane must feel like "looking into" the session, not "looking at a photo of" it.
+- **Implementation**:
+  - Inner tmux uses `view-focus.conf` with Escape bound to detach
+  - `TMUX=` prefix ensures connection to default server
+  - Escape returns control to Navigator without killing the session
+- **Consequences**:
+  - Pro: Real-time streaming output visibility
+  - Pro: Seamless input when focused (`i` key)
+  - Pro: Full terminal capability (colors, cursor, etc.)
+  - Con: Slightly more complex attach/detach coordination
+  - Con: Requires signal mechanism for session switching
 
 ---
 
@@ -423,3 +444,4 @@ A condensed set of aphorisms for quick reference:
 8. **Persistence through files** — Survive crashes, support debugging
 9. **Security by sanitization** — Never trust input
 10. **Platform over polish** — Works on macOS and Linux, even if not identical
+11. **Live view, not snapshots** — Nested tmux attach over capture-pane for real-time streaming

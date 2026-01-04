@@ -24,35 +24,22 @@ get_tmux_option() {
 }
 
 # Tower prefix key (default: t)
-# Usage: prefix + t, then next key
+# Usage: prefix + t → Navigator (direct)
 TOWER_PREFIX=$(get_tmux_option "@tower-prefix" "${CLAUDE_TOWER_PREFIX:-t}")
 
-# Create tower key table
-# prefix + t → enter tower mode, then:
-#   c → Navigator (Claude sessions)
-#   t → New session (Tower new)
-#   n → New session (alias)
-#   l → List sessions
-#   r → Restore sessions
-#   ? → Help
-
-tmux bind-key "$TOWER_PREFIX" switch-client -T tower
-
-# Tower mode bindings
-# Navigator uses a wrapper script for seamless server switching
-# This provides true switch-client-like experience between servers:
+# Direct Navigator launch with prefix + t
+# Navigator uses a wrapper script for seamless server switching:
 #   1. run-shell expands #{session_name} and writes caller to state file
 #   2. detach-client -E runs navigator.sh which reads the caller from state
 # Note: detach-client -E does NOT expand tmux format strings in its command
-tmux bind-key -T tower c run-shell -b "mkdir -p /tmp/claude-tower && echo '#{session_name}' > /tmp/claude-tower/caller && tmux detach-client -E 'exec $CURRENT_DIR/scripts/navigator.sh --direct'"
-tmux bind-key -T tower t new-window -n "tower-new" "$CURRENT_DIR/scripts/session-new.sh"
-tmux bind-key -T tower n new-window -n "tower-new" "$CURRENT_DIR/scripts/session-new.sh"
-tmux bind-key -T tower l new-window -n "tower-list" "$CURRENT_DIR/scripts/session-list.sh pretty"
-tmux bind-key -T tower r run-shell -b "$CURRENT_DIR/scripts/session-restore.sh --all"
-tmux bind-key -T tower '?' display-message "tower: c=navigator t/n=new l=list r=restore"
-
-# Escape from tower mode (automatic after any key, but explicit Escape too)
-tmux bind-key -T tower Escape switch-client -T prefix
+#
+# All operations (new session, restore, etc.) are now done within Navigator:
+#   n → New session
+#   r → Restore selected dormant session
+#   R → Restore all dormant sessions
+#   d → Delete session
+#   ? → Help
+tmux bind-key "$TOWER_PREFIX" run-shell -b "mkdir -p /tmp/claude-tower && echo '#{session_name}' > /tmp/claude-tower/caller && tmux detach-client -E 'exec $CURRENT_DIR/scripts/navigator.sh --direct'"
 
 # Set environment variables for scripts
 tmux set-environment -g CLAUDE_TOWER_DIR "$CURRENT_DIR"

@@ -33,12 +33,8 @@ readonly NAV_C_NORMAL=$'\033[0m'
 readonly NAV_C_DIM=$'\033[2m'
 readonly NAV_C_ACCENT=$'\033[1;32m'  # Green bold - for highlights
 readonly NAV_C_ERROR=$'\033[1;31m'   # Red bold - for errors
-# Colors (NAV_C_RUNNING used in future state detection)
-# shellcheck disable=SC2034
-readonly NAV_C_RUNNING=$'\033[32m'
-readonly NAV_C_IDLE=$'\033[33m'
-readonly NAV_C_EXITED=$'\033[31m'
-readonly NAV_C_DORMANT=$'\033[90m'
+readonly NAV_C_ACTIVE=$'\033[32m'    # Green - active sessions
+readonly NAV_C_DORMANT=$'\033[90m'   # Gray - dormant sessions
 
 # ============================================================================
 # Session List Management
@@ -49,28 +45,21 @@ declare -a SESSION_IDS=()
 declare -a SESSION_DISPLAYS=()
 
 # Build session list from default tmux server
+# Idempotent: Uses has-session logic (tmux session exists = active)
 build_session_list() {
     SESSION_IDS=()
     SESSION_DISPLAYS=()
 
-    local program_name
-    program_name=$(basename "$TOWER_PROGRAM")
+    local -A active_sessions=()
 
     # Get active tower sessions from DEFAULT tmux server (not Navigator server)
-    while IFS=$'\t' read -r session_id pane_cmd; do
+    while IFS= read -r session_id; do
         [[ -z "$session_id" ]] && continue
         [[ "$session_id" != tower_* ]] && continue
 
-        local state_color state_icon type_icon name
+        active_sessions["$session_id"]=1
 
-        # Determine state based on pane command
-        if [[ "$pane_cmd" == "$program_name" || "$pane_cmd" == "claude" ]]; then
-            state_color="$NAV_C_IDLE"
-            state_icon="▶"
-        else
-            state_color="$NAV_C_EXITED"
-            state_icon="!"
-        fi
+        local type_icon name
 
         # Determine type (worktree vs simple)
         if has_metadata "$session_id"; then
@@ -82,8 +71,9 @@ build_session_list() {
         name="${session_id#tower_}"
 
         SESSION_IDS+=("$session_id")
-        SESSION_DISPLAYS+=("${state_color}${state_icon}${NAV_C_NORMAL} ${type_icon} ${name}")
-    done < <(TMUX= tmux list-sessions -F '#{session_name}	#{pane_current_command}' 2>/dev/null || true)
+        # tmux session exists = active (simplified)
+        SESSION_DISPLAYS+=("${NAV_C_ACTIVE}▶${NAV_C_NORMAL} ${type_icon} ${name}")
+    done < <(TMUX= tmux list-sessions -F '#{session_name}' 2>/dev/null || true)
 
     # Add dormant sessions (metadata exists but no tmux session)
     for meta_file in "${TOWER_METADATA_DIR}"/*.meta; do
@@ -92,15 +82,8 @@ build_session_list() {
         local session_id
         session_id=$(basename "$meta_file" .meta)
 
-        # Skip if already in list
-        local found=0
-        for id in "${SESSION_IDS[@]:-}"; do
-            [[ "$id" == "$session_id" ]] && {
-                found=1
-                break
-            }
-        done
-        [[ $found -eq 1 ]] && continue
+        # Skip if already in list (active session)
+        [[ -n "${active_sessions[$session_id]:-}" ]] && continue
 
         local name="${session_id#tower_}"
         SESSION_IDS+=("$session_id")
@@ -226,18 +209,15 @@ show_help() {
 # Actions
 # ============================================================================
 
-# Signal view pane to update by writing to a signal file
-# The view pane monitors this file and reconnects when it changes
+# Signal view pane to update
+# Sends Escape to detach inner tmux, then signals via wait-for
 signal_view_update() {
-    # Write timestamp to signal file - view pane monitors this
-    local signal_file="${TOWER_NAV_STATE_DIR}/view_signal"
-    date +%s%N > "$signal_file" 2>/dev/null || true
+    # Send Escape to view pane to trigger detach from inner session
+    # Use C-[ which is equivalent to Escape (ASCII 27)
+    nav_tmux send-keys -t "$TOWER_NAV_SESSION:0.1" 'C-[' 2>/dev/null || true
 
-    # Also send Escape to right pane to trigger detach from inner session
-    # Send multiple times with small delay for reliability
-    nav_tmux send-keys -t "$TOWER_NAV_SESSION:0.1" Escape 2>/dev/null || true
-    sleep 0.05
-    nav_tmux send-keys -t "$TOWER_NAV_SESSION:0.1" Escape 2>/dev/null || true
+    # Signal the view pane via tmux wait-for (wakes up if waiting)
+    nav_tmux wait-for -S "$TOWER_VIEW_UPDATE_CHANNEL" 2>/dev/null || true
 }
 
 # Move selection and update view
@@ -383,33 +363,40 @@ delete_selected() {
     fi
 }
 
-# Restore selected dormant session
-# Only works if the selected session is in dormant state
+# Restore selected session (idempotent)
+# - dormant → restore
+# - active → do nothing (already active)
+# - no metadata → do nothing (can't restore)
 restore_selected() {
     local selected
     selected=$(get_nav_selected)
 
     if [[ -z "$selected" ]]; then
-        return 1
+        return 0
     fi
 
-    # Check if session is dormant
-    local state
-    state=$(get_session_state "$selected")
-
-    if [[ "$state" != "$STATE_DORMANT" ]]; then
-        # Session is not dormant - show brief message
+    # Check if session already exists (active)
+    if TMUX= tmux has-session -t "$selected" 2>/dev/null; then
+        # Already active - idempotent success
         echo ""
-        echo "  ${NAV_C_DIM}Not dormant${NAV_C_NORMAL}"
-        sleep 0.5
-        return 1
+        echo "  ${NAV_C_DIM}Already active${NAV_C_NORMAL}"
+        sleep 0.3
+        return 0
     fi
 
-    # Show restoring message
+    # Check if metadata exists (can restore)
+    if ! has_metadata "$selected"; then
+        # No metadata - can't restore
+        echo ""
+        echo "  ${NAV_C_DIM}No metadata to restore${NAV_C_NORMAL}"
+        sleep 0.3
+        return 0
+    fi
+
+    # Dormant - restore it
     echo ""
     echo "  ${NAV_C_ACCENT}Restoring...${NAV_C_NORMAL}"
 
-    # Restore the session
     if "$SCRIPT_DIR/session-restore.sh" "$selected" 2>/dev/null; then
         echo "  ${NAV_C_ACCENT}✓${NAV_C_NORMAL} Restored: ${selected#tower_}"
         signal_view_update
