@@ -1,7 +1,7 @@
 # Claude Tower Navigator 仕様書
 
-Version: 3.3
-Date: 2026-01-04
+Version: 3.4
+Date: 2026-01-10
 
 ## 1. 概要
 
@@ -227,7 +227,7 @@ list ペインに戻り、j/k を押すことで focus:list に遷移する。
 
 | 項目 | 内容 |
 |------|------|
-| トリガー | `d` |
+| トリガー | `D` |
 | コンテキスト | Navigator, focus = list, selected ≠ none |
 | 事後条件 | selected session deleted, selected := next available or none |
 
@@ -321,7 +321,7 @@ list ペインに戻り、j/k を押すことで focus:list に遷移する。
 | `i` | focus:view に切り替え（入力可能） |
 | `Tab` | tile_view に切り替え |
 | `n` | 新規セッション作成 |
-| `d` | 選択セッション削除 |
+| `D` | 選択セッション削除 |
 | `r` | 選択中の dormant セッションを復元 |
 | `R` | 全 dormant セッションを復元 |
 | `q` | Navigator 終了（caller に戻る） |
@@ -346,9 +346,9 @@ j/k を押すことで実現する。Escape キーによる戻りは廃止。
 | `Enter` | 選択中のセッションで list_view に切替 |
 | `Tab` | list_view に切り替え |
 | `r` | 表示を更新 |
-| `q` / `Escape` | Navigator 終了（caller に戻る） |
+| `q` | Navigator 終了（caller に戻る） |
 
-**補足**: tile_view からの Full Attach はなし。list_view で操作する設計。
+**補足**: tile_view からの Full Attach はなし。list_view で操作する設計。Escape キーは使用不可。
 
 ---
 
@@ -416,6 +416,7 @@ tmux-plugin/
 
 | バージョン | 日付 | 内容 |
 |------------|------|------|
+| 3.4 | 2026-01-10 | キーバインド変更: 削除キーを `d` → `D` に変更。tile_view から Escape キーを削除 |
 | 3.3 | 2026-01-04 | ソケット分離: セッションを専用サーバー (`claude-tower-sessions`) に隔離。Navigator 幅を 24 に変更 |
 | 3.2 | 2026-01-03 | キーバインド簡素化: `prefix+t` で直接 Navigator 起動。dormant 復元キー追加 (`r`, `R`) |
 | 3.1 | 2026-01-02 | tile_view 追加。list_view/tile_view の2ビュー切替方式を採用 |

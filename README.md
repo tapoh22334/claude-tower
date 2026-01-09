@@ -1,18 +1,14 @@
-# claude-tower
+# Claude Tower
 
-> **🚧 UNDER DEVELOPMENT - NOT FUNCTIONAL 🚧**
->
-> This project is in early development. **Most features do not work yet.**
-> Do not install for actual use. Breaking changes will occur without notice.
-
-A tmux plugin for managing Claude Code sessions with tree-style navigation and git worktree integration.
+A tmux plugin for managing multiple Claude Code sessions with Navigator UI and git worktree integration.
 
 ## Features
 
-- **Tree View** - Hierarchical view of sessions, windows, and panes
-- **Live Preview** - Preview pane content before switching
+- **Navigator UI** - Two-pane interface for session management
+- **Live Preview** - Real-time view of selected session content
 - **Git Worktree Integration** - Automatic branch isolation per session
-- **Quick Actions** - Create, rename, kill sessions from the picker
+- **Session Persistence** - Dormant sessions restore automatically
+- **3-Server Architecture** - Isolated session management
 
 ## Requirements
 
@@ -44,13 +40,25 @@ run-shell ~/.tmux/plugins/claude-tower/tmux-plugin/claude-tower.tmux
 
 ## Usage
 
-Press `prefix + t` to open the Navigator directly.
+Press `prefix + t` to open the Navigator.
 
-### Navigator
+### Navigator UI
 
-Navigator opens in a dedicated tmux session with a sidebar layout:
-- **Left pane**: Session list with vim-style navigation
-- **Right pane**: Real-time preview of selected session
+```
+┌─────────────────────┬────────────────────────────────────────────┐
+│ Sessions [ACTIVE]   │                                            │
+│                     │  Claude Code session content               │
+│ ▶ [W] my-feature    │  displayed here in real-time               │
+│   [S] experiment    │                                            │
+│ ○ [W] old-project   │  Use 'i' to focus and interact             │
+│                     │  Use Escape to return to list              │
+│                     │                                            │
+│ j/k:nav D:del n:new │                                            │
+└─────────────────────┴────────────────────────────────────────────┘
+     List Pane (24%)              View Pane (76%)
+```
+
+### Keybindings
 
 | Key | Action |
 |-----|--------|
@@ -58,50 +66,59 @@ Navigator opens in a dedicated tmux session with a sidebar layout:
 | `k` / `↑` | Move up |
 | `g` | Go to first session |
 | `G` | Go to last session |
-| `Enter` | Attach to selected session (restores dormant sessions) |
-| `i` | Input mode (send command to session) |
+| `Enter` | Attach to selected session |
+| `i` | Focus view pane (input mode) |
+| `Escape` | Return to list (from view) |
 | `Tab` | Switch to tile view |
 | `n` | Create new session |
-| `d` | Delete session |
+| `D` | Delete session |
 | `r` | Restore selected dormant session |
 | `R` | Restore all dormant sessions |
 | `?` | Show help |
-| `q` | Exit Navigator
+| `q` | Quit Navigator |
 
-## Tree View
+### Session States
 
-```
-📁 ● [W] project-api  ⎇ tower/feature-auth +5,-2
-  ├─ 🪟 0: main ●
-  │  └─ ▫ 0: claude ●
-  └─ 🪟 1: shell
-     └─ ▫ 0: zsh
-📁 [S] scripts  (no git)
-  └─ 🪟 0: main
-     └─ ▫ 0: claude
-```
+| Icon | State | Description |
+|------|-------|-------------|
+| `▶` | Active | Claude is running |
+| `○` | Dormant | Session saved, can be restored |
 
-| Icon | Meaning |
-|------|---------|
-| `[W]` | Workspace - git worktree session |
-| `[S]` | Simple - regular session |
-| `●` | Active |
-| `⎇` | Git branch |
+### Session Types
 
-## Session Modes
+| Icon | Type | Description |
+|------|------|-------------|
+| `[W]` | Worktree | Git worktree managed session |
+| `[S]` | Simple | Regular session (no git) |
 
-### Workspace Mode `[W]`
+## Session Types
+
+### Worktree Session `[W]`
 
 For git repositories:
 - Creates worktree at `~/.claude-tower/worktrees/<name>`
 - Creates branch `tower/<name>`
-- Auto-cleanup on session kill
+- Persists as dormant when closed
+- Auto-cleanup on delete
 
-### Simple Mode `[S]`
+### Simple Session `[S]`
 
-For non-git directories:
-- Runs in current directory
+For quick tasks:
+- Runs in specified directory
 - No git integration
+- Volatile (lost on tmux restart)
+
+## Architecture
+
+Claude Tower uses 3 dedicated tmux servers:
+
+| Server | Socket | Purpose |
+|--------|--------|---------|
+| Navigator | `claude-tower` | Control plane (UI) |
+| Session | `claude-tower-sessions` | Data plane (Claude sessions) |
+| Default | (user's) | User environment (isolated) |
+
+This isolation prevents Claude Tower from interfering with your regular tmux sessions.
 
 ## Configuration
 
@@ -109,7 +126,6 @@ For non-git directories:
 # ~/.tmux.conf
 
 # Change tower prefix key (default: t)
-# Usage: prefix + <tower-prefix> opens Navigator directly
 set -g @tower-prefix 't'
 
 # Auto-restore dormant sessions on plugin load (default: 0)
@@ -125,77 +141,75 @@ export CLAUDE_TOWER_PROGRAM="claude"
 # Worktree directory (default: ~/.claude-tower/worktrees)
 export CLAUDE_TOWER_WORKTREE_DIR="$HOME/.claude-tower/worktrees"
 
-# Metadata directory (default: ~/.claude-tower/metadata)
-export CLAUDE_TOWER_METADATA_DIR="$HOME/.claude-tower/metadata"
+# Metadata directory (default: ~/.claude-tower/sessions)
+export CLAUDE_TOWER_METADATA_DIR="$HOME/.claude-tower/sessions"
 
 # Navigator socket name (default: claude-tower)
 export CLAUDE_TOWER_NAV_SOCKET="claude-tower"
 
-# Navigator width percentage (default: 40)
-export CLAUDE_TOWER_NAV_WIDTH="40"
+# Session server socket name (default: claude-tower-sessions)
+export CLAUDE_TOWER_SESSION_SOCKET="claude-tower-sessions"
+
+# Navigator list pane width (default: 24)
+export CLAUDE_TOWER_NAV_WIDTH="24"
 
 # Enable debug logging
 export CLAUDE_TOWER_DEBUG=1
 ```
 
-See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for complete configuration reference.
+## Development
+
+```bash
+# Reload plugin after changes
+make reload
+
+# Show status of servers and state files
+make status
+
+# Reset (kill servers, clear state)
+make reset
+
+# Run tests
+make test
+
+# Lint scripts
+make lint
+```
 
 ## Troubleshooting
 
 ### Plugin not loading
 
 ```bash
-# Reload config
+# Reload tmux config
 tmux source ~/.tmux.conf
 
-# Verify keybindings are registered
+# Verify keybinding
 tmux list-keys | grep tower
-
-# Should show:
-# bind-key -T prefix t switch-client -T tower
-# bind-key -T tower c display-popup ...
-# etc.
 ```
 
 ### prefix + t not responding
 
-1. Make sure you've reloaded tmux after installing:
+1. Reload tmux config:
    ```bash
    tmux source ~/.tmux.conf
    ```
 
-2. Check if keybinding exists:
-   ```bash
-   tmux list-keys | grep tower
-   ```
-
-3. Verify tmux version (requires 3.2+):
+2. Check tmux version (requires 3.2+):
    ```bash
    tmux -V
    ```
 
-### Navigator returns error
-
-1. Check if scripts are executable:
-   ```bash
-   ls -la ~/.tmux/plugins/claude-tower/tmux-plugin/scripts/*.sh
-   ```
-
-2. Test navigator directly:
-   ```bash
-   ~/.tmux/plugins/claude-tower/tmux-plugin/scripts/navigator.sh
-   ```
-
-### Orphaned worktrees
-
-Sessions terminated abnormally may leave worktrees behind:
+### Check server status
 
 ```bash
-# List orphans
-~/.tmux/plugins/claude-tower/tmux-plugin/scripts/cleanup.sh --list
+make status
+```
 
-# Clean up
-~/.tmux/plugins/claude-tower/tmux-plugin/scripts/cleanup.sh
+### Reset everything
+
+```bash
+make reset
 ```
 
 ## License
