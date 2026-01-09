@@ -167,7 +167,7 @@ render_list() {
 
     # Footer with keybindings (compact)
     output+="\n"
-    output+="${NAV_C_DIM}j/k:nav Enter:attach i:input n:new d:del r:restore q:quit${NAV_C_NORMAL}\n"
+    output+="${NAV_C_DIM}j/k:nav Enter:attach i:input n:new D:del r:restore q:quit${NAV_C_NORMAL}\n"
 
     # Clear to end of screen code
     local clear_eos
@@ -192,7 +192,7 @@ show_help() {
     echo "    Enter      Full attach to session"
     echo "    i          Focus view pane (input mode)"
     echo "    n          Create new session"
-    echo "    d          Delete selected session"
+    echo "    D          Delete selected session"
     echo "    r          Restore selected dormant session"
     echo "    R          Restore all dormant sessions"
     echo "    Tab        Switch to Tile view"
@@ -294,7 +294,7 @@ create_session_inline() {
     term_height=$(tput lines 2>/dev/null || echo 24)
 
     # Move cursor to bottom of list area
-    tput cup "$((term_height - 4))" 0 2>/dev/null || true
+    tput cup "$((term_height - 6))" 0 2>/dev/null || true
     echo -e "${NAV_C_HEADER}┌─ New Session ───────────┐${NAV_C_NORMAL}"
 
     # Get session name
@@ -304,12 +304,26 @@ create_session_inline() {
 
     if [[ -z "$name" ]]; then
         echo -e "│ ${NAV_C_DIM}Cancelled${NAV_C_NORMAL}"
+        echo -e "${NAV_C_HEADER}└─────────────────────────┘${NAV_C_NORMAL}"
         sleep 0.5
         return
     fi
 
+    # Check if session already exists (early check to avoid tmux display-message)
+    local sanitized_name new_session_id
+    sanitized_name=$(echo "$name" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/_/g')
+    new_session_id="tower_${sanitized_name}"
+    if session_tmux has-session -t "$new_session_id" 2>/dev/null; then
+        echo -e "│ ${NAV_C_ERROR}✗${NAV_C_NORMAL} Already exists: ${sanitized_name}"
+        echo -e "${NAV_C_HEADER}└─────────────────────────┘${NAV_C_NORMAL}"
+        echo ""
+        echo -e "${NAV_C_DIM}Press any key to continue...${NAV_C_NORMAL}"
+        read -rsn1
+        return
+    fi
+
     # Ask about worktree
-    printf "│ Worktree? [y/N]: "
+    printf "│ Worktree? [y/n]: "
     local worktree_choice=""
     read -rsn1 worktree_choice
     echo ""
@@ -319,42 +333,47 @@ create_session_inline() {
         use_worktree=1
     fi
 
-    echo -e "${NAV_C_HEADER}└─────────────────────────┘${NAV_C_NORMAL}"
+    echo -e "│ ${NAV_C_DIM}Creating...${NAV_C_NORMAL}"
 
     # Create session
     local result
-    local new_session_id="tower_${name}"
+    local working_dir="$HOME"
+
     if [[ $use_worktree -eq 1 ]]; then
-        # Get working directory from caller session on default server
-        local working_dir
+        # Get working directory from caller session
         local caller
         caller=$(get_nav_caller)
         if [[ -n "$caller" ]]; then
-            # Caller could be on session server or default server
             # Try session server first (for tower_* sessions), then fall back to default
             working_dir=$(session_tmux display-message -t "$caller" -p '#{pane_current_path}' 2>/dev/null) ||
-                working_dir=$(TMUX= tmux display-message -t "$caller" -p '#{pane_current_path}' 2>/dev/null)
+                working_dir=$(TMUX= tmux display-message -t "$caller" -p '#{pane_current_path}' 2>/dev/null) ||
+                working_dir="$HOME"
         fi
-        # Fallback to home directory if caller not available
-        working_dir="${working_dir:-$HOME}"
-        if result=$("$SCRIPT_DIR/session-new.sh" -n "$name" --worktree --dir "$working_dir" --no-attach 2>&1); then
-            echo -e "${C_GREEN}Created: $name${C_RESET}"
-            # Select the newly created session
-            set_nav_selected "$new_session_id"
-            signal_view_update
-        else
-            echo -e "${C_RED}Error: ${result}${C_RESET}"
-        fi
+        # TOWER_QUIET_ERRORS suppresses tmux display-message (errors shown in Navigator UI)
+        result=$(TOWER_QUIET_ERRORS=1 "$SCRIPT_DIR/session-new.sh" -n "$name" --worktree --dir "$working_dir" --no-attach 2>&1)
     else
-        if result=$("$SCRIPT_DIR/session-new.sh" -n "$name" --no-attach 2>&1); then
-            echo -e "${C_GREEN}Created: $name${C_RESET}"
-            # Select the newly created session
-            set_nav_selected "$new_session_id"
-            signal_view_update
-        else
-            echo -e "${C_RED}Error: ${result}${C_RESET}"
-        fi
+        result=$(TOWER_QUIET_ERRORS=1 "$SCRIPT_DIR/session-new.sh" -n "$name" --no-attach 2>&1)
     fi
+
+    if session_tmux has-session -t "$new_session_id" 2>/dev/null; then
+        echo -e "│ ${NAV_C_ACCENT}✓${NAV_C_NORMAL} Created: ${sanitized_name}"
+        # Select the newly created session
+        set_nav_selected "$new_session_id"
+        signal_view_update
+    else
+        # Extract error message (remove ANSI codes and tmux display-message noise)
+        local error_msg
+        error_msg=$(echo "$result" | grep -i "error" | sed 's/\x1b\[[0-9;]*m//g' | head -1)
+        [[ -z "$error_msg" ]] && error_msg="Failed to create session"
+        echo -e "│ ${NAV_C_ERROR}✗${NAV_C_NORMAL} ${error_msg}"
+        echo -e "${NAV_C_HEADER}└─────────────────────────┘${NAV_C_NORMAL}"
+        echo ""
+        echo -e "${NAV_C_DIM}Press any key to continue...${NAV_C_NORMAL}"
+        read -rsn1
+        return
+    fi
+
+    echo -e "${NAV_C_HEADER}└─────────────────────────┘${NAV_C_NORMAL}"
     sleep 0.5
 }
 
@@ -368,18 +387,37 @@ delete_selected() {
     fi
 
     local name="${selected#tower_}"
+    local term_height
+    term_height=$(tput lines 2>/dev/null || echo 24)
 
-    echo -e "\n${C_YELLOW}Delete '${name}'? (y/N)${C_RESET}"
+    # Move cursor to bottom of list area and show confirmation UI
+    tput cup "$((term_height - 5))" 0 2>/dev/null || true
+    echo -e "${NAV_C_HEADER}┌─ Delete Session ────────┐${NAV_C_NORMAL}"
+    echo -e "│ Session: ${NAV_C_ACCENT}${name}${NAV_C_NORMAL}"
+    printf "│ Confirm? [y/n]: "
+
+    local confirm=""
     if ! read -rsn1 -t 10 confirm; then
-        echo -e "\n${NAV_C_DIM}Cancelled (timeout)${NAV_C_NORMAL}"
+        echo ""
+        echo -e "│ ${NAV_C_DIM}Cancelled (timeout)${NAV_C_NORMAL}"
+        echo -e "${NAV_C_HEADER}└─────────────────────────┘${NAV_C_NORMAL}"
+        sleep 0.5
         return
     fi
+    echo ""
 
     if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
-        "$SCRIPT_DIR/session-delete.sh" "$selected" --force 2>/dev/null || true
-        echo -e "${C_GREEN}Deleted${C_RESET}"
-        sleep 0.5
+        echo -e "│ ${NAV_C_DIM}Deleting...${NAV_C_NORMAL}"
+        if TOWER_QUIET_ERRORS=1 "$SCRIPT_DIR/session-delete.sh" "$selected" --force 2>/dev/null; then
+            echo -e "│ ${NAV_C_ACCENT}✓${NAV_C_NORMAL} Deleted"
+        else
+            echo -e "│ ${NAV_C_ERROR}✗${NAV_C_NORMAL} Delete failed"
+        fi
+    else
+        echo -e "│ ${NAV_C_DIM}Cancelled${NAV_C_NORMAL}"
     fi
+    echo -e "${NAV_C_HEADER}└─────────────────────────┘${NAV_C_NORMAL}"
+    sleep 0.5
 }
 
 # Restore selected session (idempotent)
@@ -647,7 +685,7 @@ main_loop() {
                     selected_index=$(get_selection_index)
                     clear  # Clear screen after input mode
                     ;;
-                d)
+                D)
                     delete_selected
                     build_session_list
                     selected_index=$(get_selection_index)

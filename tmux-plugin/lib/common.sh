@@ -380,7 +380,12 @@ handle_error() {
     _log_to_file "ERROR" "$msg"
 
     echo -e "$formatted_msg" >&2
-    tmux display-message "❌ Error: $msg" 2>/dev/null || true
+
+    # Skip tmux display-message if TOWER_QUIET_ERRORS is set
+    # (Navigator UI handles error display itself)
+    if [[ -z "${TOWER_QUIET_ERRORS:-}" ]]; then
+        tmux display-message "❌ Error: $msg" 2>/dev/null || true
+    fi
 
     if [[ -n "$exit_code" ]]; then
         exit "$exit_code"
