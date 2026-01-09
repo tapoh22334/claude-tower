@@ -681,12 +681,18 @@ main_loop() {
                     ;;
                 n)
                     create_session_inline
+                    # Flush input buffer and restore terminal state
+                    read -rsn100 -t 0.01 _ 2>/dev/null || true
+                    stty echo 2>/dev/null || true
                     build_session_list
                     selected_index=$(get_selection_index)
                     clear  # Clear screen after input mode
                     ;;
                 D)
                     delete_selected
+                    # Flush input buffer and restore terminal state
+                    read -rsn100 -t 0.01 _ 2>/dev/null || true
+                    stty echo 2>/dev/null || true
                     build_session_list
                     selected_index=$(get_selection_index)
                     clear  # Clear screen after input mode
@@ -710,6 +716,8 @@ main_loop() {
                     ;;
                 '?')
                     show_help
+                    # Flush input buffer after help
+                    read -rsn100 -t 0.01 _ 2>/dev/null || true
                     ;;
                 q | Q)
                     quit_navigator
