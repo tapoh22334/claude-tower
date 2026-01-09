@@ -204,13 +204,12 @@ handle_input() {
     local key
     read -rsn1 key
 
-    # Handle escape sequences
+    # Handle escape sequences (arrow keys)
     if [[ "$key" == $'\x1b' ]]; then
         read -rsn2 -t 0.1 key2 || true
         if [[ -z "$key2" ]]; then
-            # Pure Escape - quit navigator
-            quit_navigator
-            return 1
+            # Pure Escape - ignore (use 'q' to quit)
+            return 0
         fi
         key="${key}${key2}"
     fi

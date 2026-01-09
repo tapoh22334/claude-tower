@@ -22,7 +22,7 @@ ACTIONS:
   i          Focus view pane (input mode)
   Tab        Switch to Tile view
   n          Create new session
-  d          Delete selected session
+  D          Delete selected session
   r          Restore selected dormant session
   R          Restore all dormant sessions
 
