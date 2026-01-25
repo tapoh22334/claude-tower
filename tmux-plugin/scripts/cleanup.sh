@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Cleanup orphaned worktrees and metadata
-# Run this script to remove worktrees from sessions that no longer exist
+# Cleanup orphaned metadata
+# Run this script to remove metadata from sessions that no longer exist
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -13,30 +13,30 @@ show_usage() {
     cat <<EOF
 Usage: cleanup.sh [OPTIONS]
 
-Cleanup orphaned worktrees and metadata from terminated sessions.
+Cleanup orphaned metadata from terminated sessions.
 
 Options:
-    -l, --list      List orphaned worktrees without removing
+    -l, --list      List orphaned metadata without removing
     -f, --force     Remove without confirmation
     -h, --help      Show this help message
 
 Examples:
-    cleanup.sh --list     # Show orphaned worktrees
+    cleanup.sh --list     # Show orphaned metadata
     cleanup.sh            # Interactive cleanup with confirmation
-    cleanup.sh --force    # Remove all orphaned worktrees immediately
+    cleanup.sh --force    # Remove all orphaned metadata immediately
 EOF
 }
 
-# List orphaned worktrees
-list_orphaned_worktrees() {
-    printf "%b━━━ Orphaned Worktrees ━━━%b\n" "$C_HEADER" "$C_RESET"
+# List orphaned metadata
+list_orphaned_metadata() {
+    printf "%b━━━ Orphaned Metadata ━━━%b\n" "$C_HEADER" "$C_RESET"
     echo ""
 
-    local orphaned_worktrees
-    orphaned_worktrees=$(find_orphaned_worktrees)
+    local orphaned_metadata
+    orphaned_metadata=$(find_orphaned_metadata)
 
-    if [[ -z "$orphaned_worktrees" ]]; then
-        printf "%bNo orphaned worktrees found.%b\n" "$C_GREEN" "$C_RESET"
+    if [[ -z "$orphaned_metadata" ]]; then
+        printf "%bNo orphaned metadata found.%b\n" "$C_GREEN" "$C_RESET"
         return 0
     fi
 
@@ -50,10 +50,10 @@ list_orphaned_worktrees() {
 
         if load_metadata "$session_id"; then
             printf "%b[%d]%b %s\n" "$C_YELLOW" "$count" "$C_RESET" "$session_id"
-            printf "    Session Type: %s\n" "$META_SESSION_TYPE"
-            if [[ -n "$META_WORKTREE_PATH" ]]; then
-                printf "    Worktree: %s\n" "$META_WORKTREE_PATH"
-                if [[ -d "$META_WORKTREE_PATH" ]]; then
+            printf "    Session Name: %s\n" "$META_SESSION_NAME"
+            if [[ -n "$META_DIRECTORY_PATH" ]]; then
+                printf "    Directory: %s\n" "$META_DIRECTORY_PATH"
+                if [[ -d "$META_DIRECTORY_PATH" ]]; then
                     printf "    Status: %bExists%b\n" "$C_GREEN" "$C_RESET"
                 else
                     printf "    Status: %bNot found%b\n" "$C_RED" "$C_RESET"
@@ -64,35 +64,35 @@ list_orphaned_worktrees() {
             fi
             echo ""
         fi
-    done <<<"$orphaned_worktrees"
+    done <<<"$orphaned_metadata"
 
-    printf "Total: %d orphaned worktree(s)\n" "$count"
+    printf "Total: %d orphaned metadata file(s)\n" "$count"
     return "$count"
 }
 
-# Cleanup orphaned worktrees interactively
+# Cleanup orphaned metadata interactively
 cleanup_interactive() {
-    local orphaned_worktrees
-    orphaned_worktrees=$(find_orphaned_worktrees)
+    local orphaned_metadata
+    orphaned_metadata=$(find_orphaned_metadata)
 
-    if [[ -z "$orphaned_worktrees" ]]; then
-        printf "%bNo orphaned worktrees found.%b\n" "$C_GREEN" "$C_RESET"
+    if [[ -z "$orphaned_metadata" ]]; then
+        printf "%bNo orphaned metadata found.%b\n" "$C_GREEN" "$C_RESET"
         return 0
     fi
 
-    list_orphaned_worktrees
+    list_orphaned_metadata
     echo ""
 
-    if confirm "Remove all orphaned worktrees?"; then
-        remove_all_orphaned_worktrees "$orphaned_worktrees"
+    if confirm "Remove all orphaned metadata?"; then
+        remove_all_orphaned_metadata "$orphaned_metadata"
     else
         printf "Cleanup cancelled.\n"
     fi
 }
 
-# Remove all orphaned worktrees
-remove_all_orphaned_worktrees() {
-    local orphaned_worktrees="$1"
+# Remove all orphaned metadata
+remove_all_orphaned_metadata() {
+    local orphaned_metadata="$1"
 
     local removed=0
     local failed=0
@@ -104,14 +104,14 @@ remove_all_orphaned_worktrees() {
 
         printf "Removing: %s... " "$session_id"
 
-        if remove_orphaned_worktree "$session_id"; then
+        if remove_orphaned_metadata "$session_id"; then
             printf "%bOK%b\n" "$C_GREEN" "$C_RESET"
             removed=$((removed + 1))
         else
             printf "%bFailed%b\n" "$C_RED" "$C_RESET"
             failed=$((failed + 1))
         fi
-    done <<<"$orphaned_worktrees"
+    done <<<"$orphaned_metadata"
 
     echo ""
     printf "Cleanup complete. Removed: %d, Failed: %d\n" "$removed" "$failed"
@@ -119,15 +119,15 @@ remove_all_orphaned_worktrees() {
 
 # Cleanup with force (no confirmation)
 cleanup_force() {
-    local orphaned_worktrees
-    orphaned_worktrees=$(find_orphaned_worktrees)
+    local orphaned_metadata
+    orphaned_metadata=$(find_orphaned_metadata)
 
-    if [[ -z "$orphaned_worktrees" ]]; then
-        printf "%bNo orphaned worktrees found.%b\n" "$C_GREEN" "$C_RESET"
+    if [[ -z "$orphaned_metadata" ]]; then
+        printf "%bNo orphaned metadata found.%b\n" "$C_GREEN" "$C_RESET"
         return 0
     fi
 
-    remove_all_orphaned_worktrees "$orphaned_worktrees"
+    remove_all_orphaned_metadata "$orphaned_metadata"
 }
 
 # Main

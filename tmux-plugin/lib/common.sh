@@ -546,26 +546,21 @@ ensure_metadata_dir() {
 # Save session metadata to file
 # Arguments:
 #   $1 - Session ID (with tower_ prefix)
-#   $2 - Session type (workspace|simple)
-#   $3 - Repository path (optional, for workspace session type)
-#   $4 - Source commit (optional, for workspace session type)
+#   $2 - Directory path
 save_metadata() {
     local session_id="$1"
-    local session_type="$2"
-    local repository_path="${3:-}"
-    local source_commit="${4:-}"
+    local directory_path="$2"
 
     ensure_metadata_dir
 
     local metadata_file="${TOWER_METADATA_DIR}/${session_id}.meta"
+    local session_name="${session_id#tower_}"
 
     {
         echo "session_id=${session_id}"
-        echo "session_type=${session_type}"
+        echo "session_name=${session_name}"
+        echo "directory_path=${directory_path}"
         echo "created_at=$(date -Iseconds)"
-        echo "repository_path=${repository_path}"
-        echo "source_commit=${source_commit}"
-        echo "worktree_path=${TOWER_WORKTREE_DIR}/${session_id#tower_}"
     } >"$metadata_file"
 }
 
@@ -573,29 +568,41 @@ save_metadata() {
 # Arguments:
 #   $1 - Session ID
 # Returns:
-#   Exports variables: META_SESSION_TYPE, META_REPOSITORY_PATH, META_SOURCE_COMMIT, META_WORKTREE_PATH
+#   Exports variables: META_SESSION_NAME, META_DIRECTORY_PATH, META_CREATED_AT
 load_metadata() {
     local session_id="$1"
     local metadata_file="${TOWER_METADATA_DIR}/${session_id}.meta"
 
     # Initialize with empty values
-    META_SESSION_TYPE=""
-    META_REPOSITORY_PATH=""
-    META_SOURCE_COMMIT=""
-    META_WORKTREE_PATH=""
+    META_SESSION_NAME=""
+    META_DIRECTORY_PATH=""
     META_CREATED_AT=""
 
     if [[ -f "$metadata_file" ]]; then
         while IFS='=' read -r key value; do
             case "$key" in
-                # Support both old and new key names for backwards compatibility
-                mode | session_type) META_SESSION_TYPE="$value" ;;
-                repo_path | repository_path) META_REPOSITORY_PATH="$value" ;;
-                base_commit | source_commit) META_SOURCE_COMMIT="$value" ;;
-                worktree_path) META_WORKTREE_PATH="$value" ;;
+                # v2 fields
+                session_name) META_SESSION_NAME="$value" ;;
+                directory_path) META_DIRECTORY_PATH="$value" ;;
                 created_at) META_CREATED_AT="$value" ;;
+
+                # v1 backwards compatibility
+                worktree_path)
+                    # Use worktree_path as directory_path if not already set
+                    [[ -z "$META_DIRECTORY_PATH" ]] && META_DIRECTORY_PATH="$value"
+                    ;;
+                repository_path | repo_path)
+                    # Use repository_path as fallback for directory_path
+                    [[ -z "$META_DIRECTORY_PATH" ]] && META_DIRECTORY_PATH="$value"
+                    ;;
             esac
         done <"$metadata_file"
+
+        # Derive session_name from session_id if not in metadata
+        if [[ -z "$META_SESSION_NAME" ]]; then
+            META_SESSION_NAME="${session_id#tower_}"
+        fi
+
         return 0
     fi
     return 1
@@ -637,21 +644,21 @@ has_metadata() {
 }
 
 # ============================================================================
-# Orphaned Worktree Detection and Cleanup
+# Orphaned Metadata Detection and Cleanup
 # ============================================================================
-# Orphaned worktrees are worktrees that exist but have no corresponding
+# Orphaned metadata files are metadata that exist but have no corresponding
 # active tmux session. These can occur when sessions are terminated
-# unexpectedly or when cleanup fails.
+# unexpectedly.
 
 # Get list of active tmux sessions from session server
 get_active_sessions() {
     session_tmux list-sessions -F '#{session_name}' 2>/dev/null || true
 }
 
-# Find orphaned worktrees (worktrees without active sessions)
+# Find orphaned metadata (metadata without active sessions)
 # Returns:
 #   List of orphaned session IDs
-find_orphaned_worktrees() {
+find_orphaned_metadata() {
     local active_sessions
     active_sessions=$(get_active_sessions)
 
@@ -668,47 +675,17 @@ find_orphaned_worktrees() {
     done
 }
 
-# Remove orphaned worktree and its metadata
+# Remove orphaned metadata
 # Arguments:
 #   $1 - Session ID
 # Returns:
 #   0 on success, 1 on failure
-remove_orphaned_worktree() {
+remove_orphaned_metadata() {
     local session_id="$1"
 
-    if ! load_metadata "$session_id"; then
-        return 1
-    fi
-
-    if [[ "$META_SESSION_TYPE" != "workspace" ]]; then
-        # Simple session type - just delete metadata
-        delete_metadata "$session_id"
-        return 0
-    fi
-
-    local worktree_path="$META_WORKTREE_PATH"
-    local repository_path="$META_REPOSITORY_PATH"
-
-    if [[ -d "$worktree_path" ]]; then
-        # Validate path before removal
-        if validate_path_within "$worktree_path" "$TOWER_WORKTREE_DIR"; then
-            if [[ -n "$repository_path" ]] && [[ -d "$repository_path" ]]; then
-                git -C "$repository_path" worktree remove "$worktree_path" 2>/dev/null ||
-                    git -C "$repository_path" worktree remove --force "$worktree_path" 2>/dev/null || true
-            else
-                # Repository not found, remove directory manually
-                rm -rf "$worktree_path"
-            fi
-        fi
-    fi
-
+    # Just delete metadata (no directory cleanup)
     delete_metadata "$session_id"
     return 0
-}
-
-# Alias for backwards compatibility
-cleanup_orphaned_worktree() {
-    remove_orphaned_worktree "$@"
 }
 
 # ============================================================================
@@ -916,15 +893,6 @@ session_exists() {
     session_tmux has-session -t "$session_id" 2>/dev/null
 }
 
-# Check if worktree exists
-# Arguments:
-#   $1 - Worktree path
-# Returns:
-#   0 if exists, 1 if not
-worktree_exists() {
-    local path="$1"
-    [[ -d "$path" ]] && [[ -f "$path/.git" || -d "$path/.git" ]]
-}
 
 # ============================================================================
 # Session State Detection (v3.0 - Idempotent)
@@ -941,12 +909,6 @@ readonly STATE_DORMANT="dormant"
 
 readonly ICON_STATE_ACTIVE="▶"
 readonly ICON_STATE_DORMANT="○"
-
-readonly TYPE_WORKTREE="worktree"
-readonly TYPE_SIMPLE="simple"
-
-readonly ICON_TYPE_WORKTREE="[W]"
-readonly ICON_TYPE_SIMPLE="[S]"
 
 # Get session state (always checks default server)
 # Arguments:
@@ -987,45 +949,12 @@ get_state_icon() {
     esac
 }
 
-# Get session type
-# Arguments:
-#   $1 - Session ID
-# Returns:
-#   Type string: worktree or simple
-get_session_type() {
-    local session_id="$1"
-
-    if load_metadata "$session_id" 2>/dev/null; then
-        if [[ "$META_SESSION_TYPE" == "workspace" || "$META_SESSION_TYPE" == "worktree" ]]; then
-            echo "$TYPE_WORKTREE"
-        else
-            echo "$TYPE_SIMPLE"
-        fi
-    else
-        echo "$TYPE_SIMPLE"
-    fi
-}
-
-# Get type icon
-# Arguments:
-#   $1 - Type string
-# Returns:
-#   Icon string
-get_type_icon() {
-    local type="$1"
-    case "$type" in
-        "$TYPE_WORKTREE") echo "$ICON_TYPE_WORKTREE" ;;
-        "$TYPE_SIMPLE") echo "$ICON_TYPE_SIMPLE" ;;
-        *) echo "[?]" ;;
-    esac
-}
-
 # ============================================================================
 # Session List (v2.0)
 # ============================================================================
 
 # List all tower sessions (active + dormant) - OPTIMIZED
-# Output format: session_id:state:type
+# Output format: session_id:state
 # Uses single tmux call for all active sessions
 list_all_sessions() {
     local -A active_sessions=()
@@ -1040,13 +969,7 @@ list_all_sessions() {
         # tmux session exists = active (simplified, idempotent)
         local state="$STATE_ACTIVE"
 
-        # Get type
-        local type="$TYPE_SIMPLE"
-        if has_metadata "$session_id"; then
-            type="$TYPE_WORKTREE"
-        fi
-
-        echo "${session_id}:${state}:${type}"
+        echo "${session_id}:${state}"
     done < <(session_tmux list-sessions -F '#{session_name}' 2>/dev/null || true)
 
     # Check metadata for dormant sessions
@@ -1060,22 +983,21 @@ list_all_sessions() {
         [[ -n "${active_sessions[$session_id]:-}" ]] && continue
 
         # This is a dormant session
-        echo "${session_id}:${STATE_DORMANT}:${TYPE_WORKTREE}"
+        echo "${session_id}:${STATE_DORMANT}"
     done
 }
 
 # Output session info in standard format (optimized - no git calls)
 # Arguments:
 #   $1 - Session ID
-# Output: session_id:state:type
+# Output: session_id:state
 _output_session_info() {
     local session_id="$1"
-    local state type
+    local state
 
     state=$(get_session_state "$session_id")
-    type=$(get_session_type "$session_id")
 
-    echo "${session_id}:${state}:${type}"
+    echo "${session_id}:${state}"
 }
 
 # ============================================================================
@@ -1085,14 +1007,14 @@ _output_session_info() {
 # Create a new session
 # Arguments:
 #   $1 - Session name (without tower_ prefix)
-#   $2 - Type: worktree or simple
-#   $3 - Working directory (for simple) or source repo (for worktree)
+#   $2 - Type: ignored (for backwards compatibility)
+#   $3 - Working directory
 # Returns:
 #   0 on success, 1 on failure
 create_session() {
     local name="$1"
-    local type="$2"
-    local dir="$3"
+    local _type="$2"  # Ignored, kept for backwards compatibility
+    local directory_path="$3"
 
     # Sanitize and validate name
     local sanitized_name
@@ -1111,73 +1033,19 @@ create_session() {
         return 1
     fi
 
-    if [[ "$type" == "$TYPE_WORKTREE" ]]; then
-        _create_worktree_session "$session_id" "$sanitized_name" "$dir"
-    else
-        _create_simple_session "$session_id" "$sanitized_name" "$dir"
-    fi
-}
-
-# Create worktree session (internal)
-_create_worktree_session() {
-    local session_id="$1"
-    local name="$2"
-    local repo_path="$3"
-
-    # Validate repo path
-    if [[ ! -d "$repo_path" ]] || ! git -C "$repo_path" rev-parse --git-dir &>/dev/null; then
-        handle_error "Not a git repository: $repo_path"
+    # Validate directory
+    if [[ ! -d "$directory_path" ]]; then
+        handle_error "Directory does not exist: $directory_path"
         return 1
-    fi
-
-    local worktree_path="${TOWER_WORKTREE_DIR}/${name}"
-    local branch_name="tower/${name}"
-    local source_commit
-    source_commit=$(git -C "$repo_path" rev-parse HEAD 2>/dev/null)
-
-    # Create worktree directory
-    mkdir -p "$TOWER_WORKTREE_DIR"
-
-    # Create git worktree with new branch
-    if ! git -C "$repo_path" worktree add -b "$branch_name" "$worktree_path" 2>/dev/null; then
-        # Branch might exist, try without -b
-        if ! git -C "$repo_path" worktree add "$worktree_path" "$branch_name" 2>/dev/null; then
-            handle_error "Failed to create worktree"
-            return 1
-        fi
     fi
 
     # Save metadata
-    save_metadata "$session_id" "worktree" "$repo_path" "$source_commit"
-
-    # Update metadata with additional fields
-    local metadata_file="${TOWER_METADATA_DIR}/${session_id}.meta"
-    {
-        echo "session_name=${name}"
-        echo "branch_name=${branch_name}"
-        echo "repository_name=$(basename "$repo_path")"
-    } >>"$metadata_file"
+    save_metadata "$session_id" "$directory_path"
 
     # Create tmux session and start Claude
-    _start_session_with_claude "$session_id" "$worktree_path"
+    _start_session_with_claude "$session_id" "$directory_path"
 }
 
-# Create simple session (internal)
-_create_simple_session() {
-    local session_id="$1"
-    local name="$2"
-    local working_dir="${3:-$(pwd)}"
-
-    # Validate directory
-    if [[ ! -d "$working_dir" ]]; then
-        handle_error "Directory does not exist: $working_dir"
-        return 1
-    fi
-
-    # Simple sessions don't save metadata (volatile)
-    # Just create tmux session and start Claude
-    _start_session_with_claude "$session_id" "$working_dir"
-}
 
 # Wait for shell prompt to be ready in a pane
 # Uses tmux capture-pane to check for prompt characters
@@ -1263,26 +1131,13 @@ restore_session() {
         return 1
     fi
 
-    # Determine working directory based on session type
-    local working_dir=""
-    if [[ "$META_SESSION_TYPE" == "worktree" ]]; then
-        # Worktree session - use worktree path
-        working_dir="$META_WORKTREE_PATH"
-        if [[ ! -d "$working_dir" ]]; then
-            handle_error "Worktree directory not found: $working_dir"
-            return 1
-        fi
-    elif [[ -n "$META_REPOSITORY_PATH" && -d "$META_REPOSITORY_PATH" ]]; then
-        # Simple session - use repository path
-        working_dir="$META_REPOSITORY_PATH"
-    else
-        # Fallback to home directory if no valid path
-        working_dir="$HOME"
-    fi
+    # Get directory path from metadata
+    local working_dir="$META_DIRECTORY_PATH"
 
-    if [[ ! -d "$working_dir" ]]; then
-        handle_error "Working directory not found: $working_dir"
-        return 1
+    # Fallback to home directory if not found
+    if [[ -z "$working_dir" || ! -d "$working_dir" ]]; then
+        handle_warning "Directory not found: $working_dir, using HOME"
+        working_dir="$HOME"
     fi
 
     # Create tmux session and start Claude with --continue
@@ -1299,9 +1154,8 @@ delete_session() {
     local session_id="$1"
     local force="${2:-}"
 
-    local state type
+    local state
     state=$(get_session_state "$session_id")
-    type=$(get_session_type "$session_id")
 
     if [[ -z "$state" ]]; then
         handle_error "Session does not exist: ${session_id#tower_}"
@@ -1309,9 +1163,8 @@ delete_session() {
     fi
 
     # Confirmation (unless forced)
-    if [[ "$force" != "force" ]]; then
+    if [[ "$force" != "force" && "$force" != "-f" ]]; then
         local msg="Delete session '${session_id#tower_}'?"
-        [[ "$type" == "$TYPE_WORKTREE" ]] && msg="$msg (includes worktree and branch)"
         if ! confirm "$msg"; then
             handle_info "Cancelled"
             return 1
@@ -1323,41 +1176,7 @@ delete_session() {
         session_tmux kill-session -t "$session_id" 2>/dev/null || true
     fi
 
-    # For worktree sessions, cleanup worktree and branch
-    if [[ "$type" == "$TYPE_WORKTREE" ]]; then
-        if load_metadata "$session_id" 2>/dev/null; then
-            local worktree_path="$META_WORKTREE_PATH"
-            local repo_path="$META_REPOSITORY_PATH"
-
-            # Read branch name from metadata
-            local branch_name=""
-            local metadata_file="${TOWER_METADATA_DIR}/${session_id}.meta"
-            if [[ -f "$metadata_file" ]]; then
-                branch_name=$(grep "^branch_name=" "$metadata_file" 2>/dev/null | cut -d= -f2)
-            fi
-
-            # Remove worktree
-            if [[ -d "$worktree_path" ]] && validate_path_within "$worktree_path" "$TOWER_WORKTREE_DIR"; then
-                if [[ -n "$repo_path" && -d "$repo_path" ]]; then
-                    git -C "$repo_path" worktree remove "$worktree_path" 2>/dev/null ||
-                        git -C "$repo_path" worktree remove --force "$worktree_path" 2>/dev/null ||
-                        rm -rf "$worktree_path"
-                else
-                    rm -rf "$worktree_path"
-                fi
-            fi
-
-            # Delete branch (only if not pushed to remote)
-            if [[ -n "$branch_name" && -n "$repo_path" && -d "$repo_path" ]]; then
-                # Check if branch exists on remote
-                if ! git -C "$repo_path" ls-remote --exit-code --heads origin "$branch_name" &>/dev/null; then
-                    git -C "$repo_path" branch -D "$branch_name" 2>/dev/null || true
-                fi
-            fi
-        fi
-    fi
-
-    # Delete metadata
+    # Delete metadata (directory is NOT deleted)
     delete_metadata "$session_id"
 
     handle_success "Session deleted: ${session_id#tower_}"
@@ -1389,12 +1208,8 @@ restart_session() {
     session_tmux send-keys -t "$session_id" C-c 2>/dev/null || true
     sleep 0.5
 
-    local type
-    type=$(get_session_type "$session_id")
-
-    local claude_cmd="$TOWER_PROGRAM"
-    [[ "$type" == "$TYPE_WORKTREE" ]] && claude_cmd="$TOWER_PROGRAM --continue"
-
+    # Always use --continue for persistent sessions
+    local claude_cmd="$TOWER_PROGRAM --continue"
     session_tmux send-keys -t "$session_id" "$claude_cmd" C-m
 
     handle_success "Session restarted: ${session_id#tower_}"
