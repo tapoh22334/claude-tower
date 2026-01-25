@@ -134,7 +134,7 @@ cleanup_force() {
 main() {
     case "${1:-}" in
         -l | --list)
-            list_orphaned_worktrees
+            list_orphaned_metadata
             ;;
         -f | --force)
             cleanup_force
