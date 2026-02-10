@@ -1,5 +1,7 @@
 # Claude Tower
 
+> **⚠️ Under Development** - このプロジェクトは開発中です。APIや機能は予告なく変更される可能性があります。
+
 A tmux plugin for managing multiple Claude Code sessions with Navigator UI.
 
 ## Features
