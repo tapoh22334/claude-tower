@@ -173,7 +173,7 @@ render_list() {
 
     # Footer with keybindings (compact) - v2: removed n:new D:del
     output+="\n"
-    output+="${NAV_C_DIM}j/k:nav Enter:attach i:input r:restore q:quit${NAV_C_NORMAL}\n"
+    output+="${NAV_C_DIM}j/k:nav  Enter:attach  i:input  r:restore  q:quit${NAV_C_NORMAL}\n"
 
     # Clear to end of screen code
     local clear_eos

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# cleanup.sh - Cleanup dormant sessions
-# v2: Removes only metadata. Directories are never touched.
+# cleanup.sh - Cleanup orphaned session metadata
+# Removes metadata for sessions that no longer have active tmux sessions.
+# Directories are never touched.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -13,48 +14,33 @@ show_usage() {
     cat <<EOF
 Usage: cleanup.sh [OPTIONS]
 
-Cleanup dormant session metadata.
+Cleanup orphaned metadata from terminated sessions.
 
 Note: This only removes metadata files. Directories are never deleted.
       Use 'tower rm <name>' to remove individual sessions.
 
 Options:
-    -l, --list      List dormant sessions without removing
+    -l, --list      List orphaned metadata without removing
     -f, --force     Remove without confirmation
     -h, --help      Show this help message
 
 Examples:
-    cleanup.sh --list     # Show dormant sessions
+    cleanup.sh --list     # Show orphaned metadata
     cleanup.sh            # Interactive cleanup with confirmation
-    cleanup.sh --force    # Remove all dormant session metadata immediately
+    cleanup.sh --force    # Remove all orphaned metadata immediately
 EOF
 }
 
-# Find dormant sessions (metadata exists but no tmux session)
-find_dormant_sessions() {
-    for meta_file in "${TOWER_METADATA_DIR}"/*.meta; do
-        [[ -f "$meta_file" ]] || continue
-
-        local session_id
-        session_id=$(basename "$meta_file" .meta)
-
-        # Check if tmux session exists
-        if ! session_tmux has-session -t "$session_id" 2>/dev/null; then
-            echo "$session_id"
-        fi
-    done
-}
-
-# List dormant sessions
-list_dormant_sessions() {
-    printf "%b━━━ Dormant Sessions ━━━%b\n" "$C_HEADER" "$C_RESET"
+# List orphaned metadata
+list_orphaned() {
+    printf "%b━━━ Orphaned Metadata ━━━%b\n" "$C_HEADER" "$C_RESET"
     echo ""
 
-    local dormant_sessions
-    dormant_sessions=$(find_dormant_sessions)
+    local orphaned
+    orphaned=$(find_orphaned_metadata)
 
-    if [[ -z "$dormant_sessions" ]]; then
-        printf "%bNo dormant sessions found.%b\n" "$C_GREEN" "$C_RESET"
+    if [[ -z "$orphaned" ]]; then
+        printf "%bNo orphaned metadata found.%b\n" "$C_GREEN" "$C_RESET"
         return 0
     fi
 
@@ -72,35 +58,35 @@ list_dormant_sessions() {
             fi
             echo ""
         fi
-    done <<<"$dormant_sessions"
+    done <<<"$orphaned"
 
-    printf "Total: %d dormant session(s)\n" "$count"
+    printf "Total: %d orphaned metadata file(s)\n" "$count"
     return 0
 }
 
-# Cleanup dormant sessions interactively
+# Cleanup orphaned metadata interactively
 cleanup_interactive() {
-    local dormant_sessions
-    dormant_sessions=$(find_dormant_sessions)
+    local orphaned
+    orphaned=$(find_orphaned_metadata)
 
-    if [[ -z "$dormant_sessions" ]]; then
-        printf "%bNo dormant sessions found.%b\n" "$C_GREEN" "$C_RESET"
+    if [[ -z "$orphaned" ]]; then
+        printf "%bNo orphaned metadata found.%b\n" "$C_GREEN" "$C_RESET"
         return 0
     fi
 
-    list_dormant_sessions
+    list_orphaned
     echo ""
 
-    if confirm "Remove all dormant session metadata?"; then
-        remove_all_dormant_sessions "$dormant_sessions"
+    if confirm "Remove all orphaned metadata?"; then
+        remove_all_orphaned "$orphaned"
     else
         printf "Cleanup cancelled.\n"
     fi
 }
 
-# Remove all dormant sessions
-remove_all_dormant_sessions() {
-    local dormant_sessions="$1"
+# Remove all orphaned metadata
+remove_all_orphaned() {
+    local orphaned="$1"
 
     local removed=0
     local failed=0
@@ -110,14 +96,14 @@ remove_all_dormant_sessions() {
 
         printf "Removing: %s... " "${session_id#tower_}"
 
-        if delete_metadata "$session_id"; then
+        if remove_orphaned_metadata "$session_id"; then
             printf "%bOK%b\n" "$C_GREEN" "$C_RESET"
             removed=$((removed + 1))
         else
             printf "%bFailed%b\n" "$C_RED" "$C_RESET"
             failed=$((failed + 1))
         fi
-    done <<<"$dormant_sessions"
+    done <<<"$orphaned"
 
     echo ""
     printf "Cleanup complete. Removed: %d, Failed: %d\n" "$removed" "$failed"
@@ -125,22 +111,22 @@ remove_all_dormant_sessions() {
 
 # Cleanup with force (no confirmation)
 cleanup_force() {
-    local dormant_sessions
-    dormant_sessions=$(find_dormant_sessions)
+    local orphaned
+    orphaned=$(find_orphaned_metadata)
 
-    if [[ -z "$dormant_sessions" ]]; then
-        printf "%bNo dormant sessions found.%b\n" "$C_GREEN" "$C_RESET"
+    if [[ -z "$orphaned" ]]; then
+        printf "%bNo orphaned metadata found.%b\n" "$C_GREEN" "$C_RESET"
         return 0
     fi
 
-    remove_all_dormant_sessions "$dormant_sessions"
+    remove_all_orphaned "$orphaned"
 }
 
 # Main
 main() {
     case "${1:-}" in
         -l | --list)
-            list_dormant_sessions
+            list_orphaned
             ;;
         -f | --force)
             cleanup_force

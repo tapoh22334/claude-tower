@@ -546,7 +546,7 @@ ensure_metadata_dir() {
 # Save session metadata to file (v2 format)
 # Arguments:
 #   $1 - Session ID (with tower_ prefix)
-#   $2 - Directory path (working directory for the session)
+#   $2 - Directory path
 save_metadata() {
     local session_id="$1"
     local directory_path="$2"
@@ -574,7 +574,7 @@ load_metadata() {
     local session_id="$1"
     local metadata_file="${TOWER_METADATA_DIR}/${session_id}.meta"
 
-    # Initialize with empty values (v2 format)
+    # Initialize with empty values
     META_SESSION_NAME=""
     META_DIRECTORY_PATH=""
     META_CREATED_AT=""
@@ -586,17 +586,21 @@ load_metadata() {
                 session_name) META_SESSION_NAME="$value" ;;
                 directory_path) META_DIRECTORY_PATH="$value" ;;
                 created_at) META_CREATED_AT="$value" ;;
-                # v1 backward compatibility: map to directory_path
+                # v1 backward compatibility
                 worktree_path)
-                    # worktree_path takes priority for v1 sessions
                     [[ -z "$META_DIRECTORY_PATH" ]] && META_DIRECTORY_PATH="$value"
                     ;;
-                repo_path | repository_path)
-                    # repository_path is fallback if no directory_path or worktree_path
+                repository_path | repo_path)
                     [[ -z "$META_DIRECTORY_PATH" ]] && META_DIRECTORY_PATH="$value"
                     ;;
             esac
         done <"$metadata_file"
+
+        # Derive session_name from session_id if not in metadata
+        if [[ -z "$META_SESSION_NAME" ]]; then
+            META_SESSION_NAME="${session_id#tower_}"
+        fi
+
         return 0
     fi
     return 1
@@ -648,12 +652,48 @@ shorten_path() {
 }
 
 # ============================================================================
-# Session Helper Functions
+# Orphaned Metadata Detection and Cleanup
 # ============================================================================
+# Orphaned metadata files are metadata that exist but have no corresponding
+# active tmux session. These can occur when sessions are terminated
+# unexpectedly.
 
 # Get list of active tmux sessions from session server
 get_active_sessions() {
     session_tmux list-sessions -F '#{session_name}' 2>/dev/null || true
+}
+
+# Find orphaned metadata (metadata without active sessions)
+# Returns:
+#   List of orphaned session IDs
+find_orphaned_metadata() {
+    local active_sessions
+    active_sessions=$(get_active_sessions)
+
+    for meta_file in "${TOWER_METADATA_DIR}"/*.meta; do
+        if [[ -f "$meta_file" ]]; then
+            local session_id
+            session_id=$(basename "$meta_file" .meta)
+
+            # Check if session is active
+            if ! echo "$active_sessions" | grep -q "^${session_id}$"; then
+                echo "$session_id"
+            fi
+        fi
+    done
+}
+
+# Remove orphaned metadata
+# Arguments:
+#   $1 - Session ID
+# Returns:
+#   0 on success, 1 on failure
+remove_orphaned_metadata() {
+    local session_id="$1"
+
+    # Just delete metadata (no directory cleanup)
+    delete_metadata "$session_id"
+    return 0
 }
 
 # ============================================================================
@@ -861,15 +901,6 @@ session_exists() {
     session_tmux has-session -t "$session_id" 2>/dev/null
 }
 
-# Check if worktree exists
-# Arguments:
-#   $1 - Worktree path
-# Returns:
-#   0 if exists, 1 if not
-worktree_exists() {
-    local path="$1"
-    [[ -d "$path" ]] && [[ -f "$path/.git" || -d "$path/.git" ]]
-}
 
 # ============================================================================
 # Session State Detection (v3.0 - Idempotent)
@@ -925,7 +956,6 @@ get_state_icon() {
         *) echo "?" ;;
     esac
 }
-
 
 # ============================================================================
 # Session List (v2.0 - simplified, no types)
@@ -996,7 +1026,6 @@ _output_session_info() {
 # Session Operations (v2.0)
 # ============================================================================
 
-# Create a new session
 # Create a new session (v2 - simplified, no worktree)
 # Arguments:
 #   $1 - Session name (without tower_ prefix)
@@ -1042,7 +1071,7 @@ _create_simple_session() {
     # Resolve to absolute path
     working_dir=$(cd "$working_dir" && pwd)
 
-    # Save v2 metadata (all sessions are now persistent)
+    # Save v2 metadata
     save_metadata "$session_id" "$working_dir"
 
     # Create tmux session and start Claude
@@ -1137,14 +1166,10 @@ restore_session() {
     # v1 sessions will have worktree_path or repository_path mapped to META_DIRECTORY_PATH
     local working_dir="$META_DIRECTORY_PATH"
 
-    if [[ -z "$working_dir" ]]; then
-        # Fallback to home directory if no valid path
+    # Fallback to home directory if not found
+    if [[ -z "$working_dir" || ! -d "$working_dir" ]]; then
+        handle_warning "Directory not found: $working_dir, using HOME"
         working_dir="$HOME"
-    fi
-
-    if [[ ! -d "$working_dir" ]]; then
-        handle_error "Working directory not found: $working_dir"
-        return 1
     fi
 
     # Create tmux session and start Claude with --continue
@@ -1215,10 +1240,8 @@ restart_session() {
     session_tmux send-keys -t "$session_id" C-c 2>/dev/null || true
     sleep 0.5
 
-    # Use --continue if session has metadata (persistent session)
-    local claude_cmd="$TOWER_PROGRAM"
-    has_metadata "$session_id" && claude_cmd="$TOWER_PROGRAM --continue"
-
+    # Always use --continue for persistent sessions
+    local claude_cmd="$TOWER_PROGRAM --continue"
     session_tmux send-keys -t "$session_id" "$claude_cmd" C-m
 
     handle_success "Session restarted: ${session_id#tower_}"
