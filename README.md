@@ -1,12 +1,12 @@
 # Claude Tower
 
-A tmux plugin for managing multiple Claude Code sessions with Navigator UI and git worktree integration.
+A tmux plugin for managing multiple Claude Code sessions with Navigator UI.
 
 ## Features
 
 - **Navigator UI** - Two-pane interface for session management
 - **Live Preview** - Real-time view of selected session content
-- **Git Worktree Integration** - Automatic branch isolation per session
+- **CLI Commands** - `tower add` / `tower rm` for session management
 - **Session Persistence** - Dormant sessions restore automatically
 - **3-Server Architecture** - Isolated session management
 
@@ -40,21 +40,33 @@ run-shell ~/.tmux/plugins/claude-tower/tmux-plugin/claude-tower.tmux
 
 ## Usage
 
-Press `prefix + t` to open the Navigator.
+### CLI Commands
+
+```bash
+# Add a new session for a directory
+tower add /path/to/project
+tower add . -n my-session    # with custom name
+
+# Remove a session (directory is NOT deleted)
+tower rm my-session
+tower rm my-session -f       # force (no confirmation)
+```
 
 ### Navigator UI
 
+Press `prefix + t` to open the Navigator.
+
 ```
-┌─────────────────────┬────────────────────────────────────────────┐
-│ Sessions [ACTIVE]   │                                            │
-│                     │  Claude Code session content               │
-│ ▶ [W] my-feature    │  displayed here in real-time               │
-│   [S] experiment    │                                            │
-│ ○ [W] old-project   │  Use 'i' to focus and interact             │
-│                     │  Use Escape to return to list              │
-│                     │                                            │
-│ j/k:nav D:del n:new │                                            │
-└─────────────────────┴────────────────────────────────────────────┘
+┌───────────────────────────┬────────────────────────────────────────┐
+│ Sessions [ACTIVE]         │                                        │
+│                           │  Claude Code session content           │
+│ ▶ my-feature  ~/proj/app  │  displayed here in real-time           │
+│   experiment  ~/tmp/test  │                                        │
+│ ○ old-project ~/work/old  │  Use 'i' to focus and interact         │
+│                           │  Use Escape to return to list          │
+│                           │                                        │
+│ j/k:nav Enter:attach q:quit                                        │
+└───────────────────────────┴────────────────────────────────────────┘
      List Pane (24%)              View Pane (76%)
 ```
 
@@ -70,8 +82,6 @@ Press `prefix + t` to open the Navigator.
 | `i` | Focus view pane (input mode) |
 | `Escape` | Return to list (from view) |
 | `Tab` | Switch to tile view |
-| `n` | Create new session |
-| `D` | Delete session |
 | `r` | Restore selected dormant session |
 | `R` | Restore all dormant sessions |
 | `?` | Show help |
@@ -84,29 +94,13 @@ Press `prefix + t` to open the Navigator.
 | `▶` | Active | Claude is running |
 | `○` | Dormant | Session saved, can be restored |
 
-### Session Types
+## How It Works
 
-| Icon | Type | Description |
-|------|------|-------------|
-| `[W]` | Worktree | Git worktree managed session |
-| `[S]` | Simple | Regular session (no git) |
+1. **Add a session** with `tower add <path>` - creates a session pointing to your directory
+2. **Use Navigator** (`prefix + t`) to switch between sessions
+3. **Remove a session** with `tower rm <name>` - the directory is never deleted
 
-## Session Types
-
-### Worktree Session `[W]`
-
-For git repositories:
-- Creates worktree at `~/.claude-tower/worktrees/<name>`
-- Creates branch `tower/<name>`
-- Persists as dormant when closed
-- Auto-cleanup on delete
-
-### Simple Session `[S]`
-
-For quick tasks:
-- Runs in specified directory
-- No git integration
-- Volatile (lost on tmux restart)
+Sessions are just references to directories. Tower does not create, modify, or delete your project directories.
 
 ## Architecture
 
@@ -138,11 +132,8 @@ set -g @tower-auto-restore '1'
 # Program to run (default: claude)
 export CLAUDE_TOWER_PROGRAM="claude"
 
-# Worktree directory (default: ~/.claude-tower/worktrees)
-export CLAUDE_TOWER_WORKTREE_DIR="$HOME/.claude-tower/worktrees"
-
-# Metadata directory (default: ~/.claude-tower/sessions)
-export CLAUDE_TOWER_METADATA_DIR="$HOME/.claude-tower/sessions"
+# Metadata directory (default: ~/.claude-tower/metadata)
+export CLAUDE_TOWER_METADATA_DIR="$HOME/.claude-tower/metadata"
 
 # Navigator socket name (default: claude-tower)
 export CLAUDE_TOWER_NAV_SOCKET="claude-tower"
@@ -175,6 +166,32 @@ make test
 # Lint scripts
 make lint
 ```
+
+## Migration from v1
+
+If you're upgrading from v1 (with worktree support):
+
+### What Changed
+
+| v1 | v2 |
+|----|-----|
+| `n` key creates session in Navigator | Use `tower add <path>` CLI |
+| `D` key deletes session in Navigator | Use `tower rm <name>` CLI |
+| `[W]`/`[S]` type icons | Path display (e.g., `~/projects/app`) |
+| Worktree management | Directories are references only |
+| Session deletion removes worktree | Session deletion keeps directory |
+
+### Backward Compatibility
+
+- **v1 metadata is still readable** - existing sessions will work
+- **Worktree directories are preserved** - Tower no longer deletes them
+- **Navigator functions the same** - just use CLI for create/delete
+
+### Recommended Actions
+
+1. Your existing worktree directories at `~/.claude-tower/worktrees/` are safe
+2. If you want to clean them up, delete manually: `rm -rf ~/.claude-tower/worktrees/<name>`
+3. Re-add sessions with `tower add <path>` pointing to your actual project directories
 
 ## Troubleshooting
 

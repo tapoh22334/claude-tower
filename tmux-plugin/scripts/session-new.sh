@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 # session-new.sh - Create a new claude-tower session
+#
+# DEPRECATED (v2): Use 'tower add <path>' instead.
+# This script is kept for backward compatibility.
+#
 # Usage: session-new.sh [options]
 #   -n, --name NAME     Session name (required)
-#   -w, --worktree      Create worktree session (persistent)
 #   -d, --dir DIR       Working directory (default: current)
 #   -h, --help          Show help
+#
+# Note: -w/--worktree option is ignored in v2 (all sessions are now simple).
 
 set -euo pipefail
 
@@ -111,17 +116,15 @@ if [[ -z "$working_dir" ]]; then
         working_dir=$(pwd)
 fi
 
-# Determine session type
+# v2: worktree option is ignored, all sessions are simple
 if [[ "$use_worktree" == "true" ]]; then
-    session_type="$TYPE_WORKTREE"
-else
-    session_type="$TYPE_SIMPLE"
+    echo "Warning: -w/--worktree is deprecated in v2. Use 'tower add' instead." >&2
 fi
 
-# Create session
-debug_log "Creating session: name=$name, type=$session_type, dir=$working_dir"
+# Create session (v2 format: name + directory only)
+debug_log "Creating session: name=$name, dir=$working_dir"
 
-if create_session "$name" "$session_type" "$working_dir"; then
+if create_session "$name" "$working_dir"; then
     # Switch to new session on session server (unless --no-attach)
     if [[ "$no_attach" != "true" ]]; then
         session_id=$(normalize_session_name "$(sanitize_name "$name")")
