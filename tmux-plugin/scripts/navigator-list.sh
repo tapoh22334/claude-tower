@@ -348,7 +348,9 @@ restore_all_dormant_sessions() {
     for id in "${SESSION_IDS[@]:-}"; do
         local state
         state=$(get_session_state "$id")
-        [[ "$state" == "$STATE_DORMANT" ]] && ((dormant_count++)) || true
+        if [[ "$state" == "$STATE_DORMANT" ]]; then
+            ((dormant_count++))
+        fi
     done
 
     if [[ $dormant_count -eq 0 ]]; then
