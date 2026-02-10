@@ -27,8 +27,10 @@ teardown_file() {
 }
 
 setup() {
-    # Set env var BEFORE sourcing (TOWER_NAV_SOCKET is readonly)
+    # Set env vars BEFORE sourcing (sockets are readonly)
     export CLAUDE_TOWER_NAV_SOCKET="$NAV_SOCKET"
+    export CLAUDE_TOWER_SESSION_SOCKET="$DEFAULT_SOCKET"
+    export TMUX_TMPDIR="/tmp/claude-tower-display-test"
     source_common
     setup_test_env
     ensure_nav_state_dir
@@ -68,9 +70,8 @@ create_test_navigator_session() {
 # Display Pattern Tests
 # ============================================================================
 
-@test "display: session list header contains 'Sessions'" {
-    skip "Requires running navigator-list.sh - use scenario tests instead"
-}
+## Skipped: session list header test requires running navigator-list.sh
+## Use scenario tests instead
 
 @test "display: render_list output contains session names" {
     # Source the script to get the render function
@@ -114,12 +115,11 @@ create_test_navigator_session() {
     [ "$output" = "?" ]
 }
 
-@test "display: type icons are correct" {
-    run get_type_icon "worktree"
-    [ "$output" = "[W]" ]
-
-    run get_type_icon "simple"
-    [ "$output" = "[S]" ]
+@test "display: type icons removed in v2 (directory-based sessions)" {
+    # v2 uses directory-based sessions only, no type icons needed
+    # Verify get_state_icon still works for v2 states
+    run get_state_icon "active"
+    [ "$output" = "▶" ]
 }
 
 # ============================================================================
@@ -172,13 +172,11 @@ create_test_navigator_session() {
 # ANSI Color Code Tests
 # ============================================================================
 
-@test "display: color constants use proper escape sequences" {
-    # Verify colors are defined with actual escape sequences
-    # This tests the recent fix for ANSI color format
-
-    [[ "$C_RED" == *$'\033'* ]] || [[ "$C_RED" == *$'\x1b'* ]]
-    [[ "$C_GREEN" == *$'\033'* ]] || [[ "$C_GREEN" == *$'\x1b'* ]]
-    [[ "$C_RESET" == *$'\033'* ]] || [[ "$C_RESET" == *$'\x1b'* ]]
+@test "display: color constants use escape notation" {
+    # Colors use \033 notation (interpreted by echo -e)
+    [[ "$C_RED" == *"\\033["* ]]
+    [[ "$C_GREEN" == *"\\033["* ]]
+    [[ "$C_RESET" == *"\\033["* ]]
 }
 
 @test "display: NAV colors in navigator-list use \$'...' syntax" {
