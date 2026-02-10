@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# session-add.sh - Add a directory as a Tower session
-# Usage: session-add.sh <path> [-n name]
+# session-add.sh - Add a new claude-tower session (v2)
+# Usage: session-add.sh <path> [-n|--name <name>]
+#
+# Creates a session for the specified directory and starts Claude Code.
+# The directory is referenced, not managed - tower never creates or deletes directories.
 
 set -euo pipefail
 
@@ -12,113 +15,127 @@ source "$SCRIPT_DIR/../lib/common.sh"
 
 show_help() {
     cat <<'EOF'
-Add a directory as a Tower session
+Add a new claude-tower session
 
-Usage: session-add.sh <path> [-n name]
+Usage: session-add.sh <path> [-n|--name <name>]
 
 Arguments:
-  <path>              Directory path to add as session
+  path                  Working directory path (required)
 
 Options:
-  -n, --name NAME     Custom session name (default: directory basename)
-  -h, --help          Show this help
+  -n, --name <name>     Session name (default: directory name)
+  --no-attach           Don't attach to new session after creation
+  -h, --help            Show this help
 
 Examples:
-  session-add.sh ~/projects/myapp
-  session-add.sh ~/projects/myapp -n custom-name
-  session-add.sh .
+  session-add.sh .                        # Add session for current directory
+  session-add.sh /path/to/project         # Add session for specified path
+  session-add.sh . -n my-project          # Add with custom session name
 
 EOF
 }
 
 # Parse arguments
-directory_path=""
-custom_name=""
+path=""
+name=""
+no_attach=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -n | --name)
-            custom_name="$2"
+            if [[ $# -lt 2 ]]; then
+                echo "Error: --name requires a value" >&2
+                exit 1
+            fi
+            name="$2"
             shift 2
+            ;;
+        --no-attach)
+            no_attach=true
+            shift
             ;;
         -h | --help)
             show_help
             exit 0
             ;;
         -*)
-            handle_error "Unknown option: $1"
+            echo "Error: Unknown option: $1" >&2
+            echo "Run 'session-add.sh --help' for usage." >&2
             exit 1
             ;;
         *)
-            if [[ -z "$directory_path" ]]; then
-                directory_path="$1"
-                shift
+            if [[ -z "$path" ]]; then
+                path="$1"
             else
-                handle_error "Multiple paths specified. Only one path is allowed."
+                echo "Error: Unexpected argument: $1" >&2
                 exit 1
             fi
+            shift
             ;;
     esac
 done
 
 # Validate path argument
-if [[ -z "$directory_path" ]]; then
-    handle_error "Directory path is required"
-    show_help
+if [[ -z "$path" ]]; then
+    echo "Error: Path is required" >&2
+    echo "Usage: session-add.sh <path> [-n|--name <name>]" >&2
     exit 1
 fi
 
 # Resolve to absolute path
-if [[ "$directory_path" != /* ]]; then
-    # Relative path - resolve from current directory
-    current_dir=$(pwd)
-    directory_path="${current_dir}/${directory_path}"
+if [[ "$path" == "." ]]; then
+    path="$(pwd)"
+elif [[ "$path" != /* ]]; then
+    path="$(cd "$path" 2>/dev/null && pwd)" || {
+        echo "Error: Directory does not exist: $path" >&2
+        exit 1
+    }
 fi
 
-# Normalize path (remove trailing slashes, resolve ..)
-directory_path=$(cd "$directory_path" 2>/dev/null && pwd) || {
-    handle_error "Directory does not exist: $directory_path"
-    exit 1
-}
-
-# Validate directory exists
-if [[ ! -d "$directory_path" ]]; then
-    handle_error "Directory does not exist: $directory_path"
+# Validate path exists
+if [[ ! -e "$path" ]]; then
+    echo "Error: Directory does not exist: $path" >&2
     exit 1
 fi
 
-# Determine session name
-if [[ -n "$custom_name" ]]; then
-    session_name="$custom_name"
-else
-    # Use directory basename
-    session_name=$(basename "$directory_path")
+# Validate path is a directory
+if [[ ! -d "$path" ]]; then
+    echo "Error: Not a directory: $path" >&2
+    exit 1
 fi
 
-# Sanitize session name
-sanitized_name=$(sanitize_name "$session_name")
+# Derive session name from directory if not specified
+if [[ -z "$name" ]]; then
+    name="$(basename "$path")"
+fi
+
+# Sanitize and validate name
+sanitized_name=$(sanitize_name "$name")
 if [[ -z "$sanitized_name" ]]; then
-    handle_error "Invalid session name: $session_name"
+    echo "Error: Invalid session name: $name" >&2
     exit 1
 fi
 
-# Create session_id
+# Check for existing session
 session_id=$(normalize_session_name "$sanitized_name")
-
-# Check for duplicate session
-if session_exists "$session_id"; then
-    handle_error "Session already exists: $sanitized_name"
+if session_exists "$session_id" || has_metadata "$session_id"; then
+    echo "Error: Session already exists: $sanitized_name" >&2
     exit 1
 fi
 
-# Check if metadata already exists
-if has_metadata "$session_id"; then
-    handle_error "Session metadata already exists: $sanitized_name"
+# Create session
+debug_log "Creating session: name=$sanitized_name, path=$path"
+
+if create_session "$sanitized_name" "$path"; then
+    # Output success message per CLI contract
+    echo "Session created: $sanitized_name"
+    echo "  Path: $path"
+
+    # Attach to new session (unless --no-attach)
+    if [[ "$no_attach" != "true" ]]; then
+        session_tmux switch-client -t "$session_id" 2>/dev/null ||
+            session_tmux attach-session -t "$session_id" 2>/dev/null || true
+    fi
+else
     exit 1
 fi
-
-debug_log "Creating session: name=$sanitized_name, path=$directory_path"
-
-# Create session using common.sh function
-# This will save metadata and start Claude
-create_session "$sanitized_name" "simple" "$directory_path"

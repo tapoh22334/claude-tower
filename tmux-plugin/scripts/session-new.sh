@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
-# session-new.sh - DEPRECATED: Compatibility wrapper for session-add.sh
-# This script is maintained for backwards compatibility.
-# New code should use session-add.sh instead.
+# session-new.sh - Create a new claude-tower session
+#
+# DEPRECATED (v2): Use 'tower add <path>' instead.
+# This script is kept for backward compatibility.
 #
 # Usage: session-new.sh [options]
 #   -n, --name NAME     Session name (required)
 #   -w, --worktree      DEPRECATED: Ignored (all sessions are now directory-based)
 #   -d, --dir DIR       Working directory (default: current)
 #   -h, --help          Show help
+#
+# Note: -w/--worktree option is ignored in v2 (all sessions are now simple).
 
 set -euo pipefail
 
@@ -100,11 +103,10 @@ if [[ -z "$working_dir" ]]; then
         working_dir=$(pwd)
 fi
 
-# Create session using common.sh function
+# Create session (v2 format: name + directory only)
 debug_log "Creating session: name=$name, dir=$working_dir"
 
-# Note: second parameter (type) is ignored in Tower v2
-if create_session "$name" "simple" "$working_dir"; then
+if create_session "$name" "$working_dir"; then
     # Switch to new session on session server (unless --no-attach)
     if [[ "$no_attach" != "true" ]]; then
         session_id=$(normalize_session_name "$(sanitize_name "$name")")

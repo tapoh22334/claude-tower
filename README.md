@@ -1,11 +1,14 @@
 # Claude Tower
 
+> **Warning: Under Development** - This project is under active development. APIs and features may change without notice.
+
 A tmux plugin for managing multiple Claude Code sessions with Navigator UI.
 
 ## Features
 
 - **Navigator UI** - Two-pane interface for session management
 - **Live Preview** - Real-time view of selected session content
+- **CLI Commands** - `tower add` / `tower rm` for session management
 - **Session Persistence** - Dormant sessions restore automatically
 - **Directory-Based Sessions** - Work with any directory
 - **3-Server Architecture** - Isolated session management
@@ -53,21 +56,33 @@ tower list                              # List all sessions
 
 ## Usage
 
+### CLI Commands
+
+```bash
+# Add a new session for a directory
+tower add /path/to/project
+tower add . -n my-session    # with custom name
+
+# Remove a session (directory is NOT deleted)
+tower rm my-session
+tower rm my-session -f       # force (no confirmation)
+```
+
 ### Navigator UI
 
 Press `prefix + t` to open the Navigator.
 
 ```
-┌─────────────────────┬────────────────────────────────────────────┐
-│ Sessions [ACTIVE]   │                                            │
-│                     │  Claude Code session content               │
-│ ▶ myapp             │  displayed here in real-time               │
-│   /home/user/proj.. │                                            │
-│ ○ experiment        │  Use 'i' to focus and interact             │
-│   /home/user/test   │  Use Escape to return to list              │
-│                     │                                            │
-│ j/k:nav r:restore   │                                            │
-└─────────────────────┴────────────────────────────────────────────┘
+┌───────────────────────────┬────────────────────────────────────────┐
+│ Sessions [ACTIVE]         │                                        │
+│                           │  Claude Code session content           │
+│ ▶ my-feature  ~/proj/app  │  displayed here in real-time           │
+│   experiment  ~/tmp/test  │                                        │
+│ ○ old-project ~/work/old  │  Use 'i' to focus and interact         │
+│                           │  Use Escape to return to list          │
+│                           │                                        │
+│ j/k:nav Enter:attach q:quit                                        │
+└───────────────────────────┴────────────────────────────────────────┘
      List Pane (24%)              View Pane (76%)
 ```
 
@@ -108,16 +123,11 @@ tower help                       # Show help
 
 ## How It Works
 
-Tower manages Claude Code sessions by:
-- Creating tmux sessions for each directory you add
-- Storing session metadata (name, directory path, creation time)
-- Allowing you to restore sessions even after tmux restart
-- **You manage directories** - Tower only manages sessions
+1. **Add a session** with `tower add <path>` - creates a session pointing to your directory
+2. **Use Navigator** (`prefix + t`) to switch between sessions
+3. **Remove a session** with `tower rm <name>` - the directory is never deleted
 
-Tower does NOT:
-- Create or delete directories
-- Manage git repositories or branches
-- Interfere with your files or worktrees
+Sessions are just references to directories. Tower does not create, modify, or delete your project directories.
 
 ## Architecture
 
@@ -172,16 +182,16 @@ export CLAUDE_TOWER_DEBUG=1
 **v2.0 is a breaking change** that simplifies Tower to focus on session management only.
 
 #### Removed Features
-- ❌ Git worktree automatic creation and management
-- ❌ Session types (`[W]` Worktree / `[S]` Simple)
-- ❌ Navigator inline creation (`n` key) and deletion (`D` key)
-- ❌ Automatic directory cleanup on session delete
+- Git worktree automatic creation and management
+- Session types (`[W]` Worktree / `[S]` Simple)
+- Navigator inline creation (`n` key) and deletion (`D` key)
+- Automatic directory cleanup on session delete
 
 #### New Features
-- ✅ `tower add` - Add any directory as a session
-- ✅ `tower rm` - Remove sessions (directories remain untouched)
-- ✅ Path display in Navigator instead of type icons
-- ✅ Simplified metadata (only essential fields)
+- `tower add` - Add any directory as a session
+- `tower rm` - Remove sessions (directories remain untouched)
+- Path display in Navigator instead of type icons
+- Simplified metadata (only essential fields)
 
 ### Migration Steps
 

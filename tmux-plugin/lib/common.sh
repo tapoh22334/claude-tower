@@ -543,7 +543,7 @@ ensure_metadata_dir() {
     fi
 }
 
-# Save session metadata to file
+# Save session metadata to file (v2 format)
 # Arguments:
 #   $1 - Session ID (with tower_ prefix)
 #   $2 - Directory path
@@ -564,11 +564,12 @@ save_metadata() {
     } >"$metadata_file"
 }
 
-# Load session metadata from file
+# Load session metadata from file (v2 format with v1 backward compatibility)
 # Arguments:
 #   $1 - Session ID
 # Returns:
 #   Exports variables: META_SESSION_NAME, META_DIRECTORY_PATH, META_CREATED_AT
+#   For v1 compatibility: worktree_path and repository_path are mapped to directory_path
 load_metadata() {
     local session_id="$1"
     local metadata_file="${TOWER_METADATA_DIR}/${session_id}.meta"
@@ -585,14 +586,11 @@ load_metadata() {
                 session_name) META_SESSION_NAME="$value" ;;
                 directory_path) META_DIRECTORY_PATH="$value" ;;
                 created_at) META_CREATED_AT="$value" ;;
-
-                # v1 backwards compatibility
+                # v1 backward compatibility
                 worktree_path)
-                    # Use worktree_path as directory_path if not already set
                     [[ -z "$META_DIRECTORY_PATH" ]] && META_DIRECTORY_PATH="$value"
                     ;;
                 repository_path | repo_path)
-                    # Use repository_path as fallback for directory_path
                     [[ -z "$META_DIRECTORY_PATH" ]] && META_DIRECTORY_PATH="$value"
                     ;;
             esac
@@ -641,6 +639,16 @@ list_metadata() {
 has_metadata() {
     local session_id="$1"
     [[ -f "${TOWER_METADATA_DIR}/${session_id}.meta" ]]
+}
+
+# Shorten path for display (replace $HOME with ~)
+# Arguments:
+#   $1 - Path to shorten
+# Returns:
+#   Shortened path with ~ for home directory
+shorten_path() {
+    local path="$1"
+    echo "${path/#$HOME/\~}"
 }
 
 # ============================================================================
@@ -950,11 +958,11 @@ get_state_icon() {
 }
 
 # ============================================================================
-# Session List (v2.0)
+# Session List (v2.0 - simplified, no types)
 # ============================================================================
 
 # List all tower sessions (active + dormant) - OPTIMIZED
-# Output format: session_id:state
+# Output format: session_id:state:path
 # Uses single tmux call for all active sessions
 list_all_sessions() {
     local -A active_sessions=()
@@ -968,8 +976,14 @@ list_all_sessions() {
 
         # tmux session exists = active (simplified, idempotent)
         local state="$STATE_ACTIVE"
+        local path=""
 
-        echo "${session_id}:${state}"
+        # Load path from metadata if exists
+        if load_metadata "$session_id" 2>/dev/null; then
+            path="$META_DIRECTORY_PATH"
+        fi
+
+        echo "${session_id}:${state}:${path}"
     done < <(session_tmux list-sessions -F '#{session_name}' 2>/dev/null || true)
 
     # Check metadata for dormant sessions
@@ -982,39 +996,45 @@ list_all_sessions() {
         # Skip if already processed (active session)
         [[ -n "${active_sessions[$session_id]:-}" ]] && continue
 
-        # This is a dormant session
-        echo "${session_id}:${STATE_DORMANT}"
+        # This is a dormant session - load path from metadata
+        local path=""
+        if load_metadata "$session_id" 2>/dev/null; then
+            path="$META_DIRECTORY_PATH"
+        fi
+
+        echo "${session_id}:${STATE_DORMANT}:${path}"
     done
 }
 
 # Output session info in standard format (optimized - no git calls)
 # Arguments:
 #   $1 - Session ID
-# Output: session_id:state
+# Output: session_id:state:path
 _output_session_info() {
     local session_id="$1"
-    local state
+    local state path=""
 
     state=$(get_session_state "$session_id")
+    if load_metadata "$session_id" 2>/dev/null; then
+        path="$META_DIRECTORY_PATH"
+    fi
 
-    echo "${session_id}:${state}"
+    echo "${session_id}:${state}:${path}"
 }
 
 # ============================================================================
 # Session Operations (v2.0)
 # ============================================================================
 
-# Create a new session
+# Create a new session (v2 - simplified, no worktree)
 # Arguments:
 #   $1 - Session name (without tower_ prefix)
-#   $2 - Type: ignored (for backwards compatibility)
-#   $3 - Working directory
+#   $2 - Working directory path
 # Returns:
 #   0 on success, 1 on failure
 create_session() {
     local name="$1"
-    local _type="$2"  # Ignored, kept for backwards compatibility
-    local directory_path="$3"
+    local dir="$2"
 
     # Sanitize and validate name
     local sanitized_name
@@ -1033,19 +1053,30 @@ create_session() {
         return 1
     fi
 
+    _create_simple_session "$session_id" "$sanitized_name" "$dir"
+}
+
+# Create session (internal) - v2 format with metadata
+_create_simple_session() {
+    local session_id="$1"
+    local name="$2"
+    local working_dir="${3:-$(pwd)}"
+
     # Validate directory
-    if [[ ! -d "$directory_path" ]]; then
-        handle_error "Directory does not exist: $directory_path"
+    if [[ ! -d "$working_dir" ]]; then
+        handle_error "Directory does not exist: $working_dir"
         return 1
     fi
 
-    # Save metadata
-    save_metadata "$session_id" "$directory_path"
+    # Resolve to absolute path
+    working_dir=$(cd "$working_dir" && pwd)
+
+    # Save v2 metadata
+    save_metadata "$session_id" "$working_dir"
 
     # Create tmux session and start Claude
-    _start_session_with_claude "$session_id" "$directory_path"
+    _start_session_with_claude "$session_id" "$working_dir"
 }
-
 
 # Wait for shell prompt to be ready in a pane
 # Uses tmux capture-pane to check for prompt characters
@@ -1104,7 +1135,7 @@ _start_session_with_claude() {
     handle_success "Session created: ${session_id#tower_}"
 }
 
-# Restore a dormant session
+# Restore a dormant session (v2 - uses directory_path from metadata)
 # Arguments:
 #   $1 - Session ID
 # Returns:
@@ -1125,13 +1156,14 @@ restore_session() {
         return 1
     fi
 
-    # Load metadata
+    # Load metadata (v2 format with v1 backward compatibility)
     if ! load_metadata "$session_id"; then
         handle_error "Cannot load session metadata: ${session_id#tower_}"
         return 1
     fi
 
-    # Get directory path from metadata
+    # Use directory_path from metadata (v2 format)
+    # v1 sessions will have worktree_path or repository_path mapped to META_DIRECTORY_PATH
     local working_dir="$META_DIRECTORY_PATH"
 
     # Fallback to home directory if not found
@@ -1144,10 +1176,10 @@ restore_session() {
     _start_session_with_claude "$session_id" "$working_dir" "continue"
 }
 
-# Delete a session
+# Delete a session (v2 - does NOT delete directories)
 # Arguments:
 #   $1 - Session ID
-#   $2 - Force flag (optional, "force" to skip confirmation)
+#   $2 - Force flag (optional, "force" or "-f" to skip confirmation)
 # Returns:
 #   0 on success, 1 on failure
 delete_session() {
@@ -1176,13 +1208,13 @@ delete_session() {
         session_tmux kill-session -t "$session_id" 2>/dev/null || true
     fi
 
-    # Delete metadata (directory is NOT deleted)
+    # Delete metadata only (v2: directories are NOT deleted)
     delete_metadata "$session_id"
 
     handle_success "Session deleted: ${session_id#tower_}"
 }
 
-# Restart Claude in a session
+# Restart Claude in a session (v2 - uses --continue if metadata exists)
 # Arguments:
 #   $1 - Session ID
 # Returns:

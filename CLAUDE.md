@@ -350,3 +350,10 @@ NEVER create files unless they're absolutely necessary for achieving your goal.
 ALWAYS prefer editing an existing file to creating a new one.
 NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested by the User.
 Never save working files, text/mds and tests to the root folder.
+
+## Active Technologies
+- Bash 4.0+ (POSIX互換シェルスクリプト) + tmux 3.2+, git (オプション) (001-tower-v2-simplify)
+- ファイルベース (`~/.claude-tower/metadata/*.meta`) (001-tower-v2-simplify)
+
+## Recent Changes
+- 001-tower-v2-simplify: Added Bash 4.0+ (POSIX互換シェルスクリプト) + tmux 3.2+, git (オプション)

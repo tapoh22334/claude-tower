@@ -45,6 +45,7 @@ declare -a SESSION_IDS=()
 declare -a SESSION_DISPLAYS=()
 
 # Build session list from default tmux server
+# v2: Shows path instead of type icon
 # Idempotent: Uses has-session logic (tmux session exists = active)
 build_session_list() {
     SESSION_IDS=()
@@ -59,23 +60,17 @@ build_session_list() {
 
         active_sessions["$session_id"]=1
 
-        local name path
-
+        local name short_path=""
         name="${session_id#tower_}"
 
-        # Get directory path from metadata
-        path=""
+        # Load path from metadata (v2 format)
         if load_metadata "$session_id" 2>/dev/null; then
-            path="$META_DIRECTORY_PATH"
+            short_path=$(shorten_path "$META_DIRECTORY_PATH")
         fi
 
         SESSION_IDS+=("$session_id")
-        # tmux session exists = active (simplified)
-        if [[ -n "$path" ]]; then
-            SESSION_DISPLAYS+=("${NAV_C_ACTIVE}▶${NAV_C_NORMAL} ${name}  ${NAV_C_DIM}${path}${NAV_C_NORMAL}")
-        else
-            SESSION_DISPLAYS+=("${NAV_C_ACTIVE}▶${NAV_C_NORMAL} ${name}")
-        fi
+        # v2 format: state_icon name  path
+        SESSION_DISPLAYS+=("${NAV_C_ACTIVE}▶${NAV_C_NORMAL} ${name}  ${NAV_C_DIM}${short_path}${NAV_C_NORMAL}")
     done < <(session_tmux list-sessions -F '#{session_name}' 2>/dev/null || true)
 
     # Add dormant sessions (metadata exists but no tmux session)
@@ -88,21 +83,17 @@ build_session_list() {
         # Skip if already in list (active session)
         [[ -n "${active_sessions[$session_id]:-}" ]] && continue
 
-        local name path
+        local name short_path=""
         name="${session_id#tower_}"
 
-        # Get directory path from metadata
-        path=""
+        # Load path from metadata (v2 format)
         if load_metadata "$session_id" 2>/dev/null; then
-            path="$META_DIRECTORY_PATH"
+            short_path=$(shorten_path "$META_DIRECTORY_PATH")
         fi
 
         SESSION_IDS+=("$session_id")
-        if [[ -n "$path" ]]; then
-            SESSION_DISPLAYS+=("${NAV_C_DORMANT}○${NAV_C_NORMAL} ${name}  ${NAV_C_DIM}${path}${NAV_C_NORMAL}")
-        else
-            SESSION_DISPLAYS+=("${NAV_C_DORMANT}○${NAV_C_NORMAL} ${name}")
-        fi
+        # v2 format: state_icon name  path
+        SESSION_DISPLAYS+=("${NAV_C_DORMANT}○${NAV_C_NORMAL} ${name}  ${NAV_C_DIM}${short_path}${NAV_C_NORMAL}")
     done
 }
 
@@ -180,7 +171,7 @@ render_list() {
         done
     fi
 
-    # Footer with keybindings (compact)
+    # Footer with keybindings (compact) - v2: removed n:new D:del
     output+="\n"
     output+="${NAV_C_DIM}j/k:nav  Enter:attach  i:input  r:restore  q:quit${NAV_C_NORMAL}\n"
 
@@ -192,7 +183,7 @@ render_list() {
     printf '\033[?25l\033[H%b%s\033[?25h' "$output" "$clear_eos"
 }
 
-# Show help screen
+# Show help screen (v2: removed n/D keys)
 show_help() {
     clear
     echo -e "${NAV_C_HEADER}Navigator Help${NAV_C_NORMAL}"
@@ -206,11 +197,13 @@ show_help() {
     echo "  Actions:"
     echo "    Enter      Full attach to session"
     echo "    i          Focus view pane (input mode)"
-    echo "    n          Create new session"
-    echo "    D          Delete selected session"
     echo "    r          Restore selected dormant session"
     echo "    R          Restore all dormant sessions"
     echo "    Tab        Switch to Tile view"
+    echo ""
+    echo "  Session Management (CLI):"
+    echo "    tower add <path>     Add new session"
+    echo "    tower rm <name>      Remove session"
     echo ""
     echo "  Other:"
     echo "    ?          Show this help"

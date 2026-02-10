@@ -28,8 +28,22 @@ teardown_test_env() {
     rm -rf "${TEST_DIR}/tmp"
 }
 
-# Create a mock metadata file
+# Create a mock metadata file (v2 format)
 create_mock_metadata() {
+    local session_id="$1"
+    local directory_path="${2:-/mock/workdir}"
+    local session_name="${session_id#tower_}"
+
+    cat > "${CLAUDE_TOWER_METADATA_DIR}/${session_id}.meta" << EOF
+session_id=${session_id}
+session_name=${session_name}
+directory_path=${directory_path}
+created_at=$(date -Iseconds)
+EOF
+}
+
+# Create a mock v1 metadata file (for backward compatibility tests)
+create_mock_metadata_v1() {
     local session_id="$1"
     local session_type="${2:-workspace}"
     local repository_path="${3:-/mock/repo}"

@@ -56,42 +56,38 @@ setup() {
 }
 
 # ============================================================================
-# Session type tests
+# v2: Path display tests (replaces type icon tests)
 # ============================================================================
 
-@test "get_type_icon: returns [W] for worktree" {
-    run get_type_icon "worktree"
+@test "shorten_path: replaces HOME with ~" {
+    run shorten_path "$HOME/projects/test"
 
     [ "$status" -eq 0 ]
-    [ "$output" = "[W]" ]
+    [ "$output" = "~/projects/test" ]
 }
 
-@test "get_type_icon: returns [S] for simple" {
-    run get_type_icon "simple"
+@test "shorten_path: keeps non-home paths unchanged" {
+    run shorten_path "/tmp/test-dir"
 
     [ "$status" -eq 0 ]
-    [ "$output" = "[S]" ]
+    [ "$output" = "/tmp/test-dir" ]
 }
 
-@test "get_session_type: returns worktree for metadata with workspace type" {
-    setup_test_env
-    create_mock_metadata "tower_test-session" "workspace"
-
-    run get_session_type "tower_test-session"
-
-    [ "$status" -eq 0 ]
-    [ "$output" = "worktree" ]
-
-    teardown_test_env
-}
-
-@test "get_session_type: returns simple for session without metadata" {
+@test "load_metadata: sets META_DIRECTORY_PATH for v2 format" {
     setup_test_env
 
-    run get_session_type "tower_nonexistent"
+    # Create v2 format metadata
+    cat > "${CLAUDE_TOWER_METADATA_DIR}/tower_v2-test.meta" << EOF
+session_id=tower_v2-test
+session_name=v2-test
+directory_path=/path/to/workdir
+created_at=2026-02-07T10:00:00+09:00
+EOF
 
-    [ "$status" -eq 0 ]
-    [ "$output" = "simple" ]
+    load_metadata "tower_v2-test"
+
+    [ "$META_DIRECTORY_PATH" = "/path/to/workdir" ]
+    [ "$META_SESSION_NAME" = "v2-test" ]
 
     teardown_test_env
 }
@@ -112,14 +108,22 @@ setup() {
     teardown_test_env
 }
 
-@test "list_all_sessions: output format includes session_id:state:type" {
+@test "list_all_sessions: output format includes session_id:state:path" {
     setup_test_env
-    create_mock_metadata "tower_test-session" "workspace"
+
+    # Create v2 format metadata
+    cat > "${CLAUDE_TOWER_METADATA_DIR}/tower_test-session.meta" << EOF
+session_id=tower_test-session
+session_name=test-session
+directory_path=/home/user/projects/test
+created_at=2026-02-07T10:00:00+09:00
+EOF
 
     run list_all_sessions
 
     [ "$status" -eq 0 ]
-    [[ "$output" == *":"* ]]
+    # v2 format: session_id:state:path
+    [[ "$output" == *"tower_test-session:dormant:/home/user/projects/test"* ]]
 
     teardown_test_env
 }
