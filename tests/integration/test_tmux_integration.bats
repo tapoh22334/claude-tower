@@ -24,14 +24,13 @@ teardown_file() {
 }
 
 setup() {
-    # Set session socket BEFORE sourcing common.sh (TOWER_SESSION_SOCKET is readonly)
+    # Set session socket and TMUX_TMPDIR BEFORE sourcing common.sh
     export CLAUDE_TOWER_SESSION_SOCKET="$TMUX_SOCKET"
+    export TMUX_TMPDIR="/tmp/claude-tower-test-$$"
+    mkdir -p "$TMUX_TMPDIR" 2>/dev/null || true
+    chmod 700 "$TMUX_TMPDIR" 2>/dev/null || true
     source_common
     setup_test_env
-    # Use /tmp for tmux sockets to avoid WSL permission issues
-    export TMUX_TMPDIR="/tmp/claude-tower-test-$$"
-    mkdir -p "$TMUX_TMPDIR"
-    chmod 700 "$TMUX_TMPDIR"
 }
 
 teardown() {
