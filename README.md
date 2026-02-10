@@ -1,19 +1,19 @@
 # Claude Tower
 
-A tmux plugin for managing multiple Claude Code sessions with Navigator UI and git worktree integration.
+A tmux plugin for managing multiple Claude Code sessions with Navigator UI.
 
 ## Features
 
 - **Navigator UI** - Two-pane interface for session management
 - **Live Preview** - Real-time view of selected session content
-- **Git Worktree Integration** - Automatic branch isolation per session
 - **Session Persistence** - Dormant sessions restore automatically
+- **Directory-Based Sessions** - Work with any directory
 - **3-Server Architecture** - Isolated session management
 
 ## Requirements
 
 - tmux 3.2+
-- git
+- git (optional, for repository management)
 - Claude Code CLI (`claude`)
 
 ## Installation
@@ -38,27 +38,40 @@ Add to `~/.tmux.conf`:
 run-shell ~/.tmux/plugins/claude-tower/tmux-plugin/claude-tower.tmux
 ```
 
+## Quick Start
+
+```bash
+# Launch Navigator UI
+prefix + t
+
+# Or use CLI
+tower add ~/projects/myapp              # Add a directory as session
+tower add . -n custom-name              # Add current dir with custom name
+tower rm my-session                     # Remove a session
+tower list                              # List all sessions
+```
+
 ## Usage
 
-Press `prefix + t` to open the Navigator.
-
 ### Navigator UI
+
+Press `prefix + t` to open the Navigator.
 
 ```
 ┌─────────────────────┬────────────────────────────────────────────┐
 │ Sessions [ACTIVE]   │                                            │
 │                     │  Claude Code session content               │
-│ ▶ [W] my-feature    │  displayed here in real-time               │
-│   [S] experiment    │                                            │
-│ ○ [W] old-project   │  Use 'i' to focus and interact             │
-│                     │  Use Escape to return to list              │
+│ ▶ myapp             │  displayed here in real-time               │
+│   /home/user/proj.. │                                            │
+│ ○ experiment        │  Use 'i' to focus and interact             │
+│   /home/user/test   │  Use Escape to return to list              │
 │                     │                                            │
-│ j/k:nav D:del n:new │                                            │
+│ j/k:nav r:restore   │                                            │
 └─────────────────────┴────────────────────────────────────────────┘
      List Pane (24%)              View Pane (76%)
 ```
 
-### Keybindings
+### Navigator Keybindings
 
 | Key | Action |
 |-----|--------|
@@ -70,43 +83,41 @@ Press `prefix + t` to open the Navigator.
 | `i` | Focus view pane (input mode) |
 | `Escape` | Return to list (from view) |
 | `Tab` | Switch to tile view |
-| `n` | Create new session |
-| `D` | Delete session |
 | `r` | Restore selected dormant session |
 | `R` | Restore all dormant sessions |
 | `?` | Show help |
 | `q` | Quit Navigator |
 
+### CLI Commands
+
+```bash
+tower add <path> [-n name]       # Add directory as session
+tower rm <name> [-f]             # Remove session
+tower list                       # List all sessions
+tower restore [--all]            # Restore dormant sessions
+tower tile                       # Launch tile view
+tower help                       # Show help
+```
+
 ### Session States
 
 | Icon | State | Description |
 |------|-------|-------------|
-| `▶` | Active | Claude is running |
+| `▶` | Active | Session is running |
 | `○` | Dormant | Session saved, can be restored |
 
-### Session Types
+## How It Works
 
-| Icon | Type | Description |
-|------|------|-------------|
-| `[W]` | Worktree | Git worktree managed session |
-| `[S]` | Simple | Regular session (no git) |
+Tower manages Claude Code sessions by:
+- Creating tmux sessions for each directory you add
+- Storing session metadata (name, directory path, creation time)
+- Allowing you to restore sessions even after tmux restart
+- **You manage directories** - Tower only manages sessions
 
-## Session Types
-
-### Worktree Session `[W]`
-
-For git repositories:
-- Creates worktree at `~/.claude-tower/worktrees/<name>`
-- Creates branch `tower/<name>`
-- Persists as dormant when closed
-- Auto-cleanup on delete
-
-### Simple Session `[S]`
-
-For quick tasks:
-- Runs in specified directory
-- No git integration
-- Volatile (lost on tmux restart)
+Tower does NOT:
+- Create or delete directories
+- Manage git repositories or branches
+- Interfere with your files or worktrees
 
 ## Architecture
 
@@ -138,11 +149,8 @@ set -g @tower-auto-restore '1'
 # Program to run (default: claude)
 export CLAUDE_TOWER_PROGRAM="claude"
 
-# Worktree directory (default: ~/.claude-tower/worktrees)
-export CLAUDE_TOWER_WORKTREE_DIR="$HOME/.claude-tower/worktrees"
-
-# Metadata directory (default: ~/.claude-tower/sessions)
-export CLAUDE_TOWER_METADATA_DIR="$HOME/.claude-tower/sessions"
+# Metadata directory (default: ~/.claude-tower/metadata)
+export CLAUDE_TOWER_METADATA_DIR="$HOME/.claude-tower/metadata"
 
 # Navigator socket name (default: claude-tower)
 export CLAUDE_TOWER_NAV_SOCKET="claude-tower"
@@ -156,6 +164,89 @@ export CLAUDE_TOWER_NAV_WIDTH="24"
 # Enable debug logging
 export CLAUDE_TOWER_DEBUG=1
 ```
+
+## Migration Guide (v1 → v2)
+
+### What Changed
+
+**v2.0 is a breaking change** that simplifies Tower to focus on session management only.
+
+#### Removed Features
+- ❌ Git worktree automatic creation and management
+- ❌ Session types (`[W]` Worktree / `[S]` Simple)
+- ❌ Navigator inline creation (`n` key) and deletion (`D` key)
+- ❌ Automatic directory cleanup on session delete
+
+#### New Features
+- ✅ `tower add` - Add any directory as a session
+- ✅ `tower rm` - Remove sessions (directories remain untouched)
+- ✅ Path display in Navigator instead of type icons
+- ✅ Simplified metadata (only essential fields)
+
+### Migration Steps
+
+#### 1. Existing Sessions
+
+Your existing sessions will continue to work:
+- Metadata is readable (backward compatible)
+- Sessions can be restored normally
+- **Important**: Deleting a session will no longer remove git worktrees
+
+#### 2. Clean Up Old Worktrees (Optional)
+
+If you have old `[W]` sessions with worktrees:
+
+```bash
+# List all worktrees
+git worktree list
+
+# Remove specific worktree
+git worktree remove ~/.claude-tower/worktrees/<name>
+
+# Or force remove if needed
+git worktree remove --force ~/.claude-tower/worktrees/<name>
+
+# Clean up orphaned worktrees
+git worktree prune
+```
+
+#### 3. Update Your Workflow
+
+**Old workflow:**
+```bash
+# v1 - creates git worktree
+tower new -n my-feature -w
+
+# v1 - deletes worktree and branch
+tower delete my-feature
+```
+
+**New workflow:**
+```bash
+# v2 - just add existing directory
+tower add ~/projects/myapp -n my-feature
+
+# v2 - only removes session (directory untouched)
+tower rm my-feature
+```
+
+#### 4. Navigator Changes
+
+**Old keys (removed):**
+- `n` - Create new session → **Use CLI: `tower add <path>`**
+- `D` - Delete session → **Use CLI: `tower rm <name>`**
+
+**Keys still available:**
+- `r` / `R` - Restore dormant sessions
+- `Enter` - Attach to session
+- `i` - Input mode
+
+### Philosophy Change
+
+**v1:** Tower manages both sessions and directories (git worktrees)
+**v2:** Tower manages sessions, **you manage directories**
+
+This makes Tower simpler, more flexible, and works with any directory structure.
 
 ## Development
 
@@ -210,6 +301,19 @@ make status
 
 ```bash
 make reset
+```
+
+### Clean up orphaned metadata
+
+```bash
+# List orphaned metadata (sessions without active tmux sessions)
+tmux-plugin/scripts/cleanup.sh --list
+
+# Remove orphaned metadata interactively
+tmux-plugin/scripts/cleanup.sh
+
+# Force remove all orphaned metadata
+tmux-plugin/scripts/cleanup.sh --force
 ```
 
 ## License

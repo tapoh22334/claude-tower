@@ -37,27 +37,20 @@ Usage: tower.sh [command] [args...]
 Commands:
   (default)     Launch Navigator UI
   list          List all sessions
-  new           Create new session
-    -n NAME       Session name
-    -w            Create worktree session (persistent)
-    -d DIR        Working directory
-  delete        Delete session
+  add           Add directory as session
+    PATH          Directory path
+    -n NAME       Custom session name (default: dir basename)
+  rm            Remove session
     SESSION_ID    Session to delete
-    --force       Skip confirmation
+    -f, --force   Skip confirmation
   restore       Restore dormant sessions
     SESSION_ID    Specific session to restore
     --all         Restore all dormant sessions
   tile          Launch Tile mode
   help          Show this help
 
-Session Types:
-  [W] Worktree  Persistent with git worktree, auto-restores
-  [S] Simple    Volatile, lost on tmux restart
-
 Session States:
-  ◉ Running     Claude is actively working
-  ▶ Idle        Claude is waiting for input
-  ! Exited      Claude process has exited
+  ▶ Active      Session is running
   ○ Dormant     Session needs restoration
 
 Key Bindings (in Navigator):
@@ -65,19 +58,17 @@ Key Bindings (in Navigator):
   Enter         Attach to session
   i             Input mode (send command)
   t             Tile mode (view all)
-  n             New session
-  d             Delete session
   r             Restart Claude
   ?             Help
   Esc/q         Exit
 
 Examples:
   tower.sh                           # Launch Navigator
-  tower.sh new -n feat-login -w      # Create worktree session
-  tower.sh new -n experiment         # Create simple session
+  tower.sh add ~/projects/myapp      # Add directory as session
+  tower.sh add . -n custom-name      # Add current dir with custom name
   tower.sh list                      # List all sessions
   tower.sh restore --all             # Restore dormant sessions
-  tower.sh delete feat-login         # Delete session
+  tower.sh rm feat-login             # Delete session
 
 EOF
 }
@@ -95,11 +86,11 @@ main() {
             shift
             "$SCRIPT_DIR/session-list.sh" "${1:-pretty}"
             ;;
-        new)
+        add)
             shift
-            "$SCRIPT_DIR/session-new.sh" "$@"
+            "$SCRIPT_DIR/session-add.sh" "$@"
             ;;
-        delete)
+        rm)
             shift
             "$SCRIPT_DIR/session-delete.sh" "$@"
             ;;
