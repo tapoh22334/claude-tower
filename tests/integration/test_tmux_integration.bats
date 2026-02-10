@@ -155,7 +155,7 @@ teardown() {
 # Orphan detection with real tmux
 # ============================================================================
 
-@test "integration: find_orphaned_worktrees detects sessions not in tmux" {
+@test "integration: find_orphaned_metadata detects sessions not in tmux" {
     tmux() { command tmux -L "$TMUX_SOCKET" "$@"; }
     export -f tmux
 
@@ -166,8 +166,8 @@ teardown() {
     # Only create tmux session for "active"
     tmux -L "$TMUX_SOCKET" new-session -d -s "tower_active_int"
 
-    # Find orphans
-    orphans=$(find_orphaned_worktrees)
+    # Find orphaned metadata
+    orphans=$(find_orphaned_metadata)
 
     [[ "$orphans" == *"tower_orphan_int"* ]]
     [[ "$orphans" != *"tower_active_int"* ]]

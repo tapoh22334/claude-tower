@@ -69,37 +69,6 @@ teardown() {
 }
 
 # ============================================================================
-# worktree_exists() tests
-# ============================================================================
-
-@test "worktree_exists: returns false for non-existent path" {
-    run worktree_exists "/nonexistent/path"
-    [ "$status" -eq 1 ]
-}
-
-@test "worktree_exists: returns false for empty directory" {
-    mkdir -p "${CLAUDE_TOWER_WORKTREE_DIR}/empty"
-
-    run worktree_exists "${CLAUDE_TOWER_WORKTREE_DIR}/empty"
-    [ "$status" -eq 1 ]
-}
-
-@test "worktree_exists: returns true for directory with .git file" {
-    mkdir -p "${CLAUDE_TOWER_WORKTREE_DIR}/with_git_file"
-    echo "gitdir: /some/path" > "${CLAUDE_TOWER_WORKTREE_DIR}/with_git_file/.git"
-
-    run worktree_exists "${CLAUDE_TOWER_WORKTREE_DIR}/with_git_file"
-    [ "$status" -eq 0 ]
-}
-
-@test "worktree_exists: returns true for directory with .git directory" {
-    mkdir -p "${CLAUDE_TOWER_WORKTREE_DIR}/with_git_dir/.git"
-
-    run worktree_exists "${CLAUDE_TOWER_WORKTREE_DIR}/with_git_dir"
-    [ "$status" -eq 0 ]
-}
-
-# ============================================================================
 # validate_path_within() edge cases
 # ============================================================================
 
