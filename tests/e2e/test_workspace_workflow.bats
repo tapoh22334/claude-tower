@@ -34,6 +34,10 @@ teardown_file() {
 }
 
 setup() {
+    # Set session socket BEFORE sourcing common.sh (TOWER_SESSION_SOCKET is readonly)
+    export CLAUDE_TOWER_SESSION_SOCKET="$TMUX_SOCKET"
+    # Use /tmp for tmux sockets to avoid WSL permission issues
+    export TMUX_TMPDIR="/tmp/claude-tower-e2e-$$"
     source_common
     setup_test_env
     export TEST_REPO="${BATS_FILE_TMPDIR}/test-repo"
@@ -60,14 +64,12 @@ teardown() {
     local session_id="tower_${session_name}"
 
     # Create tmux session pointing to test repo directory
-    tmux -L "$TMUX_SOCKET" new-session -d -s "$session_id" -c "$TEST_REPO"
+    session_tmux new-session -d -s "$session_id" -c "$TEST_REPO"
 
     # Save v2 metadata
     save_metadata "$session_id" "$TEST_REPO"
 
     # Verify session exists
-    tmux() { command tmux -L "$TMUX_SOCKET" "$@"; }
-    export -f tmux
     run session_exists "$session_id"
     [ "$status" -eq 0 ]
 
@@ -86,7 +88,7 @@ teardown() {
     local session_id="tower_${session_name}"
 
     # Create session for test repo
-    tmux -L "$TMUX_SOCKET" new-session -d -s "$session_id" -c "$TEST_REPO"
+    session_tmux new-session -d -s "$session_id" -c "$TEST_REPO"
     save_metadata "$session_id" "$TEST_REPO"
 
     # Make changes in the directory
@@ -99,7 +101,7 @@ teardown() {
     # Cleanup - restore file
     echo "initial" > "$TEST_REPO/README.md"
 
-    tmux -L "$TMUX_SOCKET" kill-session -t "$session_id"
+    session_tmux kill-session -t "$session_id"
 }
 
 @test "e2e: cleanup removes orphaned metadata" {
@@ -110,10 +112,6 @@ teardown() {
 
     # Create metadata only (no tmux session = orphaned)
     save_metadata "$session_id" "$TEST_REPO"
-
-    # Override tmux to use our socket
-    tmux() { command tmux -L "$TMUX_SOCKET" "$@"; }
-    export -f tmux
 
     # Verify it's detected as orphaned metadata
     orphans=$(find_orphaned_metadata)
@@ -140,12 +138,10 @@ teardown() {
     local session_id="tower_${session_name}"
 
     # Create simple session
-    tmux -L "$TMUX_SOCKET" new-session -d -s "$session_id" -c "/tmp"
+    session_tmux new-session -d -s "$session_id" -c "/tmp"
     save_metadata "$session_id" "/tmp"
 
     # Verify
-    tmux() { command tmux -L "$TMUX_SOCKET" "$@"; }
-    export -f tmux
     run session_exists "$session_id"
     [ "$status" -eq 0 ]
 
@@ -161,9 +157,6 @@ teardown() {
 
     # Create metadata only (orphan)
     save_metadata "$session_id" "/tmp"
-
-    tmux() { command tmux -L "$TMUX_SOCKET" "$@"; }
-    export -f tmux
 
     # Clean up
     remove_orphaned_metadata "$session_id"

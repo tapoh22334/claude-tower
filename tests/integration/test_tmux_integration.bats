@@ -24,6 +24,8 @@ teardown_file() {
 }
 
 setup() {
+    # Set session socket BEFORE sourcing common.sh (TOWER_SESSION_SOCKET is readonly)
+    export CLAUDE_TOWER_SESSION_SOCKET="$TMUX_SOCKET"
     source_common
     setup_test_env
     # Use /tmp for tmux sockets to avoid WSL permission issues
@@ -43,23 +45,16 @@ teardown() {
 # ============================================================================
 
 @test "integration: session_exists returns true for existing session" {
-    # Create a test session
-    tmux -L "$TMUX_SOCKET" new-session -d -s "tower_exists_test"
-
-    # Override tmux to use our socket
-    tmux() { command tmux -L "$TMUX_SOCKET" "$@"; }
-    export -f tmux
+    # Create a test session (session_tmux uses TOWER_SESSION_SOCKET set in setup)
+    session_tmux new-session -d -s "tower_exists_test"
 
     run session_exists "tower_exists_test"
     [ "$status" -eq 0 ]
 
-    tmux -L "$TMUX_SOCKET" kill-session -t "tower_exists_test"
+    session_tmux kill-session -t "tower_exists_test"
 }
 
 @test "integration: session_exists returns false for non-existing session" {
-    tmux() { command tmux -L "$TMUX_SOCKET" "$@"; }
-    export -f tmux
-
     run session_exists "tower_nonexistent_xyz"
     [ "$status" -eq 1 ]
 }
@@ -70,20 +65,16 @@ teardown() {
 
 @test "integration: get_active_sessions lists sessions" {
     # Create test sessions
-    tmux -L "$TMUX_SOCKET" new-session -d -s "tower_list1"
-    tmux -L "$TMUX_SOCKET" new-session -d -s "tower_list2"
-
-    # Override tmux
-    tmux() { command tmux -L "$TMUX_SOCKET" "$@"; }
-    export -f tmux
+    session_tmux new-session -d -s "tower_list1"
+    session_tmux new-session -d -s "tower_list2"
 
     result=$(get_active_sessions)
 
     [[ "$result" == *"tower_list1"* ]]
     [[ "$result" == *"tower_list2"* ]]
 
-    tmux -L "$TMUX_SOCKET" kill-session -t "tower_list1"
-    tmux -L "$TMUX_SOCKET" kill-session -t "tower_list2"
+    session_tmux kill-session -t "tower_list1"
+    session_tmux kill-session -t "tower_list2"
 }
 
 # ============================================================================
@@ -91,6 +82,7 @@ teardown() {
 # ============================================================================
 
 @test "integration: safe_tmux creates session" {
+    # safe_tmux uses plain tmux, so override to route to test socket
     tmux() { command tmux -L "$TMUX_SOCKET" "$@"; }
     export -f tmux
 
@@ -98,16 +90,13 @@ teardown() {
     [ "$status" -eq 0 ]
 
     # Verify session exists
-    run tmux -L "$TMUX_SOCKET" has-session -t "tower_safe_test"
+    run session_tmux has-session -t "tower_safe_test"
     [ "$status" -eq 0 ]
 
-    tmux -L "$TMUX_SOCKET" kill-session -t "tower_safe_test"
+    session_tmux kill-session -t "tower_safe_test"
 }
 
 @test "integration: safe_tmux fails gracefully for invalid command" {
-    tmux() { command tmux -L "$TMUX_SOCKET" "$@"; }
-    export -f tmux
-
     run safe_tmux invalid-command-xyz
     [ "$status" -eq 1 ]
 }
@@ -118,37 +107,37 @@ teardown() {
 
 @test "integration: can store and retrieve session options" {
     # Create session
-    tmux -L "$TMUX_SOCKET" new-session -d -s "tower_options_test"
+    session_tmux new-session -d -s "tower_options_test"
 
     # Store option
-    tmux -L "$TMUX_SOCKET" set-option -t "tower_options_test" @tower_session_type "workspace"
+    session_tmux set-option -t "tower_options_test" @tower_session_type "workspace"
 
     # Retrieve option
-    result=$(tmux -L "$TMUX_SOCKET" show-option -t "tower_options_test" -v @tower_session_type 2>/dev/null || echo "")
+    result=$(session_tmux show-option -t "tower_options_test" -v @tower_session_type 2>/dev/null || echo "")
 
     [ "$result" = "workspace" ]
 
-    tmux -L "$TMUX_SOCKET" kill-session -t "tower_options_test"
+    session_tmux kill-session -t "tower_options_test"
 }
 
 @test "integration: session options persist during session lifetime" {
-    tmux -L "$TMUX_SOCKET" new-session -d -s "tower_persist_test"
+    session_tmux new-session -d -s "tower_persist_test"
 
     # Store multiple options
-    tmux -L "$TMUX_SOCKET" set-option -t "tower_persist_test" @tower_session_type "workspace"
-    tmux -L "$TMUX_SOCKET" set-option -t "tower_persist_test" @tower_repository "/test/repo"
-    tmux -L "$TMUX_SOCKET" set-option -t "tower_persist_test" @tower_source "abc123"
+    session_tmux set-option -t "tower_persist_test" @tower_session_type "workspace"
+    session_tmux set-option -t "tower_persist_test" @tower_repository "/test/repo"
+    session_tmux set-option -t "tower_persist_test" @tower_source "abc123"
 
     # Verify all options
-    type_val=$(tmux -L "$TMUX_SOCKET" show-option -t "tower_persist_test" -v @tower_session_type)
-    repo_val=$(tmux -L "$TMUX_SOCKET" show-option -t "tower_persist_test" -v @tower_repository)
-    source_val=$(tmux -L "$TMUX_SOCKET" show-option -t "tower_persist_test" -v @tower_source)
+    type_val=$(session_tmux show-option -t "tower_persist_test" -v @tower_session_type)
+    repo_val=$(session_tmux show-option -t "tower_persist_test" -v @tower_repository)
+    source_val=$(session_tmux show-option -t "tower_persist_test" -v @tower_source)
 
     [ "$type_val" = "workspace" ]
     [ "$repo_val" = "/test/repo" ]
     [ "$source_val" = "abc123" ]
 
-    tmux -L "$TMUX_SOCKET" kill-session -t "tower_persist_test"
+    session_tmux kill-session -t "tower_persist_test"
 }
 
 # ============================================================================
@@ -156,15 +145,12 @@ teardown() {
 # ============================================================================
 
 @test "integration: find_orphaned_metadata detects sessions not in tmux" {
-    tmux() { command tmux -L "$TMUX_SOCKET" "$@"; }
-    export -f tmux
-
     # Create metadata for sessions
     create_mock_metadata "tower_active_int"
     create_mock_metadata "tower_orphan_int"
 
     # Only create tmux session for "active"
-    tmux -L "$TMUX_SOCKET" new-session -d -s "tower_active_int"
+    session_tmux new-session -d -s "tower_active_int"
 
     # Find orphaned metadata
     orphans=$(find_orphaned_metadata)
@@ -172,5 +158,5 @@ teardown() {
     [[ "$orphans" == *"tower_orphan_int"* ]]
     [[ "$orphans" != *"tower_active_int"* ]]
 
-    tmux -L "$TMUX_SOCKET" kill-session -t "tower_active_int"
+    session_tmux kill-session -t "tower_active_int"
 }
