@@ -1,9 +1,9 @@
-# Feature Specification: Tower v2 - セッション管理の簡素化
+# Feature Specification: Claude Tower - セッション管理
 
 **Feature Branch**: `001-tower-v2-simplify`
 **Created**: 2026-02-05
 **Status**: Draft
-**Input**: User description: "Tower v2: セッション管理に特化したシンプルな設計への移行。Worktree管理機能を廃止し、ディレクトリは参照するだけとする。"
+**Input**: User description: "Claude Tower: Claude Codeセッションの作成・削除・一覧表示をCLIとNavigatorで管理する。Towerはディレクトリを参照するだけで、ディレクトリの作成や管理は行わない。"
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -11,7 +11,7 @@
 
 ユーザーは任意のディレクトリを指定して、そのディレクトリでClaude Codeセッションを開始できる。Towerはディレクトリを「参照」するだけで、ディレクトリの作成や管理は行わない。
 
-**Why this priority**: セッション作成は最も基本的な機能であり、Tower v2の設計哲学「ディレクトリは参照するだけ」を体現する中核機能。
+**Why this priority**: セッション作成は最も基本的な機能であり、Towerの設計哲学「ディレクトリは参照するだけ」を体現する中核機能。
 
 **Independent Test**: `tower add /path/to/dir`コマンドを実行し、Navigatorでセッションが表示され、Claude Codeが起動していることを確認できる。
 
@@ -27,7 +27,7 @@
 
 ユーザーはCLIからセッションを削除できる。削除時、Towerはディレクトリを一切触らず、セッション情報（metadata）のみを削除する。
 
-**Why this priority**: セッション削除も基本機能であり、v2の「Towerはディレクトリを触らない」原則を明確にする重要な機能。
+**Why this priority**: セッション削除も基本機能であり、「Towerはディレクトリを触らない」原則を明確にする重要な機能。
 
 **Independent Test**: `tower rm session-name`コマンドを実行し、セッションが削除されるがディレクトリは残っていることを確認できる。
 
@@ -41,9 +41,9 @@
 
 ### User Story 3 - Navigatorでセッション一覧を確認する (Priority: P2)
 
-ユーザーはNavigatorでセッション一覧を確認できる。表示はシンプルになり、タイプアイコン（[W]/[S]）は廃止され、代わりにパスが表示される。
+ユーザーはNavigatorでセッション一覧を確認できる。各セッションにはセッション名とディレクトリパスが表示される。
 
-**Why this priority**: 一覧表示は作業効率に直結する機能だが、既存機能の改善なのでP2。
+**Why this priority**: 一覧表示は作業効率に直結する機能だが、セッション作成・削除の基盤が先に必要なためP2。
 
 **Independent Test**: `prefix + t`でNavigatorを開き、セッション名とパスが表示されることを確認できる。
 
@@ -59,7 +59,7 @@
 
 ユーザーはNavigatorからセッションを選択してアタッチできる。
 
-**Why this priority**: アタッチは既存機能であり、変更なしで継続動作する。
+**Why this priority**: アタッチはNavigatorの主要操作であり、一覧表示と同時に提供する。
 
 **Independent Test**: NavigatorでセッションをEnterで選択し、そのセッションにアタッチできることを確認。
 
@@ -67,21 +67,6 @@
 
 1. **Given** Navigatorでセッションを選択, **When** Enterを押す, **Then** そのセッションにアタッチされる
 2. **Given** ドーマントセッションを選択, **When** rを押す, **Then** セッションが復元されアクティブになる
-
----
-
-### User Story 5 - 既存v1セッションの後方互換性 (Priority: P3)
-
-既存のv1形式のmetadata（Worktreeセッション等）を持つユーザーは、v2でも引き続きセッションを使用できる。ただし削除時の挙動は新仕様（ディレクトリを削除しない）に従う。
-
-**Why this priority**: 既存ユーザーへの配慮だが、新規機能ではないためP3。
-
-**Independent Test**: v1形式のmetadataを持つセッションがNavigatorに表示され、操作できることを確認。
-
-**Acceptance Scenarios**:
-
-1. **Given** v1形式のmetadataがある, **When** Navigatorを開く, **Then** セッションが正しく表示される
-2. **Given** v1のWorktreeセッションがある, **When** 削除する, **Then** metadataのみ削除されworktreeディレクトリは残る
 
 ---
 
@@ -105,10 +90,9 @@
 - **FR-006**: システムはセッション削除時、確認プロンプトを表示しなければならない（`-f`オプションでスキップ可能）
 - **FR-007**: システムはセッション削除時、ディレクトリを一切変更してはならない
 - **FR-008**: Navigatorはセッション名とパスを表示しなければならない
-- **FR-009**: Navigatorからの`n`（新規作成）と`D`（削除）キーバインドは廃止しなければならない
-- **FR-010**: システムはv1形式のmetadataを読み込み、後方互換性を維持しなければならない
+- **FR-009**: セッションの作成・削除はCLI（`tower add`/`tower rm`）経由でのみ行う
 - **FR-011**: metadataは`session_id`, `session_name`, `directory_path`, `created_at`のフィールドを持たなければならない
-- **FR-012**: タイプ分類（[W]/[S]）は廃止し、全セッションを同一に扱わなければならない
+- **FR-012**: 全セッションは同一の種別として扱い、種別による区別は行わない
 
 ### Key Entities
 
@@ -121,10 +105,9 @@
 ### Measurable Outcomes
 
 - **SC-001**: ユーザーは2コマンド以内でセッションを作成・削除できる
-- **SC-002**: Navigatorの表示項目がセッション名とパスのみになり、情報量が削減される
+- **SC-002**: Navigatorの表示項目がセッション名とパスで構成され、必要十分な情報を提供する
 - **SC-003**: セッション削除後、元のディレクトリが100%保持される
-- **SC-004**: v1形式のmetadataを持つ既存セッションが引き続き動作する
-- **SC-005**: コードベースからWorktree関連の関数・定数が削除され、保守性が向上する
+- **SC-005**: セッション管理に必要な機能がCLIとNavigatorで完結する
 
 ## Assumptions
 
