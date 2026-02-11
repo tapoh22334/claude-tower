@@ -580,21 +580,29 @@ load_metadata() {
     META_CREATED_AT=""
 
     if [[ -f "$metadata_file" ]]; then
+        local _v1_worktree_path="" _v1_repository_path=""
+
         while IFS='=' read -r key value; do
             case "$key" in
                 # v2 fields
                 session_name) META_SESSION_NAME="$value" ;;
                 directory_path) META_DIRECTORY_PATH="$value" ;;
                 created_at) META_CREATED_AT="$value" ;;
-                # v1 backward compatibility
-                worktree_path)
-                    [[ -z "$META_DIRECTORY_PATH" ]] && META_DIRECTORY_PATH="$value"
-                    ;;
-                repository_path | repo_path)
-                    [[ -z "$META_DIRECTORY_PATH" ]] && META_DIRECTORY_PATH="$value"
-                    ;;
+                # v1 fields (resolve priority after loop)
+                worktree_path) _v1_worktree_path="$value" ;;
+                repository_path | repo_path) _v1_repository_path="$value" ;;
             esac
         done <"$metadata_file"
+
+        # v1 backward compatibility: resolve directory_path if not set by v2 field
+        # Priority: directory_path (v2) > worktree_path (v1) > repository_path (v1)
+        if [[ -z "$META_DIRECTORY_PATH" ]]; then
+            if [[ -n "$_v1_worktree_path" ]]; then
+                META_DIRECTORY_PATH="$_v1_worktree_path"
+            elif [[ -n "$_v1_repository_path" ]]; then
+                META_DIRECTORY_PATH="$_v1_repository_path"
+            fi
+        fi
 
         # Derive session_name from session_id if not in metadata
         if [[ -z "$META_SESSION_NAME" ]]; then

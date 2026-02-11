@@ -42,6 +42,7 @@ jobs:
 
       - name: Run integration tests
         run: ./tests/run_integration_tests.sh
+        timeout-minutes: 5
 
   # E2E tests - full workflow
   e2e-tests:
@@ -66,6 +67,7 @@ jobs:
 
       - name: Run E2E tests
         run: ./tests/run_e2e_tests.sh
+        timeout-minutes: 5
 
   # Docker-based tests (comprehensive)
   docker-tests:
@@ -94,7 +96,8 @@ jobs:
         run: |
           # Exclude SC2034 (unused variables) - these are library exports used by sourcing scripts
           # Exclude SC1091 (not following source) - dynamic paths
-          shellcheck --exclude=SC2034,SC1091 tmux-plugin/lib/*.sh tmux-plugin/scripts/*.sh
+          # Exclude SC2317 (unreachable code) - false positives in case statements after non-returning functions
+          shellcheck --exclude=SC2034,SC1091,SC2317 tmux-plugin/lib/*.sh tmux-plugin/scripts/*.sh
 
       - name: Run ShellCheck on test scripts
         run: |

@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# E2E tests for workspace session workflow
+# E2E tests for session workflow (v2)
 # Tests the full lifecycle: create -> use -> cleanup
 
 load '../test_helper'
@@ -34,6 +34,10 @@ teardown_file() {
 }
 
 setup() {
+    # Set session socket BEFORE sourcing common.sh (TOWER_SESSION_SOCKET is readonly)
+    export CLAUDE_TOWER_SESSION_SOCKET="$TMUX_SOCKET"
+    # Use /tmp for tmux sockets to avoid WSL permission issues
+    export TMUX_TMPDIR="/tmp/claude-tower-e2e-$$"
     source_common
     setup_test_env
     export TEST_REPO="${BATS_FILE_TMPDIR}/test-repo"
@@ -50,96 +54,77 @@ teardown() {
 }
 
 # ============================================================================
-# Full Workspace Workflow
+# Directory-Based Session Workflow (v2)
 # ============================================================================
 
-@test "e2e: create workspace session from git repository" {
+@test "e2e: create session for a directory" {
     skip_if_no_tmux
 
-    local session_name="test-workspace"
+    local session_name="test-dir-session"
     local session_id="tower_${session_name}"
 
-    # Simulate workspace creation (without fzf interaction)
-    local worktree_path="${CLAUDE_TOWER_WORKTREE_DIR}/${session_name}"
-    local source_commit=$(git -C "$TEST_REPO" rev-parse HEAD)
+    # Create tmux session pointing to test repo directory
+    session_tmux new-session -d -s "$session_id" -c "$TEST_REPO"
 
-    # Create worktree
-    git -C "$TEST_REPO" worktree add -b "tower/${session_name}" "$worktree_path" "$source_commit"
+    # Save v2 metadata
+    save_metadata "$session_id" "$TEST_REPO"
 
-    # Create tmux session
-    tmux -L "$TMUX_SOCKET" new-session -d -s "$session_id" -c "$worktree_path"
-
-    # Store session metadata
-    tmux -L "$TMUX_SOCKET" set-option -t "$session_id" @tower_session_type "workspace"
-    tmux -L "$TMUX_SOCKET" set-option -t "$session_id" @tower_repository "$TEST_REPO"
-    tmux -L "$TMUX_SOCKET" set-option -t "$session_id" @tower_source "$source_commit"
-
-    # Save metadata to file
-    save_metadata "$session_id" "workspace" "$TEST_REPO" "$source_commit"
-
-    # Verify everything is set up correctly
-    [ -d "$worktree_path" ]
-    [ -f "$worktree_path/README.md" ]
-
-    tmux() { command tmux -L "$TMUX_SOCKET" "$@"; }
-    export -f tmux
+    # Verify session exists
     run session_exists "$session_id"
     [ "$status" -eq 0 ]
 
+    # Verify metadata
     run has_metadata "$session_id"
     [ "$status" -eq 0 ]
+
+    load_metadata "$session_id"
+    [ "$META_DIRECTORY_PATH" = "$TEST_REPO" ]
 }
 
-@test "e2e: workspace session has isolated changes" {
+@test "e2e: session directory is independent from session" {
     skip_if_no_tmux
 
-    local session_name="isolated-workspace"
-    local worktree_path="${CLAUDE_TOWER_WORKTREE_DIR}/${session_name}"
-    local source_commit=$(git -C "$TEST_REPO" rev-parse HEAD)
+    local session_name="isolated-session"
+    local session_id="tower_${session_name}"
 
-    # Create worktree
-    git -C "$TEST_REPO" worktree add -b "tower/${session_name}" "$worktree_path" "$source_commit"
+    # Create session for test repo
+    session_tmux new-session -d -s "$session_id" -c "$TEST_REPO"
+    save_metadata "$session_id" "$TEST_REPO"
 
-    # Make changes in worktree
-    echo "worktree change" >> "$worktree_path/README.md"
+    # Make changes in the directory
+    echo "session change" >> "$TEST_REPO/README.md"
 
-    # Verify main repo is unchanged
-    main_content=$(cat "$TEST_REPO/README.md")
-    worktree_content=$(cat "$worktree_path/README.md")
+    # Verify the file was changed
+    worktree_content=$(cat "$TEST_REPO/README.md")
+    [[ "$worktree_content" == *"session change"* ]]
 
-    [ "$main_content" = "initial" ]
-    [[ "$worktree_content" == *"worktree change"* ]]
+    # Cleanup - restore file
+    echo "initial" > "$TEST_REPO/README.md"
 
-    # Cleanup
-    git -C "$TEST_REPO" worktree remove --force "$worktree_path"
+    session_tmux kill-session -t "$session_id"
 }
 
-@test "e2e: cleanup removes orphaned workspace" {
+@test "e2e: cleanup removes orphaned metadata" {
     skip_if_no_tmux
 
     local session_name="orphan-test"
     local session_id="tower_${session_name}"
-    local worktree_path="${CLAUDE_TOWER_WORKTREE_DIR}/${session_name}"
-    local source_commit=$(git -C "$TEST_REPO" rev-parse HEAD)
 
-    # Create worktree and metadata (but no tmux session)
-    git -C "$TEST_REPO" worktree add -b "tower/${session_name}" "$worktree_path" "$source_commit"
-    save_metadata "$session_id" "workspace" "$TEST_REPO" "$source_commit"
+    # Create metadata only (no tmux session = orphaned)
+    save_metadata "$session_id" "$TEST_REPO"
 
-    # Override tmux to use our socket
-    tmux() { command tmux -L "$TMUX_SOCKET" "$@"; }
-    export -f tmux
-
-    # Verify it's detected as orphan
-    orphans=$(find_orphaned_worktrees)
+    # Verify it's detected as orphaned metadata
+    orphans=$(find_orphaned_metadata)
     [[ "$orphans" == *"$session_id"* ]]
 
     # Clean up the orphan
-    remove_orphaned_worktree "$session_id"
+    remove_orphaned_metadata "$session_id"
 
-    # Verify cleanup
+    # Verify metadata removed
     [ ! -f "${CLAUDE_TOWER_METADATA_DIR}/${session_id}.meta" ]
-    [ ! -d "$worktree_path" ]
+
+    # Verify directory still exists (v2: never deleted)
+    [ -d "$TEST_REPO" ]
 }
 
 # ============================================================================
@@ -152,19 +137,16 @@ teardown() {
     local session_name="simple-test"
     local session_id="tower_${session_name}"
 
-    # Create simple session (no worktree)
-    tmux -L "$TMUX_SOCKET" new-session -d -s "$session_id" -c "/tmp"
-    tmux -L "$TMUX_SOCKET" set-option -t "$session_id" @tower_session_type "simple"
-    save_metadata "$session_id" "simple"
+    # Create simple session
+    session_tmux new-session -d -s "$session_id" -c "/tmp"
+    save_metadata "$session_id" "/tmp"
 
     # Verify
-    tmux() { command tmux -L "$TMUX_SOCKET" "$@"; }
-    export -f tmux
     run session_exists "$session_id"
     [ "$status" -eq 0 ]
 
     load_metadata "$session_id"
-    [ "$META_SESSION_TYPE" = "simple" ]
+    [ "$META_DIRECTORY_PATH" = "/tmp" ]
 }
 
 @test "e2e: simple session cleanup only removes metadata" {
@@ -174,13 +156,10 @@ teardown() {
     local session_id="tower_${session_name}"
 
     # Create metadata only (orphan)
-    save_metadata "$session_id" "simple"
-
-    tmux() { command tmux -L "$TMUX_SOCKET" "$@"; }
-    export -f tmux
+    save_metadata "$session_id" "/tmp"
 
     # Clean up
-    remove_orphaned_worktree "$session_id"
+    remove_orphaned_metadata "$session_id"
 
     # Verify metadata removed
     [ ! -f "${CLAUDE_TOWER_METADATA_DIR}/${session_id}.meta" ]

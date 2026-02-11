@@ -27,8 +27,10 @@ teardown_file() {
 }
 
 setup() {
-    # Set env var BEFORE sourcing (TOWER_NAV_SOCKET is readonly)
+    # Set env vars BEFORE sourcing (sockets are readonly)
     export CLAUDE_TOWER_NAV_SOCKET="$NAV_SOCKET"
+    export CLAUDE_TOWER_SESSION_SOCKET="$DEFAULT_SOCKET"
+    export TMUX_TMPDIR="/tmp/claude-tower-nav-test"
     source_common
     setup_test_env
     ensure_nav_state_dir
