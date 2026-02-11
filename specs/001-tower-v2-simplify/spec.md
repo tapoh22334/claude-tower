@@ -3,70 +3,103 @@
 **Feature Branch**: `001-tower-v2-simplify`
 **Created**: 2026-02-05
 **Status**: Draft
-**Input**: User description: "Claude Tower: Claude Codeセッションの作成・削除・一覧表示をCLIとNavigatorで管理する。Towerはディレクトリを参照するだけで、ディレクトリの作成や管理は行わない。"
+**Input**: User description: "Claude Tower: Claude Codeセッションの作成・削除・一覧表示・復元をCLIとNavigator UIで管理するtmuxプラグイン。Towerはディレクトリを参照するだけで、ディレクトリの作成や管理は行わない。"
 
 ## User Scenarios & Testing *(mandatory)*
 
-### User Story 1 - CLIでセッションを追加する (Priority: P1)
+### User Story 1 - CLIでセッションを管理する (Priority: P1)
 
-ユーザーは任意のディレクトリを指定して、そのディレクトリでClaude Codeセッションを開始できる。Towerはディレクトリを「参照」するだけで、ディレクトリの作成や管理は行わない。
+ユーザーはCLIコマンドでClaude Codeセッションのライフサイクル全体（作成・削除・一覧・復元・クリーンアップ）を管理できる。
 
-**Why this priority**: セッション作成は最も基本的な機能であり、Towerの設計哲学「ディレクトリは参照するだけ」を体現する中核機能。
+**Why this priority**: CLIはセッション管理の基盤であり、全ての操作の入り口となる最重要機能。
 
-**Independent Test**: `tower add /path/to/dir`コマンドを実行し、Navigatorでセッションが表示され、Claude Codeが起動していることを確認できる。
+**Independent Test**: `tower add /path/to/dir` でセッションを作成し、`tower list` で確認し、`tower rm` で削除できる。
 
 **Acceptance Scenarios**:
 
 1. **Given** 存在するディレクトリがある, **When** `tower add /path/to/dir`を実行, **Then** セッションが作成されClaude Codeが起動する
 2. **Given** セッションを追加したい, **When** `tower add . -n my-session`を実行, **Then** カレントディレクトリで指定名のセッションが作成される
 3. **Given** 存在するディレクトリがある, **When** `tower add /path/to/dir`を実行, **Then** metadataが保存され、tmux再起動後も復元できる
+4. **Given** アクティブなセッションがある, **When** `tower rm session-name`を実行, **Then** 確認プロンプト後にセッションが削除される
+5. **Given** セッションがある, **When** `tower rm session-name -f`を実行, **Then** 確認なしで即座に削除される
+6. **Given** セッションを削除した, **When** ディレクトリを確認, **Then** ディレクトリは削除されずそのまま残っている
+7. **Given** セッションが存在する, **When** `tower list`を実行, **Then** 全セッション（アクティブ・ドーマント）が一覧表示される
+8. **Given** ドーマントセッションがある, **When** `tower restore session-id`を実行, **Then** セッションが復元されアクティブになる
+9. **Given** 複数のドーマントセッションがある, **When** `tower restore --all`を実行, **Then** 全ドーマントセッションが復元される
+10. **Given** tmuxセッションのないmetadataがある, **When** `tower cleanup`を実行, **Then** 孤立したmetadataが一覧表示され、削除を選択できる
 
 ---
 
-### User Story 2 - CLIでセッションを削除する (Priority: P1)
+### User Story 2 - Navigatorでセッションを操作する (Priority: P1)
 
-ユーザーはCLIからセッションを削除できる。削除時、Towerはディレクトリを一切触らず、セッション情報（metadata）のみを削除する。
+ユーザーは`prefix + t`でNavigatorを開き、左ペインのセッション一覧からセッションの選択・アタッチ・復元を行える。Vim風のキー操作（j/k/g/G）で直感的にナビゲートできる。
 
-**Why this priority**: セッション削除も基本機能であり、「Towerはディレクトリを触らない」原則を明確にする重要な機能。
+**Why this priority**: Navigatorはユーザーが最も頻繁に使うインターフェースであり、セッション間の切り替えの中心となる。
 
-**Independent Test**: `tower rm session-name`コマンドを実行し、セッションが削除されるがディレクトリは残っていることを確認できる。
+**Independent Test**: `prefix + t`でNavigatorを開き、j/kでセッション間を移動し、Enterで選択したセッションにアタッチできることを確認。
 
 **Acceptance Scenarios**:
 
-1. **Given** アクティブなセッションがある, **When** `tower rm session-name`を実行, **Then** 確認プロンプト後にセッションが削除される
-2. **Given** セッションがある, **When** `tower rm session-name -f`を実行, **Then** 確認なしで即座に削除される
-3. **Given** セッションを削除した, **When** ディレクトリを確認, **Then** ディレクトリは削除されずそのまま残っている
+1. **Given** tmux上で作業中, **When** `prefix + t`を押す, **Then** Navigatorが開き、左にセッション一覧、右にプレビューが表示される
+2. **Given** Navigatorが開いている, **When** j/kキーを押す, **Then** セッション間を移動でき、右ペインのプレビューが連動して更新される
+3. **Given** Navigatorでアクティブセッションを選択, **When** Enterを押す, **Then** そのセッションにフルアタッチされる
+4. **Given** Navigatorでドーマントセッションを選択, **When** rを押す, **Then** セッションが復元されアクティブになる
+5. **Given** 複数のドーマントセッションがある, **When** Rを押す, **Then** 全ドーマントセッションが復元される
+6. **Given** Navigatorが開いている, **When** g/Gを押す, **Then** 先頭/末尾のセッションにジャンプする
+7. **Given** Navigatorが開いている, **When** qを押す, **Then** Navigatorが閉じて元のセッションに戻る
 
 ---
 
-### User Story 3 - Navigatorでセッション一覧を確認する (Priority: P2)
+### User Story 3 - Navigatorでセッションをプレビュー・操作する (Priority: P2)
 
-ユーザーはNavigatorでセッション一覧を確認できる。各セッションにはセッション名とディレクトリパスが表示される。
+ユーザーはNavigatorの右ペインで選択中のセッションの出力をリアルタイムにプレビューできる。また、入力モード(i)でセッションに切り替えずにコマンドを送信できる。
 
-**Why this priority**: 一覧表示は作業効率に直結する機能だが、セッション作成・削除の基盤が先に必要なためP2。
+**Why this priority**: プレビューと入力モードはナビゲーション体験を向上させるが、基本操作が先に必要。
 
-**Independent Test**: `prefix + t`でNavigatorを開き、セッション名とパスが表示されることを確認できる。
+**Independent Test**: Navigatorでセッションを選択し、右ペインにリアルタイム出力が表示されること、iキーで入力モードに入りコマンドを送信できることを確認。
 
 **Acceptance Scenarios**:
 
-1. **Given** 複数のセッションがある, **When** Navigatorを開く, **Then** セッション名とパスが一覧表示される
-2. **Given** アクティブとドーマントのセッションがある, **When** Navigatorを開く, **Then** アクティブは▶、ドーマントは○で表示される
-3. **Given** Navigatorを開いている, **When** j/kキーを押す, **Then** セッション間を移動できる
+1. **Given** Navigatorでアクティブセッションを選択, **When** 右ペインを確認, **Then** セッションの出力がリアルタイムに表示される
+2. **Given** Navigatorでドーマントセッションを選択, **When** 右ペインを確認, **Then** セッション情報と復元ヒントが表示される
+3. **Given** Navigatorのリストペインにフォーカス中, **When** iを押す, **Then** ビューペインにフォーカスが移り入力モードになる
+4. **Given** 入力モード中, **When** コマンドを入力, **Then** 選択中のセッションにコマンドが送信される
+5. **Given** セッションが選択されていない, **When** 右ペインを確認, **Then** プレースホルダーが表示される
 
 ---
 
-### User Story 4 - Navigatorからセッションにアタッチする (Priority: P2)
+### User Story 4 - Tile Viewで全セッションを俯瞰する (Priority: P2)
 
-ユーザーはNavigatorからセッションを選択してアタッチできる。
+ユーザーはTile Viewで全セッションのプレビューをグリッド形式で一度に確認できる。各タイルにはセッション名と出力プレビューが表示される。
 
-**Why this priority**: アタッチはNavigatorの主要操作であり、一覧表示と同時に提供する。
+**Why this priority**: 複数セッションの状態を素早く確認する高度な機能。
 
-**Independent Test**: NavigatorでセッションをEnterで選択し、そのセッションにアタッチできることを確認。
+**Independent Test**: NavigatorでTabを押し、全セッションがグリッド表示されることを確認。
 
 **Acceptance Scenarios**:
 
-1. **Given** Navigatorでセッションを選択, **When** Enterを押す, **Then** そのセッションにアタッチされる
-2. **Given** ドーマントセッションを選択, **When** rを押す, **Then** セッションが復元されアクティブになる
+1. **Given** Navigatorが開いている, **When** Tabを押す, **Then** Tile Viewに切り替わりセッションがグリッド表示される
+2. **Given** Tile View表示中, **When** 数字キー(1-9)を押す, **Then** 対応するセッションが選択されリスト表示に戻る
+3. **Given** Tile View表示中, **When** j/kで移動, **Then** セッション間をナビゲートできる
+4. **Given** Tile View表示中, **When** Enter/Tabを押す, **Then** リスト表示に戻る
+5. **Given** ドーマントセッションのタイルがある, **When** タイルを確認, **Then** 「Dormant - Press 'r' to restore」と表示される
+
+---
+
+### User Story 5 - ステータスラインとサイドバーで状態を確認する (Priority: P3)
+
+ユーザーはtmuxステータスラインでセッション情報を確認できる。また、サイドバーで全セッションのコンパクトな一覧を表示できる。
+
+**Why this priority**: 補助的な情報表示機能であり、メイン操作には不要。
+
+**Independent Test**: ステータスラインにセッション情報が表示されること、サイドバーでセッション一覧が表示されることを確認。
+
+**Acceptance Scenarios**:
+
+1. **Given** Claude Towerセッション内にいる, **When** ステータスラインを確認, **Then** セッション名とgitブランチ情報が表示される
+2. **Given** 複数セッションが存在する, **When** ステータスラインを確認, **Then** セッション数の統計が表示される
+3. **Given** tmux上で作業中, **When** サイドバーを開く, **Then** 全セッションのコンパクトな一覧が左パネルに表示される
+4. **Given** サイドバーが開いている, **When** サイドバーを閉じる, **Then** サイドバーが消えて元の表示に戻る
 
 ---
 
@@ -77,10 +110,15 @@
 - 同名セッションが既に存在する場合、エラーメッセージを表示
 - metadataが壊れている場合、セッションをスキップして警告表示
 - tmuxセッションが異常終了した場合、metadataはドーマント状態として保持
+- Navigatorが連続エラーを検出した場合、最大5回まで自動リスタートを試行
+- セッション名に特殊文字が含まれる場合、サニタイズして安全な名前に変換
+- パストラバーサル攻撃（`../`等）を検出した場合、操作を拒否
 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
+
+**CLI**
 
 - **FR-001**: システムは`tower add <path>`コマンドで指定ディレクトリのセッションを作成できなければならない
 - **FR-002**: システムは`tower add <path> -n <name>`でセッション名を明示的に指定できなければならない
@@ -89,25 +127,86 @@
 - **FR-005**: システムは`tower rm <name>`コマンドでセッションを削除できなければならない
 - **FR-006**: システムはセッション削除時、確認プロンプトを表示しなければならない（`-f`オプションでスキップ可能）
 - **FR-007**: システムはセッション削除時、ディレクトリを一切変更してはならない
-- **FR-008**: Navigatorはセッション名とパスを表示しなければならない
-- **FR-009**: セッションの作成・削除はCLI（`tower add`/`tower rm`）経由でのみ行う
-- **FR-011**: metadataは`session_id`, `session_name`, `directory_path`, `created_at`のフィールドを持たなければならない
-- **FR-012**: 全セッションは同一の種別として扱い、種別による区別は行わない
+- **FR-008**: システムは`tower list`コマンドで全セッション（アクティブ・ドーマント）を一覧表示できなければならない
+- **FR-009**: `tower list`は`--raw`、`--pretty`、`--json`の出力形式をサポートしなければならない
+- **FR-010**: システムは`tower restore <session-id>`でドーマントセッションを復元できなければならない
+- **FR-011**: システムは`tower restore --all`で全ドーマントセッションを一括復元できなければならない
+- **FR-012**: システムは`tower cleanup`で孤立したmetadata（tmuxセッションのない）を検出・削除できなければならない
+
+**Navigator**
+
+- **FR-013**: ユーザーは`prefix + t`でNavigatorを起動できなければならない
+- **FR-014**: Navigatorは左ペイン（セッション一覧）と右ペイン（プレビュー）の2ペイン構成でなければならない
+- **FR-015**: セッション一覧はセッション名とディレクトリパスを表示しなければならない
+- **FR-016**: アクティブセッションは▶、ドーマントセッションは○のアイコンで区別しなければならない
+- **FR-017**: j/k/↑/↓キーでセッション間を移動できなければならない
+- **FR-018**: g/Gキーで先頭/末尾のセッションにジャンプできなければならない
+- **FR-019**: Enterキーで選択中のセッションにフルアタッチできなければならない
+- **FR-020**: rキーで選択中のドーマントセッションを復元できなければならない
+- **FR-021**: Rキーで全ドーマントセッションを一括復元できなければならない
+- **FR-022**: qキーでNavigatorを閉じ元のセッションに戻れなければならない
+- **FR-023**: ?キーでヘルプ画面を表示できなければならない
+- **FR-024**: セッションの作成・削除はCLI（`tower add`/`tower rm`）経由でのみ行う
+
+**Navigator - プレビューと入力モード**
+
+- **FR-025**: 右ペインはアクティブセッションのリアルタイム出力を表示しなければならない
+- **FR-026**: 右ペインはドーマントセッション選択時にセッション情報と復元ヒントを表示しなければならない
+- **FR-027**: iキーでビューペインにフォーカスを移し、入力モードに入れなければならない
+- **FR-028**: 入力モードでは選択中のセッションにコマンドを送信できなければならない
+
+**Tile View**
+
+- **FR-029**: TabキーでNavigatorからTile Viewに切り替えられなければならない
+- **FR-030**: Tile Viewは全セッションを2カラムのグリッド形式で表示しなければならない
+- **FR-031**: 各タイルはセッション名とプレビュー（最大8行）を表示しなければならない
+- **FR-032**: 数字キー(1-9)で対応するセッションを選択してリスト表示に戻れなければならない
+
+**ステータスラインとサイドバー**
+
+- **FR-033**: ステータスラインはセッション名とgitブランチ情報を表示できなければならない
+- **FR-034**: ステータスラインは`session`、`stats`、`full`の表示モードをサポートしなければならない
+- **FR-035**: サイドバーはトグル操作で開閉できなければならない
+- **FR-036**: サイドバーは全セッションのコンパクトな一覧（名前、状態アイコン、gitブランチ）を表示しなければならない
+
+**セッション状態とメタデータ**
+
+- **FR-037**: セッションは「アクティブ」（tmuxセッション存在）と「ドーマント」（metadataのみ存在）の2状態を持つ
+- **FR-038**: metadataは`session_id`, `session_name`, `directory_path`, `created_at`のフィールドを持たなければならない
+- **FR-039**: 全セッションは同一の種別として扱い、種別による区別は行わない
+
+**セキュリティ**
+
+- **FR-040**: セッション名は英数字・ハイフン・アンダースコアのみに制限しなければならない
+- **FR-041**: パストラバーサル（`../`等）を検出し操作を拒否しなければならない
+- **FR-042**: metadataディレクトリとstateディレクトリのパーミッションは700でなければならない
+
+**設定**
+
+- **FR-043**: Navigator起動キーは`@tower-prefix`オプションで変更できなければならない（デフォルト: `t`）
+- **FR-044**: `@tower-auto-restore`オプションでプラグイン読み込み時の自動復元を制御できなければならない
+- **FR-045**: NavigatorサーバーとSessionサーバーのソケット名はオプションで変更できなければならない
 
 ### Key Entities
 
 - **Session**: Claude Codeが動作する作業単位。セッションID、名前、ディレクトリパス、作成日時を持つ
 - **Metadata**: セッションの永続化情報。`~/.claude-tower/metadata/<session_id>.meta`に保存
-- **Navigator**: セッション一覧を表示し、操作するためのUI
+- **Navigator**: セッション一覧とプレビューを2ペインで表示するUI
+- **Tile View**: 全セッションをグリッド形式で表示するUI
+- **Statusline**: tmuxステータスバーに表示するセッション情報
+- **Sidebar**: 全セッションのコンパクト一覧を表示する左パネル
 
 ## Success Criteria *(mandatory)*
 
 ### Measurable Outcomes
 
 - **SC-001**: ユーザーは2コマンド以内でセッションを作成・削除できる
-- **SC-002**: Navigatorの表示項目がセッション名とパスで構成され、必要十分な情報を提供する
+- **SC-002**: Navigatorはセッション名とパスを表示し、選択から1キーでアタッチできる
 - **SC-003**: セッション削除後、元のディレクトリが100%保持される
-- **SC-005**: セッション管理に必要な機能がCLIとNavigatorで完結する
+- **SC-004**: セッション管理の全操作（作成・削除・一覧・復元・クリーンアップ）がCLIで完結する
+- **SC-005**: Navigatorの選択変更から0.5秒以内にプレビューが更新される
+- **SC-006**: Tile Viewで最大6セッションのプレビューを一度に確認できる
+- **SC-007**: ドーマントセッションを1キー操作で復元できる
 
 ## Assumptions
 
@@ -115,3 +214,4 @@
 - tmux 3.2以上がインストールされている
 - Claude Code CLIがインストールされている
 - ユーザーはBashシェル互換の環境で作業している
+- NavigatorとSessionは別のtmuxサーバー上で動作する（ソケット分離）
