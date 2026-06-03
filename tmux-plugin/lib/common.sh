@@ -111,7 +111,6 @@ readonly ICON_GIT="⎇"
 # ============================================================================
 # Configuration
 # ============================================================================
-readonly TOWER_WORKTREE_DIR="${CLAUDE_TOWER_WORKTREE_DIR:-$HOME/.claude-tower/worktrees}"
 readonly TOWER_PROGRAM="${CLAUDE_TOWER_PROGRAM:-claude}"
 readonly TOWER_METADATA_DIR="${CLAUDE_TOWER_METADATA_DIR:-$HOME/.claude-tower/metadata}"
 readonly PREVIEW_LINES=30
@@ -909,7 +908,6 @@ session_exists() {
     session_tmux has-session -t "$session_id" 2>/dev/null
 }
 
-
 # ============================================================================
 # Session State Detection (v3.0 - Idempotent)
 # ============================================================================
@@ -1090,7 +1088,7 @@ _create_simple_session() {
 # Uses tmux capture-pane to check for prompt characters
 _wait_for_shell_ready() {
     local session_id="$1"
-    local max_attempts=30  # 3 seconds max (30 * 0.1s)
+    local max_attempts=30 # 3 seconds max (30 * 0.1s)
     local attempt=0
 
     while [[ $attempt -lt $max_attempts ]]; do
@@ -1105,7 +1103,7 @@ _wait_for_shell_ready() {
         fi
 
         sleep 0.1
-        ((attempt++)) || true  # Prevent exit on attempt=0 (returns 1 with set -e)
+        ((attempt++)) || true # Prevent exit on attempt=0 (returns 1 with set -e)
     done
 
     # Timeout - proceed anyway but log warning
@@ -1280,7 +1278,7 @@ send_to_session() {
 # Auto-restore dormant sessions
 # ============================================================================
 
-# Restore all dormant worktree sessions
+# Restore all dormant sessions
 restore_all_dormant() {
     local restored=0
     local failed=0

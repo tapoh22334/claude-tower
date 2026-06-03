@@ -178,7 +178,7 @@ close_navigator() {
             target_socket="$TOWER_SESSION_SOCKET"
         elif TMUX= tmux has-session -t "$caller" 2>/dev/null; then
             target_session="$caller"
-            target_socket=""  # default server
+            target_socket="" # default server
         fi
     fi
 

@@ -31,10 +31,31 @@ readonly NAV_C_HEADER=$'\033[1;36m'
 readonly NAV_C_SELECTED=$'\033[7m' # Reverse video
 readonly NAV_C_NORMAL=$'\033[0m'
 readonly NAV_C_DIM=$'\033[2m'
-readonly NAV_C_ACCENT=$'\033[1;32m'  # Green bold - for highlights
-readonly NAV_C_ERROR=$'\033[1;31m'   # Red bold - for errors
-readonly NAV_C_ACTIVE=$'\033[32m'    # Green - active sessions
-readonly NAV_C_DORMANT=$'\033[90m'   # Gray - dormant sessions
+readonly NAV_C_ACCENT=$'\033[1;32m' # Green bold - for highlights
+readonly NAV_C_ERROR=$'\033[1;31m'  # Red bold - for errors
+readonly NAV_C_ACTIVE=$'\033[32m'   # Green - active sessions
+readonly NAV_C_DORMANT=$'\033[90m'  # Gray - dormant sessions
+
+# Caller CWD state file (written by claude-tower.tmux on Navigator launch)
+readonly NAV_CALLER_CWD_FILE="/tmp/claude-tower/caller-cwd"
+
+# ============================================================================
+# Caller Context
+# ============================================================================
+
+# Load the caller's working directory captured at Navigator launch.
+# Falls back to $HOME if unavailable.
+_load_caller_cwd() {
+    local cwd=""
+    if [[ -r "$NAV_CALLER_CWD_FILE" ]]; then
+        cwd=$(<"$NAV_CALLER_CWD_FILE")
+        cwd="${cwd//$'\n'/}" # strip newlines
+    fi
+    if [[ -z "$cwd" || ! -d "$cwd" ]]; then
+        cwd="$HOME"
+    fi
+    echo "$cwd"
+}
 
 # ============================================================================
 # Session List Management
@@ -171,9 +192,9 @@ render_list() {
         done
     fi
 
-    # Footer with keybindings (compact) - v2: removed n:new D:del
+    # Footer with keybindings (compact)
     output+="\n"
-    output+="${NAV_C_DIM}j/k:nav  Enter:attach  i:input  r:restore  q:quit${NAV_C_NORMAL}\n"
+    output+="${NAV_C_DIM}j/k:nav  1-9:jump  Enter:attach  i:input  n:new  d:del  r:restore  ?:help  q:quit${NAV_C_NORMAL}\n"
 
     # Clear to end of screen code
     local clear_eos
@@ -183,7 +204,7 @@ render_list() {
     printf '\033[?25l\033[H%b%s\033[?25h' "$output" "$clear_eos"
 }
 
-# Show help screen (v2: removed n/D keys)
+# Show help screen
 show_help() {
     clear
     echo -e "${NAV_C_HEADER}Navigator Help${NAV_C_NORMAL}"
@@ -193,17 +214,16 @@ show_help() {
     echo "    k / ↑      Move up"
     echo "    g          Go to first session"
     echo "    G          Go to last session"
+    echo "    1-9        Jump to Nth session (first 9 only)"
     echo ""
     echo "  Actions:"
     echo "    Enter      Full attach to session"
     echo "    i          Focus view pane (input mode)"
+    echo "    n          New session (prompts for path, prefilled with caller CWD)"
+    echo "    d          Delete selected session (with [y/N] confirm)"
     echo "    r          Restore selected dormant session"
     echo "    R          Restore all dormant sessions"
     echo "    Tab        Switch to Tile view"
-    echo ""
-    echo "  Session Management (CLI):"
-    echo "    tower add <path>     Add new session"
-    echo "    tower rm <name>      Remove session"
     echo ""
     echo "  Other:"
     echo "    ?          Show this help"
@@ -211,6 +231,52 @@ show_help() {
     echo ""
     echo -e "${NAV_C_DIM}Press any key to continue...${NAV_C_NORMAL}"
     read -rsn1
+}
+
+# ============================================================================
+# Inline Prompts
+# ============================================================================
+
+# Render a single-line input prompt at the bottom of the pane.
+# Uses readline editing (-e) with a prefilled default.
+# Returns the user's input on stdout. Empty string means cancelled (empty input
+# or readline EOF).
+_prompt_inline() {
+    local label="$1"
+    local default="${2:-}"
+    local term_height
+    term_height=$(tput lines 2>/dev/null || echo 24)
+
+    # Move to bottom line, clear it, show cursor
+    printf '\033[%d;1H\033[2K\033[?25h' "$term_height"
+
+    local result=""
+    # Read with readline editing, prefilled with default
+    # Returns non-zero on EOF/Ctrl-C; treat as cancellation
+    if ! IFS= read -r -e -i "$default" -p "$label" result; then
+        result=""
+    fi
+
+    # Hide cursor again to match Navigator's normal state
+    printf '\033[?25l'
+    echo "$result"
+}
+
+# Render a single-char y/N confirmation prompt at the bottom of the pane.
+# Returns 0 (yes) only if user presses lowercase 'y'; non-zero otherwise.
+_prompt_yesno_inline() {
+    local label="$1"
+    local term_height
+    term_height=$(tput lines 2>/dev/null || echo 24)
+
+    printf '\033[%d;1H\033[2K\033[?25h%s' "$term_height" "$label"
+
+    local key=""
+    read -rsn1 key
+
+    printf '\033[?25l'
+
+    [[ "$key" == "y" ]]
 }
 
 # ============================================================================
@@ -436,6 +502,76 @@ full_attach() {
     nav_tmux detach-client -E "TMUX= tmux -L '$TOWER_SESSION_SOCKET' attach-session -t '$selected'"
 }
 
+# Create a new session via inline prompt prefilled with caller CWD.
+# Invokes session-add.sh on confirmation. Cancelled if input is empty.
+add_new_session() {
+    local default_path
+    default_path=$(_load_caller_cwd)
+
+    local path
+    path=$(_prompt_inline "New session path: " "$default_path")
+
+    if [[ -z "$path" ]]; then
+        return 0
+    fi
+
+    # Expand ~ and resolve to absolute path
+    # shellcheck disable=SC2086
+    path="${path/#\~/$HOME}"
+
+    echo ""
+    echo "  ${NAV_C_ACCENT}Creating session for: $path${NAV_C_NORMAL}"
+
+    if "$SCRIPT_DIR/session-add.sh" "$path" 2>&1 | tail -3; then
+        sleep 0.5
+    else
+        echo "  ${NAV_C_ERROR}✗ Failed to create session${NAV_C_NORMAL}"
+        sleep 1
+    fi
+}
+
+# Delete the currently selected session after inline y/N confirmation.
+# Uses session-delete.sh -f after the user confirms.
+delete_selected_session() {
+    local selected
+    selected=$(get_nav_selected)
+
+    if [[ -z "$selected" ]]; then
+        return 0
+    fi
+
+    local name="${selected#tower_}"
+    if _prompt_yesno_inline "Delete '${name}'? [y/N] "; then
+        echo ""
+        echo "  ${NAV_C_ACCENT}Deleting: $name${NAV_C_NORMAL}"
+
+        if "$SCRIPT_DIR/session-delete.sh" "$name" -f 2>&1 | tail -2; then
+            set_nav_selected ""
+            sleep 0.3
+        else
+            echo "  ${NAV_C_ERROR}✗ Failed to delete${NAV_C_NORMAL}"
+            sleep 1
+        fi
+    fi
+}
+
+# Jump selection to the Nth session (1-indexed). No-op if N exceeds the
+# session count. Returns the new index on stdout (or the original if no-op).
+jump_to_index() {
+    local digit="$1"
+    local current_index="$2"
+    local target=$((digit - 1))
+
+    if ((target < 0 || target >= ${#SESSION_IDS[@]})); then
+        echo "$current_index"
+        return
+    fi
+
+    set_nav_selected "${SESSION_IDS[$target]}"
+    signal_view_update
+    echo "$target"
+}
+
 # Quit Navigator
 # Returns to the caller session or any available session on default server
 quit_navigator() {
@@ -454,7 +590,7 @@ quit_navigator() {
             target_socket="$TOWER_SESSION_SOCKET"
         elif TMUX= tmux has-session -t "$caller" 2>/dev/null; then
             target_session="$caller"
-            target_socket=""  # default server
+            target_socket="" # default server
         fi
     fi
 
@@ -495,7 +631,10 @@ main_loop() {
     if [[ -n "$current_selected" ]]; then
         local found=0
         for id in "${SESSION_IDS[@]:-}"; do
-            [[ "$id" == "$current_selected" ]] && { found=1; break; }
+            [[ "$id" == "$current_selected" ]] && {
+                found=1
+                break
+            }
         done
         if [[ $found -eq 0 ]]; then
             # Selected session no longer exists, clear selection
@@ -569,6 +708,24 @@ main_loop() {
                     build_session_list
                     selected_index=$(get_selection_index)
                     clear
+                    ;;
+                n)
+                    # Create new session via inline prompt
+                    add_new_session
+                    build_session_list
+                    selected_index=$(get_selection_index)
+                    clear
+                    ;;
+                d)
+                    # Delete selected session after y/N confirmation
+                    delete_selected_session
+                    build_session_list
+                    selected_index=$(get_selection_index)
+                    clear
+                    ;;
+                [1-9])
+                    # Direct jump to Nth session (1-indexed); no-op if N exceeds count
+                    selected_index=$(jump_to_index "$key" "$selected_index")
                     ;;
                 $'\t') # Tab key
                     switch_to_tile

@@ -97,7 +97,7 @@ jobs:
           # Exclude SC2034 (unused variables) - these are library exports used by sourcing scripts
           # Exclude SC1091 (not following source) - dynamic paths
           # Exclude SC2317 (unreachable code) - false positives in case statements after non-returning functions
-          shellcheck --exclude=SC2034,SC1091,SC2317 tmux-plugin/lib/*.sh tmux-plugin/scripts/*.sh
+          shellcheck --exclude=SC2034,SC1091,SC2317 tmux-plugin/lib/*.sh tmux-plugin/scripts/*.sh tmux-plugin/bin/*
 
       - name: Run ShellCheck on test scripts
         run: |

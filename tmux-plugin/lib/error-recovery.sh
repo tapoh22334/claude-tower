@@ -140,7 +140,7 @@ show_tui_error() {
 
     # Generate horizontal border
     local border_h=""
-    for ((i=0; i<box_width-2; i++)); do
+    for ((i = 0; i < box_width - 2; i++)); do
         border_h+="─"
     done
 
@@ -205,7 +205,7 @@ show_tui_status() {
     local inner_width=$((box_width - 4))
 
     local border_h=""
-    for ((i=0; i<box_width-2; i++)); do
+    for ((i = 0; i < box_width - 2; i++)); do
         border_h+="─"
     done
 
@@ -236,8 +236,8 @@ wait_error_response() {
     read -rsn1 key
 
     case "$key" in
-        q|Q) echo "quit" ;;
-        *)   echo "retry" ;;
+        q | Q) echo "quit" ;;
+        *) echo "retry" ;;
     esac
 }
 
@@ -470,13 +470,13 @@ classify_error() {
     local error_msg="$2"
 
     case "$error_msg" in
-        *"session not found"*|*"no session"*)
+        *"session not found"* | *"no session"*)
             echo "session_missing"
             ;;
-        *"server not found"*|*"no server"*|*"connection refused"*)
+        *"server not found"* | *"no server"* | *"connection refused"*)
             echo "transient"
             ;;
-        *"config"*|*"not found"*|*"missing"*)
+        *"config"* | *"not found"* | *"missing"*)
             echo "config"
             ;;
         *)
@@ -498,10 +498,10 @@ get_error_action() {
     local error_type="$1"
 
     case "$error_type" in
-        transient)      echo "retry" ;;
+        transient) echo "retry" ;;
         session_missing) echo "refresh" ;;
-        config)         echo "warn" ;;
-        fatal)          echo "exit" ;;
-        *)              echo "retry" ;;
+        config) echo "warn" ;;
+        fatal) echo "exit" ;;
+        *) echo "retry" ;;
     esac
 }

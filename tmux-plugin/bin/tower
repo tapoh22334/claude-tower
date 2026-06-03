@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# tower - Claude Tower CLI
+# Usage: tower <command> [options]
+#
+# Commands:
+#   add <path> [-n name]    Add a new session
+#   rm <name> [-f]          Remove a session
+#   list                    List all sessions
+#   restore [--all]         Restore dormant sessions
+#   tile                    Launch tile view
+#   help                    Show help
+
+set -euo pipefail
+
+# Resolve symlinks to find real script location
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+    DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+    SOURCE="$(readlink "$SOURCE")"
+    [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+
+# Scripts are at ../scripts/ relative to bin/
+SCRIPTS_DIR="$SCRIPT_DIR/../scripts"
+
+TOWER_SCRIPT_NAME="tower"
+
+# shellcheck source=../lib/common.sh
+source "$SCRIPT_DIR/../lib/common.sh"
+
+# Show help
+show_help() {
+    cat <<'EOF'
+tower - Claude Tower CLI
+
+Usage: tower <command> [options]
+
+Commands:
+  (default)               Launch Navigator UI
+  add <path> [-n name]    Add a new session for the specified directory
+  rm <name> [-f]          Remove a session (keeps directory)
+  list                    List all sessions
+  restore [--all]         Restore all dormant sessions
+  help                    Show this help
+
+Options:
+  -h, --help              Show this help
+
+Session States:
+  ▶ Active      Session is running
+  ○ Dormant     Session needs restoration
+
+Examples:
+  tower                               # Launch Navigator
+  tower add .                         # Add session for current directory
+  tower add /path/to/project          # Add session for specified path
+  tower add . -n my-project           # Add with custom session name
+  tower rm my-project                 # Remove session (with confirmation)
+  tower rm my-project -f              # Remove session (force, no confirmation)
+  tower list                          # List all sessions
+  tower restore                       # Restore all dormant sessions
+  tower restore --all                 # Same as 'tower restore'
+
+Note: Tile view is reachable from Navigator with Tab.
+
+EOF
+}
+
+# Main entry point
+main() {
+    local command="${1:-}"
+
+    case "$command" in
+        "" | navigator)
+            exec "$SCRIPTS_DIR/navigator.sh"
+            ;;
+        add)
+            shift
+            exec "$SCRIPTS_DIR/session-add.sh" "$@"
+            ;;
+        rm | remove | delete)
+            shift
+            exec "$SCRIPTS_DIR/session-delete.sh" "$@"
+            ;;
+        list)
+            shift
+            exec "$SCRIPTS_DIR/session-list.sh" "${1:-pretty}"
+            ;;
+        restore)
+            # Per spec 003-simplify FR-013: only --all (or no arg, equivalent) is supported
+            # Any positional argument is silently treated as --all
+            exec "$SCRIPTS_DIR/session-restore.sh" --all
+            ;;
+        -h | --help | help)
+            show_help
+            ;;
+        *)
+            echo "Error: Unknown command: $command" >&2
+            echo "Run 'tower help' for usage." >&2
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"

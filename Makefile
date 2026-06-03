@@ -30,7 +30,7 @@ help:
 	@echo "    make clean      - Remove Docker images"
 
 # Scripts to check
-SCRIPTS := $(shell find tmux-plugin -name "*.sh" -type f)
+SCRIPTS := $(shell find tmux-plugin -name "*.sh" -type f) $(shell find tmux-plugin/bin -type f 2>/dev/null)
 
 # ============================================================================
 # Linting

@@ -7,11 +7,12 @@
 #   k/↑       Move to previous session (wraps around)
 #   g         Go to first session
 #   G         Go to last session
-#   1-9       Select session + return to list view
-#   Enter     Return to list view with current selection
-#   Tab       Return to list view
-#   r         Refresh view
-#   q/Esc     Quit Navigator
+#   1-9       Jump to Nth session AND enter input mode for it
+#   Enter     Enter input mode for currently selected session
+#   Tab       Return to Navigator list view (no input mode entry)
+#   q         Quit Navigator
+#
+# Auto-refresh: tiles refresh on every REFRESH_INTERVAL (no manual refresh key).
 
 set -euo pipefail
 
@@ -29,6 +30,9 @@ readonly REVERSE=$'\033[7m'
 readonly CYAN=$'\033[36m'
 readonly GREEN=$'\033[32m'
 readonly YELLOW=$'\033[33m'
+
+# Auto-refresh cadence (matches navigator-list.sh REFRESH_INTERVAL)
+readonly REFRESH_INTERVAL=2
 
 # State
 SELECTED_INDEX=0
@@ -116,7 +120,7 @@ draw_tiles() {
     local count=${#SESSIONS[@]}
 
     # Header
-    echo -e "${BOLD}${CYAN}━━━ Tile View ━━━${NC}  ${DIM}j/k:nav g/G:first/last 1-9:select Tab:list q:quit${NC}"
+    echo -e "${BOLD}${CYAN}━━━ Tile View ━━━${NC}  ${DIM}j/k:nav g/G:first/last 1-9/Enter:input Tab:list q:quit${NC}"
     echo ""
 
     if [[ $count -eq 0 ]]; then
@@ -156,7 +160,7 @@ draw_tiles() {
         state=$(get_session_state "$sid")
 
         if [[ "$state" == "$STATE_DORMANT" ]]; then
-            content="Dormant - Press 'r' to restore"
+            content="Dormant - return to list (Tab) and press 'r' to restore"
         else
             # Capture from session server where Claude sessions live
             content=$(session_tmux capture-pane -t "$sid" -p -S -"$preview_height" 2>/dev/null | tail -"$((preview_height - 1))" || echo "(unavailable)")
@@ -183,32 +187,59 @@ draw_tiles() {
     done
 }
 
-# Return to list view with selected session
+# Return to Navigator list view with selected session.
+# Use this for Tab — does NOT enter input mode.
 return_to_list_view() {
     local selected_id="$1"
 
-    # Save selection to state file
     if [[ -n "$selected_id" ]]; then
         set_nav_selected "$selected_id"
     fi
 
     cleanup
 
-    # Return to Navigator
     TMUX= tmux -L "$TOWER_NAV_SOCKET" attach-session -t "$TOWER_NAV_SESSION" 2>/dev/null || exit 0
     exit 0
 }
 
-# Handle input
-handle_input() {
-    local key
-    read -rsn1 key
+# Enter input mode for the given session: set selection + focus state, focus
+# the Navigator's view pane, then return to Navigator. User lands directly at
+# the Claude input prompt for that session. Per FR-009a, exiting input mode
+# (Escape) returns to the Navigator list — not back to Tile.
+enter_input_mode_for() {
+    local selected_id="$1"
 
-    # Handle escape sequences (arrow keys)
+    [[ -z "$selected_id" ]] && return
+
+    # Update Navigator selection + focus state so it renders the chosen session.
+    set_nav_selected "$selected_id"
+    set_nav_focus "view"
+
+    # Move Navigator's tmux pane focus to the view (right) pane before re-entry.
+    nav_tmux select-pane -t "$TOWER_NAV_SESSION:0.1" 2>/dev/null || true
+
+    cleanup
+
+    TMUX= tmux -L "$TOWER_NAV_SOCKET" attach-session -t "$TOWER_NAV_SESSION" 2>/dev/null || exit 0
+    exit 0
+}
+
+# Dispatch a single keystroke. The caller (main loop) reads the key with a
+# timeout for auto-refresh, then passes the key here. An empty key arg means
+# "timeout fired — no input" and is treated as a no-op.
+handle_input() {
+    local key="$1"
+
+    # Empty arg = timeout, no input to handle
+    [[ -z "$key" && "${2:-}" != "enter" ]] && return 0
+
+    # Handle escape sequences (arrow keys) — caller may already have consumed
+    # the [A/[B bytes; we accept both forms.
     if [[ "$key" == $'\x1b' ]]; then
+        local key2=""
         read -rsn2 -t 0.1 key2 || true
         if [[ -z "$key2" ]]; then
-            # Pure Escape - ignore (use 'q' to quit)
+            # Pure Escape — ignore (use 'q' to quit)
             return 0
         fi
         key="${key}${key2}"
@@ -217,14 +248,14 @@ handle_input() {
     local count=${#SESSIONS[@]}
 
     case "$key" in
-        j | $'\x1b[B') # Down / Next (with wraparound)
+        j | $'\x1b[B') # Down / Next (wraparound)
             if [[ $count -gt 0 ]]; then
-                SELECTED_INDEX=$(( (SELECTED_INDEX + 1) % count ))
+                SELECTED_INDEX=$(((SELECTED_INDEX + 1) % count))
             fi
             ;;
-        k | $'\x1b[A') # Up / Previous (with wraparound)
+        k | $'\x1b[A') # Up / Previous (wraparound)
             if [[ $count -gt 0 ]]; then
-                SELECTED_INDEX=$(( (SELECTED_INDEX - 1 + count) % count ))
+                SELECTED_INDEX=$(((SELECTED_INDEX - 1 + count) % count))
             fi
             ;;
         g) # Go to first
@@ -235,30 +266,26 @@ handle_input() {
                 SELECTED_INDEX=$((count - 1))
             fi
             ;;
-        [1-9]) # Number select + return to list view
+        [1-9]) # Direct jump + enter input mode for that session
             local target=$((key - 1))
             if [[ $target -lt $count ]]; then
-                return_to_list_view "${SESSION_IDS[$target]}"
+                enter_input_mode_for "${SESSION_IDS[$target]}"
             fi
             ;;
-        "" | $'\n') # Enter - return to list view with current selection
+        "" | $'\n') # Enter — enter input mode for currently selected tile
             if [[ $count -gt 0 ]]; then
-                return_to_list_view "${SESSION_IDS[$SELECTED_INDEX]}"
+                enter_input_mode_for "${SESSION_IDS[$SELECTED_INDEX]}"
             fi
             ;;
-        $'\t') # Tab - return to list view
+        $'\t') # Tab — return to Navigator list (no input mode entry)
             if [[ $count -gt 0 ]]; then
                 return_to_list_view "${SESSION_IDS[$SELECTED_INDEX]}"
             else
                 return_to_list_view ""
             fi
             ;;
-        r) # Refresh
-            load_sessions
-            ;;
-        q) # Quit navigator
+        q) # Quit navigator (does not return — calls exit)
             quit_navigator
-            return 1
             ;;
     esac
 
@@ -272,7 +299,9 @@ cleanup() {
     stty echo 2>/dev/null || true
 }
 
-# Main
+# Main loop with auto-refresh: blocks on read with REFRESH_INTERVAL timeout.
+# On timeout: reload sessions and redraw (auto-refresh). On key: dispatch then
+# reload+redraw.
 main() {
     trap cleanup EXIT
 
@@ -284,7 +313,11 @@ main() {
     draw_tiles
 
     while true; do
-        handle_input || break
+        local key=""
+        if read -rsn1 -t "$REFRESH_INTERVAL" key; then
+            handle_input "$key" "enter"
+        fi
+        load_sessions
         draw_tiles
     done
 
