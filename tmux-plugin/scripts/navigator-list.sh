@@ -242,24 +242,30 @@ show_help() {
 # Uses readline editing (-e) with a prefilled default.
 # Returns the user's input on stdout. Empty string means cancelled (empty input
 # or readline EOF).
+#
+# Implementation note: terminal control sequences (cursor position, visibility)
+# go to /dev/tty so they reach the pane WITHOUT polluting stdout when the
+# caller uses command substitution: path=$(_prompt_inline ...).
 _prompt_inline() {
     local label="$1"
     local default="${2:-}"
     local term_height
     term_height=$(tput lines 2>/dev/null || echo 24)
 
-    # Move to bottom line, clear it, show cursor
-    printf '\033[%d;1H\033[2K\033[?25h' "$term_height"
+    # Move to bottom line, clear it, show cursor (terminal-only side effects).
+    printf '\033[%d;1H\033[2K\033[?25h' "$term_height" >/dev/tty
 
     local result=""
-    # Read with readline editing, prefilled with default
-    # Returns non-zero on EOF/Ctrl-C; treat as cancellation
+    # Read with readline editing, prefilled with default. Prompt (-p) writes
+    # to stderr in bash, so it doesn't get into the captured stdout either.
+    # Returns non-zero on EOF/Ctrl-C; treat as cancellation.
     if ! IFS= read -r -e -i "$default" -p "$label" result; then
         result=""
     fi
 
-    # Hide cursor again to match Navigator's normal state
-    printf '\033[?25l'
+    # Hide cursor again to match Navigator's normal state (terminal-only).
+    printf '\033[?25l' >/dev/tty
+
     echo "$result"
 }
 
@@ -270,12 +276,13 @@ _prompt_yesno_inline() {
     local term_height
     term_height=$(tput lines 2>/dev/null || echo 24)
 
-    printf '\033[%d;1H\033[2K\033[?25h%s' "$term_height" "$label"
+    # Terminal-only side effects: position + label render on the pane.
+    printf '\033[%d;1H\033[2K\033[?25h%s' "$term_height" "$label" >/dev/tty
 
     local key=""
     read -rsn1 key
 
-    printf '\033[?25l'
+    printf '\033[?25l' >/dev/tty
 
     [[ "$key" == "y" ]]
 }
@@ -412,11 +419,14 @@ restore_all_dormant_sessions() {
     local failed=0
 
     # Count dormant sessions
+    # NB: `((dormant_count++))` returns the OLD value as exit code; for the
+    # first increment (0 → 1) that exit is 1, which under `set -e` aborts
+    # the function. The `|| true` neutralizes that.
     for id in "${SESSION_IDS[@]:-}"; do
         local state
         state=$(get_session_state "$id")
         if [[ "$state" == "$STATE_DORMANT" ]]; then
-            ((dormant_count++))
+            ((dormant_count++)) || true
         fi
     done
 
@@ -665,7 +675,9 @@ main_loop() {
 
         # Wait for input with timeout
         local key=""
-        if read -rsn1 -t "$REFRESH_INTERVAL" key; then
+        # IFS= preserves Tab/space (default IFS would strip them, making
+        # Tab indistinguishable from Enter).
+        if IFS= read -rsn1 -t "$REFRESH_INTERVAL" key; then
             case "$key" in
                 j | $'\x1b')
                     # Handle arrow keys

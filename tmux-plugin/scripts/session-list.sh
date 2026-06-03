@@ -18,36 +18,28 @@ case "$format" in
         list_all_sessions
         ;;
     pretty | --pretty)
-        while IFS=':' read -r session_id state type display_name branch diff_stats; do
+        # v2 list_all_sessions output: session_id:state:directory_path
+        while IFS=':' read -r session_id state directory_path; do
             [[ -z "$session_id" ]] && continue
 
             state_icon=$(get_state_icon "$state")
-            type_icon=$(get_type_icon "$type")
+            name="${session_id#tower_}"
+            short_dir="${directory_path/#$HOME/~}"
 
-            branch_info=""
-            [[ -n "$branch" ]] && branch_info="${ICON_GIT} $branch"
-
-            diff_info=""
-            [[ -n "$diff_stats" ]] && diff_info="$diff_stats"
-
-            printf "%s %s %-25s %s %s\n" \
-                "$state_icon" "$type_icon" "$display_name" "$branch_info" "$diff_info"
+            printf "%s %-25s %s\n" "$state_icon" "$name" "$short_dir"
         done < <(list_all_sessions)
         ;;
     json | --json)
         echo "["
         first=true
-        while IFS=':' read -r session_id state type display_name branch diff_stats; do
+        while IFS=':' read -r session_id state directory_path; do
             [[ -z "$session_id" ]] && continue
             [[ "$first" == "true" ]] && first=false || echo ","
             cat <<EOF
   {
     "session_id": "$session_id",
     "state": "$state",
-    "type": "$type",
-    "display_name": "$display_name",
-    "branch": "$branch",
-    "diff_stats": "$diff_stats"
+    "directory_path": "$directory_path"
   }
 EOF
         done < <(list_all_sessions)

@@ -76,21 +76,20 @@ load_sessions() {
     SESSIONS=()
     SESSION_IDS=()
 
-    while IFS=':' read -r session_id state type display_name branch diff_stats; do
+    # v2 list_all_sessions output: session_id:state:directory_path
+    while IFS=':' read -r session_id state directory_path; do
         [[ -z "$session_id" ]] && continue
 
-        local state_icon type_icon line
+        local state_icon line
         state_icon=$(get_state_icon "$state")
-        type_icon=$(get_type_icon "$type")
 
         local name="${session_id#tower_}"
+        local short_dir="${directory_path/#$HOME/~}"
 
-        # Dormant sessions shown with dim color
         if [[ "$state" == "$STATE_DORMANT" ]]; then
-            line="${DIM}${state_icon} ${type_icon} ${name}${NC}"
+            line="${DIM}${state_icon} ${name} ${short_dir}${NC}"
         else
-            line="${state_icon} ${type_icon} ${name}"
-            [[ -n "$branch" ]] && line="${line} ${ICON_GIT}${branch}"
+            line="${state_icon} ${name} ${short_dir}"
         fi
 
         SESSIONS+=("$line")
@@ -185,6 +184,10 @@ draw_tiles() {
         # Limit visible tiles
         [[ $idx -ge 6 ]] && break
     done
+
+    # Ensure draw_tiles returns 0 even when the last iteration's [[ ]]
+    # check was false (set -e would otherwise exit the script).
+    return 0
 }
 
 # Return to Navigator list view with selected session.
@@ -314,7 +317,8 @@ main() {
 
     while true; do
         local key=""
-        if read -rsn1 -t "$REFRESH_INTERVAL" key; then
+        # IFS= preserves Tab/space (default IFS would strip them).
+        if IFS= read -rsn1 -t "$REFRESH_INTERVAL" key; then
             handle_input "$key" "enter"
         fi
         load_sessions
