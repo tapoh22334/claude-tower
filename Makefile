@@ -1,7 +1,10 @@
 # Claude Tower - Development Makefile
 # Usage: make <target>
 
-.PHONY: help lint lint-fix format format-fix test test-docker clean reload reset status
+.PHONY: help lint lint-fix format format-fix \
+        test test-unit test-integration test-e2e test-docker \
+        check ci \
+        clean reload reset status
 
 # Default target
 help:
@@ -19,8 +22,15 @@ help:
 	@echo "    make format-fix - Format scripts with shfmt (in-place)"
 	@echo ""
 	@echo "  Testing:"
-	@echo "    make test       - Run all tests locally"
-	@echo "    make test-docker- Run tests in Docker container"
+	@echo "    make test             - Run unit + integration + e2e tests"
+	@echo "    make test-unit        - Run unit tests only (bats tests/*.bats)"
+	@echo "    make test-integration - Run integration tests (tests/integration/)"
+	@echo "    make test-e2e         - Run end-to-end tests (tests/e2e/)"
+	@echo "    make test-docker      - Run tests in Docker container"
+	@echo ""
+	@echo "  Aggregate (CI gate):"
+	@echo "    make check      - Run lint + format + all tests (local CI gate)"
+	@echo "    make ci         - Alias for 'make check'"
 	@echo ""
 	@echo "  Docker:"
 	@echo "    make docker-lint  - Build lint Docker image"
@@ -82,10 +92,36 @@ format-fix:
 # Testing
 # ============================================================================
 
-# Run tests locally
-test:
-	@echo "Running tests..."
-	@bats tests/
+# Bats binary: prefer the project's vendored copy, fall back to PATH.
+BATS := $(shell [ -x tests/bats/bin/bats ] && echo tests/bats/bin/bats || echo bats)
+
+# Unit tests live directly under tests/ (top-level *.bats files only).
+test-unit:
+	@echo "=== Unit tests (tests/*.bats) ==="
+	@$(BATS) tests/
+
+# Integration tests use the dedicated runner (sets up tmux fixtures).
+test-integration:
+	@echo "=== Integration tests (tests/integration/) ==="
+	@./tests/run_integration_tests.sh
+
+# E2E tests use the dedicated runner.
+test-e2e:
+	@echo "=== E2E tests (tests/e2e/) ==="
+	@./tests/run_e2e_tests.sh
+
+# Run the full test suite (unit + integration + e2e).
+test: test-unit test-integration test-e2e
+	@echo ""
+	@echo "✓ All test suites passed"
+
+# Local CI gate: lint + format check + full test suite.
+# Mirrors what CI runs so a clean local 'make check' should mean a green PR.
+check: lint format test
+	@echo ""
+	@echo "✓ check passed (lint + format + test)"
+
+ci: check
 
 # Run tests in Docker
 test-docker: docker-test
