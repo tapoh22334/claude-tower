@@ -196,13 +196,6 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
-@test "session-new.sh: uses session_tmux for switch-client" {
-    local script="$PROJECT_ROOT/tmux-plugin/scripts/session-new.sh"
-
-    run grep "session_tmux switch-client" "$script"
-    [ "$status" -eq 0 ]
-}
-
 @test "session_tmux: helper function exists and uses session socket" {
     run type session_tmux
     [ "$status" -eq 0 ]

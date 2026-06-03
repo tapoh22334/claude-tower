@@ -7,24 +7,23 @@ This directory contains the core tmux plugin implementation for Claude Tower.
 ```
 tmux-plugin/
 ├── claude-tower.tmux      # Plugin entry point (loaded by tpm)
+├── bin/
+│   └── tower              # CLI entry point (tower add/rm/list/restore)
 ├── conf/
 │   └── view-focus.conf    # tmux configuration for view pane focus mode
 ├── lib/
 │   ├── common.sh          # Shared utilities (v2 metadata, session ops)
 │   └── error-recovery.sh  # Error handling and TUI recovery
 └── scripts/
-    ├── tower              # CLI entry point (tower add/rm)
-    ├── session-add.sh     # tower add implementation
-    ├── session-delete.sh  # tower rm implementation
     ├── navigator.sh       # Navigator entry point
-    ├── navigator-list.sh  # List pane UI
-    ├── navigator-view.sh  # View pane UI
-    ├── tile.sh            # Tile view display
-    ├── session-new.sh     # [DEPRECATED] Use tower add
-    ├── session-restore.sh # Restore dormant sessions
+    ├── navigator-list.sh  # List pane UI (n/d/1-9 keys included)
+    ├── navigator-view.sh  # View pane UI (input mode)
+    ├── tile.sh            # Tile view (auto-refresh, 1-9 → input mode)
+    ├── statusline.sh      # tmux status line content
+    ├── session-add.sh     # Add session (called by tower add and Navigator n)
+    ├── session-delete.sh  # Delete session (called by tower rm and Navigator d)
     ├── session-list.sh    # List sessions
-    ├── cleanup.sh         # Dormant session cleanup
-    └── [other utilities]
+    └── session-restore.sh # Restore dormant sessions
 ```
 
 ## Key Components
@@ -32,10 +31,13 @@ tmux-plugin/
 ### claude-tower.tmux
 Plugin entry point loaded by TPM (Tmux Plugin Manager). Sets up keybindings and initializes the tower environment.
 
-### scripts/tower
+### bin/tower
 CLI entry point for session management:
+- `tower` (no args) - Launch Navigator
 - `tower add <path> [-n name]` - Add session for directory
 - `tower rm <name> [-f]` - Remove session (keeps directory)
+- `tower list` - List all sessions
+- `tower restore` - Restore all dormant sessions
 
 ### lib/common.sh
 Shared library providing:
