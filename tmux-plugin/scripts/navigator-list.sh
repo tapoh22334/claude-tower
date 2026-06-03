@@ -36,8 +36,9 @@ readonly NAV_C_ERROR=$'\033[1;31m'  # Red bold - for errors
 readonly NAV_C_ACTIVE=$'\033[32m'   # Green - active sessions
 readonly NAV_C_DORMANT=$'\033[90m'  # Gray - dormant sessions
 
-# Caller CWD state file (written by claude-tower.tmux on Navigator launch)
-readonly NAV_CALLER_CWD_FILE="/tmp/claude-tower/caller-cwd"
+# Caller CWD state file (written by claude-tower.tmux on Navigator launch).
+# Overridable via env var so tests can isolate state.
+readonly NAV_CALLER_CWD_FILE="${CLAUDE_TOWER_CALLER_CWD_FILE:-/tmp/claude-tower/caller-cwd}"
 
 # ============================================================================
 # Caller Context
@@ -759,4 +760,9 @@ main_loop() {
 # Main
 # ============================================================================
 
-main_loop
+# Only enter the main loop when this script is executed directly, not when
+# it is sourced (e.g. by tests that want to call the action functions in
+# isolation).
+if [[ "${BASH_SOURCE[0]}" == "$0" || -z "${BASH_SOURCE[0]:-}" ]]; then
+    main_loop
+fi

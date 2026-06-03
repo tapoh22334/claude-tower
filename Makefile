@@ -2,7 +2,7 @@
 # Usage: make <target>
 
 .PHONY: help lint lint-fix format format-fix \
-        test test-unit test-integration test-e2e test-docker \
+        test test-unit test-integration test-e2e test-scenarios test-docker \
         check ci \
         clean reload reset status
 
@@ -26,6 +26,7 @@ help:
 	@echo "    make test-unit        - Run unit tests only (bats tests/*.bats)"
 	@echo "    make test-integration - Run integration tests (tests/integration/)"
 	@echo "    make test-e2e         - Run end-to-end tests (tests/e2e/)"
+	@echo "    make test-scenarios   - Run scenario tests (tests/scenarios/)"
 	@echo "    make test-docker      - Run tests in Docker container"
 	@echo ""
 	@echo "  Aggregate (CI gate):"
@@ -110,8 +111,13 @@ test-e2e:
 	@echo "=== E2E tests (tests/e2e/) ==="
 	@./tests/run_e2e_tests.sh
 
-# Run the full test suite (unit + integration + e2e).
-test: test-unit test-integration test-e2e
+# Scenario tests live under tests/scenarios/.
+test-scenarios:
+	@echo "=== Scenario tests (tests/scenarios/) ==="
+	@$(BATS) tests/scenarios/
+
+# Run the full test suite (unit + integration + e2e + scenarios).
+test: test-unit test-integration test-e2e test-scenarios
 	@echo ""
 	@echo "✓ All test suites passed"
 
