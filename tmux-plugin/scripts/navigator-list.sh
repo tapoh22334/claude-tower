@@ -538,7 +538,12 @@ add_new_session() {
     echo ""
     echo "  ${NAV_C_ACCENT}Creating session for: $path${NAV_C_NORMAL}"
 
-    if "$SCRIPT_DIR/session-add.sh" "$path" 2>&1 | tail -3; then
+    # --no-attach is critical here: session-add.sh's default behaviour is to
+    # attach the calling pane to the new tower_* session, which from inside
+    # Navigator's list pane would hijack the pane with the new claude
+    # process. We just want the metadata + session created; the user picks
+    # it up via the normal list flow.
+    if "$SCRIPT_DIR/session-add.sh" "$path" --no-attach 2>&1 | tail -3; then
         sleep 0.5
     else
         echo "  ${NAV_C_ERROR}✗ Failed to create session${NAV_C_NORMAL}"

@@ -119,6 +119,13 @@ skip_if_no_tmux() {
     rm -rf "$target"
 }
 
+@test "add_new_session: passes --no-attach to session-add.sh" {
+    # Regression guard: without --no-attach, session-add.sh's tail tries to
+    # attach the calling pane to the new tower_* session, which from inside
+    # Navigator hijacks the list pane with the claude process.
+    grep -q -- "--no-attach" "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
+}
+
 @test "add_new_session: cancels silently when prompt returns empty input" {
     _prompt_inline() { echo ""; }
 
