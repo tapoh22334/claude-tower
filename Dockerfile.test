@@ -1,12 +1,23 @@
 # Test environment for claude-tower
-# Includes tmux, git, fzf, and bats for comprehensive testing
+# Contains tmux, bats, git — enough to run unit/integration/e2e/scenarios.
+#
+# Build:
+#   docker build -f Dockerfile.test -t claude-tower-test .
+#
+# Run (entrypoint accepts a suite name or bats path/flags):
+#   docker run --rm claude-tower-test                          # all
+#   docker run --rm claude-tower-test scenarios                # one suite
+#   docker run --rm claude-tower-test tests/integration/x.bats # one file
+#
+# For fast iteration, mount the project as a volume so test changes don't
+# require a rebuild:
+#   docker run --rm -v "$PWD:/app" claude-tower-test scenarios
+# (or use docker-compose.test.yml which already mounts).
 
 FROM ubuntu:22.04
 
-# Avoid interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install dependencies
 RUN apt-get update && apt-get install -y \
     bash \
     tmux \
@@ -15,35 +26,33 @@ RUN apt-get update && apt-get install -y \
     coreutils \
     procps \
     curl \
-    # For bats
     bats \
     && rm -rf /var/lib/apt/lists/*
 
-# Install bats helper libraries
+# bats helper libraries (used by some tests that load them explicitly)
 RUN mkdir -p /opt/bats-libs && \
     git clone --depth 1 https://github.com/bats-core/bats-support.git /opt/bats-libs/bats-support && \
     git clone --depth 1 https://github.com/bats-core/bats-assert.git /opt/bats-libs/bats-assert
 
-# Set up test user (non-root for realistic testing)
+# Non-root user for realistic test conditions
 RUN useradd -m -s /bin/bash testuser && \
     mkdir -p /home/testuser/.claude-tower && \
     chown -R testuser:testuser /home/testuser
 
-# Copy project files
 WORKDIR /app
 COPY --chown=testuser:testuser . .
 
-# Set up git config for tests
 RUN git config --global user.email "test@example.com" && \
     git config --global user.name "Test User" && \
     git config --global init.defaultBranch main
 
 USER testuser
 
-# Environment variables for tests
+# Default metadata location for tests that don't override it.
 ENV CLAUDE_TOWER_METADATA_DIR=/home/testuser/.claude-tower/metadata
-ENV CLAUDE_TOWER_WORKTREE_DIR=/home/testuser/.claude-tower/worktrees
 ENV BATS_LIB_PATH=/opt/bats-libs
 
-# Default command: run all tests
-CMD ["./tests/run_tests.sh"]
+# All test invocations go through the entrypoint which dispatches by
+# sub-command (all/unit/integration/e2e/scenarios) or forwards args to bats.
+ENTRYPOINT ["/app/tests/docker-entrypoint.sh"]
+CMD ["all"]

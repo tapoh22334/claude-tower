@@ -100,8 +100,10 @@ TMUX_PLUGIN="$PROJECT_ROOT/tmux-plugin/claude-tower.tmux"
 }
 
 @test "Tile 1-9 case calls enter_input_mode_for (not return_to_list_view)" {
-    # Locate the [1-9] case block and verify it calls enter_input_mode_for
-    run awk '/^\s*\[1-9\]\)/,/;;/' "$TILE"
+    # Locate the [1-9] case block and verify it calls enter_input_mode_for.
+    # Uses POSIX character classes (`[[:space:]]`) for portability — mawk
+    # (Ubuntu's default) does not understand `\s`.
+    run awk '/^[[:space:]]*\[1-9\]\)/,/;;/' "$TILE"
     [ "$status" -eq 0 ]
     [[ "$output" == *"enter_input_mode_for"* ]]
 }

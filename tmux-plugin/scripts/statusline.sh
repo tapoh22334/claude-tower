@@ -17,7 +17,9 @@ source "$SCRIPT_DIR/../lib/common.sh" 2>/dev/null || {
 # Get current session info
 get_session_info() {
     local session
-    session=$(tmux display-message -p '#S' 2>/dev/null)
+    # `|| session=""` absorbs the non-zero exit when there is no tmux server
+    # so common.sh's `set -e` doesn't kill the statusline mid-render.
+    session=$(tmux display-message -p '#S' 2>/dev/null) || session=""
 
     if [[ -z "$session" ]]; then
         echo ""
@@ -36,7 +38,7 @@ get_session_info() {
             target_path="$META_DIRECTORY_PATH"
         fi
     else
-        target_path=$(tmux display-message -p '#{pane_current_path}' 2>/dev/null)
+        target_path=$(tmux display-message -p '#{pane_current_path}' 2>/dev/null) || target_path=""
     fi
 
     if [[ -n "$target_path" ]] && git -C "$target_path" rev-parse --git-dir &>/dev/null; then

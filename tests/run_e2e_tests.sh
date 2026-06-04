@@ -21,9 +21,13 @@ check_prerequisites() {
         command -v "$cmd" &>/dev/null || missing+=("$cmd")
     done
 
-    if ! command -v bats &>/dev/null; then
-        [[ -x "${PROJECT_ROOT}/tests/bats/bin/bats" ]] && \
-            export PATH="${PROJECT_ROOT}/tests/bats/bin:$PATH" || missing+=("bats")
+    # Prefer the project's vendored bats over the system one for version
+    # consistency (system bats on Ubuntu 22.04 is 1.2.1 which lacks features
+    # like BATS_FILE_TMPDIR; the vendored copy is much newer).
+    if [[ -x "${PROJECT_ROOT}/tests/bats/bin/bats" ]]; then
+        export PATH="${PROJECT_ROOT}/tests/bats/bin:$PATH"
+    elif ! command -v bats &>/dev/null; then
+        missing+=("bats")
     fi
 
     if [[ ${#missing[@]} -gt 0 ]]; then

@@ -8,7 +8,7 @@ setup() {
     setup_test_env
 
     # Create a test directory that should NOT be deleted
-    TEST_WORK_DIR="${TEST_DIR}/tmp/workdir"
+    TEST_WORK_DIR="${CLAUDE_TOWER_TEST_SCRATCH}/workdir"
     mkdir -p "$TEST_WORK_DIR"
 }
 
@@ -93,7 +93,7 @@ teardown() {
 
 @test "delete_session: v2 never removes directories" {
     # Create a directory specifically for this session
-    local session_dir="${TEST_DIR}/tmp/session-specific-dir"
+    local session_dir="${CLAUDE_TOWER_TEST_SCRATCH}/session-specific-dir"
     mkdir -p "$session_dir"
 
     create_mock_metadata_v2 "tower_my-session" "$session_dir"

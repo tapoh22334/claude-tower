@@ -71,16 +71,20 @@ jobs:
 
   # Docker-based tests (comprehensive)
   docker-tests:
-    name: Docker Tests
+    name: Docker Tests (all suites isolated)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Vendored bats lives in tests/bats; the entrypoint prefers it
+          # over the system bats for version consistency.
+          submodules: recursive
 
       - name: Build test image
         run: docker build -f Dockerfile.test -t claude-tower-test .
 
-      - name: Run tests in Docker
-        run: docker run --rm claude-tower-test
+      - name: Run all test suites in container
+        run: docker run --rm claude-tower-test all
 
   # ShellCheck linting
   shellcheck:

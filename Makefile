@@ -2,7 +2,9 @@
 # Usage: make <target>
 
 .PHONY: help lint lint-fix format format-fix \
-        test test-unit test-integration test-e2e test-scenarios test-docker \
+        test test-unit test-integration test-e2e test-scenarios \
+        test-docker test-unit-docker test-integration-docker test-e2e-docker \
+        test-scenarios-docker test-file-docker test-shell-docker \
         check ci \
         clean reload reset status
 
@@ -27,13 +29,21 @@ help:
 	@echo "    make test-integration - Run integration tests (tests/integration/)"
 	@echo "    make test-e2e         - Run end-to-end tests (tests/e2e/)"
 	@echo "    make test-scenarios   - Run scenario tests (tests/scenarios/)"
-	@echo "    make test-docker      - Run tests in Docker container"
+	@echo ""
+	@echo "  Testing in Docker (isolated from host tmux/state):"
+	@echo "    make test-docker              - All suites inside container"
+	@echo "    make test-unit-docker         - Unit suite only"
+	@echo "    make test-integration-docker  - Integration suite only"
+	@echo "    make test-e2e-docker          - E2E suite only"
+	@echo "    make test-scenarios-docker    - Scenario suite only"
+	@echo "    make test-file-docker FILE=…  - Run a specific .bats file/dir"
+	@echo "    make test-shell-docker        - Drop into a shell in the test container"
 	@echo ""
 	@echo "  Aggregate (CI gate):"
 	@echo "    make check      - Run lint + format + all tests (local CI gate)"
 	@echo "    make ci         - Alias for 'make check'"
 	@echo ""
-	@echo "  Docker:"
+	@echo "  Docker image:"
 	@echo "    make docker-lint  - Build lint Docker image"
 	@echo "    make docker-test  - Build test Docker image"
 	@echo ""
@@ -129,9 +139,42 @@ check: lint format test
 
 ci: check
 
-# Run tests in Docker
-test-docker: docker-test
-	docker run --rm -it claude-tower-test
+# ============================================================================
+# Containerized tests
+# ============================================================================
+# Common docker-compose invocation. `run --rm` ensures the container is
+# removed after each run so /tmp state from one suite never carries over.
+DOCKER_TEST := docker compose -f docker-compose.test.yml run --rm tests
+
+# Run the entire test suite in a container.
+test-docker:
+	@$(DOCKER_TEST) all
+
+# Run a single suite in a container.
+test-unit-docker:
+	@$(DOCKER_TEST) unit
+
+test-integration-docker:
+	@$(DOCKER_TEST) integration
+
+test-e2e-docker:
+	@$(DOCKER_TEST) e2e
+
+test-scenarios-docker:
+	@$(DOCKER_TEST) scenarios
+
+# Run a single test file or directory in a container.
+# Usage: make test-file-docker FILE=tests/integration/test_session_restore.bats
+test-file-docker:
+	@if [ -z "$(FILE)" ]; then \
+		echo "Usage: make test-file-docker FILE=<path-to-.bats-file-or-dir>"; \
+		exit 1; \
+	fi
+	@$(DOCKER_TEST) $(FILE)
+
+# Drop into an interactive shell inside the test container for debugging.
+test-shell-docker:
+	@docker compose -f docker-compose.test.yml run --rm --entrypoint /bin/bash tests
 
 # ============================================================================
 # Docker Build
