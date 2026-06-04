@@ -73,6 +73,26 @@ main() {
 
     case "$command" in
         "" | navigator)
+            # Navigator hijacks the terminal as a tmux client. Running it
+            # from a non-tmux shell leaves the user staring at raw ANSI
+            # if anything goes wrong (no clean way to get the prompt
+            # back). Refuse with guidance instead.
+            if [[ -z "${TMUX:-}" ]]; then
+                cat >&2 <<'EOF'
+Navigator must be opened from inside tmux.
+
+  tmux                       # start (or attach) tmux first
+  prefix + t                 # then open Navigator from inside
+
+The `tower` CLI is for scripting:
+  tower add <path>           # add a session
+  tower rm <name>            # remove a session
+  tower list                 # list sessions
+  tower restore              # restore all dormant sessions
+  tower help                 # show full help
+EOF
+                exit 1
+            fi
             exec "$SCRIPTS_DIR/navigator.sh"
             ;;
         add)

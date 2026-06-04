@@ -47,3 +47,19 @@ TOWER="$PROJECT_ROOT/tmux-plugin/bin/tower"
     # Must NOT match the "Unknown command" failure mode.
     ! [[ "$output" == *"Unknown command"* ]]
 }
+
+@test "tower (no args) outside tmux: refuses with guidance, does not corrupt terminal" {
+    # When TMUX is unset, the Navigator entry path would otherwise hijack
+    # the terminal as a tmux client and risk leaving ANSI residue. The CLI
+    # must refuse early with a non-zero exit and a helpful message.
+    run env -u TMUX "$TOWER"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"must be opened from inside tmux"* ]]
+    [[ "$output" == *"prefix + t"* ]]
+}
+
+@test "tower navigator (no args) outside tmux: same guard as the default subcommand" {
+    run env -u TMUX "$TOWER" navigator
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"must be opened from inside tmux"* ]]
+}
