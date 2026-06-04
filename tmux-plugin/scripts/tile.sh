@@ -307,6 +307,9 @@ cleanup() {
 # reload+redraw.
 main() {
     trap cleanup EXIT
+    # Swallow SIGINT so Ctrl-C in the pane doesn't kill the tile process
+    # and leave the user stranded.
+    trap ':' INT
 
     tput smcup
     tput civis

@@ -20,6 +20,11 @@ handle_script_error() {
 
 trap 'handle_script_error $LINENO' ERR
 
+# Swallow SIGINT (Ctrl-C). The default behaviour terminates the script and
+# leaves the user stranded in a dead pane. We'd rather treat Ctrl-C as a
+# UI cancel and keep the navigator running.
+trap ':' INT
+
 # ============================================================================
 # Configuration
 # ============================================================================

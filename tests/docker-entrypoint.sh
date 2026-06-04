@@ -30,6 +30,7 @@ run_unit()        { "$BATS" tests/; }
 run_integration() { ./tests/run_integration_tests.sh; }
 run_e2e()         { ./tests/run_e2e_tests.sh; }
 run_scenarios()   { "$BATS" tests/scenarios/; }
+run_fuzz()        { ./tests/fuzz/run-fuzz.sh "$@"; }
 
 run_all() {
     local fail=0
@@ -46,6 +47,10 @@ case "${1:-all}" in
     integration) run_integration ;;
     e2e)         run_e2e ;;
     scenarios)   run_scenarios ;;
+    fuzz)
+        shift
+        run_fuzz "$@"
+        ;;
     help|-h|--help)
         sed -n '1,18p' "$0"
         ;;

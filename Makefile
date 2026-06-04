@@ -5,6 +5,7 @@
         test test-unit test-integration test-e2e test-scenarios \
         test-docker test-unit-docker test-integration-docker test-e2e-docker \
         test-scenarios-docker test-file-docker test-shell-docker \
+        fuzz fuzz-docker fuzz-random-docker fuzz-smart-docker fuzz-scenarios-docker \
         check ci \
         clean reload reset status
 
@@ -38,6 +39,13 @@ help:
 	@echo "    make test-scenarios-docker    - Scenario suite only"
 	@echo "    make test-file-docker FILE=…  - Run a specific .bats file/dir"
 	@echo "    make test-shell-docker        - Drop into a shell in the test container"
+	@echo ""
+	@echo "  Fuzz testing (monkey-style exploratory, Docker-isolated):"
+	@echo "    make fuzz-docker              - Run all fuzz modes in container"
+	@echo "    make fuzz-random-docker       - Pure-random key fuzz"
+	@echo "    make fuzz-smart-docker        - Legal + trash key fuzz"
+	@echo "    make fuzz-scenarios-docker    - Hand-picked bad sequences"
+	@echo "    make fuzz                     - Same on the host (uses isolated sockets)"
 	@echo ""
 	@echo "  Aggregate (CI gate):"
 	@echo "    make check      - Run lint + format + all tests (local CI gate)"
@@ -175,6 +183,28 @@ test-file-docker:
 # Drop into an interactive shell inside the test container for debugging.
 test-shell-docker:
 	@docker compose -f docker-compose.test.yml run --rm --entrypoint /bin/bash tests
+
+# ============================================================================
+# Fuzz / monkey testing
+# ============================================================================
+# All fuzz runs use isolated per-PID tmux sockets so they never touch the
+# host's real tmux. The Docker variants add an extra layer of isolation —
+# the entire fuzz run lives in a throwaway container.
+
+fuzz:
+	@./tests/fuzz/run-fuzz.sh
+
+fuzz-docker:
+	@$(DOCKER_TEST) fuzz all
+
+fuzz-random-docker:
+	@$(DOCKER_TEST) fuzz random
+
+fuzz-smart-docker:
+	@$(DOCKER_TEST) fuzz smart
+
+fuzz-scenarios-docker:
+	@$(DOCKER_TEST) fuzz scenarios
 
 # ============================================================================
 # Docker Build
