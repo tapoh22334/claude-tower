@@ -226,6 +226,29 @@ session_tmux() {
     TMUX= tmux -L "$TOWER_SESSION_SOCKET" "$@"
 }
 
+# Path to the return-to-caller helper, resolved relative to this library
+# regardless of where the caller script lives.
+_TOWER_LIB_DIR_ABS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly TOWER_RETURN_SCRIPT="${_TOWER_LIB_DIR_ABS}/../scripts/return-to-caller.sh"
+
+# Install the `prefix+<TOWER_PREFIX>` binding on the given tmux server so the
+# user can press it from anywhere inside Tower (Navigator pane, tower
+# session, etc.) and be returned to the default-server session that
+# launched Tower. Idempotent — repeat calls overwrite the prior binding.
+#
+# Arguments:
+#   $1 - tmux server socket (TOWER_NAV_SOCKET or TOWER_SESSION_SOCKET)
+install_return_binding() {
+    local server_socket="$1"
+    local prefix_key="${CLAUDE_TOWER_PREFIX:-t}"
+
+    # `2>/dev/null || true` keeps us silent if the server is briefly absent
+    # or the bind cannot be installed; the binding is a UX nicety, not a
+    # correctness requirement.
+    TMUX= tmux -L "$server_socket" bind-key "$prefix_key" \
+        detach-client -E "$TOWER_RETURN_SCRIPT" 2>/dev/null || true
+}
+
 # Get currently selected session from state file
 get_nav_selected() {
     if [[ -f "$TOWER_NAV_SELECTED_FILE" ]]; then
@@ -1137,6 +1160,11 @@ _start_session_with_claude() {
 
     # Use C-m (Ctrl-M) instead of Enter for more reliable key sending
     session_tmux send-keys -t "$session_id" "$claude_cmd" C-m
+
+    # Make sure prefix+t works from inside this session to exit Tower.
+    # The bind is server-global so installing it once per session creation
+    # is idempotent and tolerates the server being killed and recreated.
+    install_return_binding "$TOWER_SESSION_SOCKET"
 
     handle_success "Session created: ${session_id#tower_}"
 }
