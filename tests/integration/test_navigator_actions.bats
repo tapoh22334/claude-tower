@@ -34,6 +34,12 @@ setup() {
     mkdir -p "$nav_state_dir"
     export CLAUDE_TOWER_CALLER_CWD_FILE="$nav_state_dir/caller-cwd"
 
+    # Isolate the picker: point CLAUDE_TOWER_CLAUDE_DIR at an empty dir so
+    # _load_claude_projects returns nothing and add_new_session falls back
+    # to the manual-entry path that the existing tests exercise.
+    export CLAUDE_TOWER_CLAUDE_DIR="$nav_state_dir/claude-empty"
+    mkdir -p "$CLAUDE_TOWER_CLAUDE_DIR/projects"
+
     # Source navigator-list.sh into the test shell. The script has a
     # "main only when executed" guard so sourcing alone won't enter main_loop.
     set +euo pipefail

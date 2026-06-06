@@ -45,6 +45,14 @@ readonly NAV_C_DORMANT=$'\033[90m'  # Gray - dormant sessions
 # Overridable via env var so tests can isolate state.
 readonly NAV_CALLER_CWD_FILE="${CLAUDE_TOWER_CALLER_CWD_FILE:-/tmp/claude-tower/caller-cwd}"
 
+# Claude Code's internal data locations. These are reverse-engineered, not
+# a documented public API, so we treat them defensively (version checks,
+# graceful fallback). Overridable for tests.
+readonly NAV_CLAUDE_DIR="${CLAUDE_TOWER_CLAUDE_DIR:-$HOME/.claude}"
+readonly NAV_CLAUDE_HISTORY="$NAV_CLAUDE_DIR/history.jsonl"
+readonly NAV_CLAUDE_PROJECTS_DIR="$NAV_CLAUDE_DIR/projects"
+readonly NAV_SESSIONS_INDEX_SUPPORTED_VERSION=1
+
 # ============================================================================
 # Caller Context
 # ============================================================================
@@ -61,6 +69,95 @@ _load_caller_cwd() {
         cwd="$HOME"
     fi
     echo "$cwd"
+}
+
+# ============================================================================
+# Claude project history (for the new-session picker)
+# ============================================================================
+#
+# These helpers read from Claude Code's internal data files
+# (~/.claude/history.jsonl and ~/.claude/projects/*/sessions-index.json).
+# Those files are NOT a documented public API — the schema was
+# reverse-engineered from community write-ups. Every read is therefore
+# defensive: if jq is unavailable we fall back to grep; if the
+# `version` field changes from 1 we skip the file; if anything errors
+# we silently return nothing and let the caller fall back to manual
+# path entry.
+#
+# The intent is that an Anthropic-side format change can at worst
+# degrade the picker to "empty list, please type the path" — never
+# crash Navigator.
+
+# Extract projectPath values from a JSON stream using jq if available,
+# otherwise a forgiving grep+sed pipeline. Each output line is one path.
+_extract_project_paths() {
+    if command -v jq >/dev/null 2>&1; then
+        # `?` after the selector makes jq tolerate missing fields.
+        jq -r '.projectPath // empty' 2>/dev/null
+    else
+        grep -oE '"projectPath"[[:space:]]*:[[:space:]]*"[^"]*"' 2>/dev/null |
+            sed 's/.*"projectPath"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/'
+    fi
+}
+
+# Read project paths from the global history file (one JSON per line).
+_load_history_paths() {
+    [[ -r "$NAV_CLAUDE_HISTORY" ]] || return 0
+    _extract_project_paths <"$NAV_CLAUDE_HISTORY" 2>/dev/null
+}
+
+# Read project paths from per-project sessions-index.json files.
+# Only entries from files with a supported `version` are returned.
+_load_sessions_index_paths() {
+    [[ -d "$NAV_CLAUDE_PROJECTS_DIR" ]] || return 0
+
+    local f ver
+    # `ls -dt` gives us roughly recency-ordered dirs.
+    for f in "$NAV_CLAUDE_PROJECTS_DIR"/*/sessions-index.json; do
+        [[ -r "$f" ]] || continue
+
+        if command -v jq >/dev/null 2>&1; then
+            ver=$(jq -r '.version // 0' "$f" 2>/dev/null || echo 0)
+            [[ "$ver" -eq "$NAV_SESSIONS_INDEX_SUPPORTED_VERSION" ]] || continue
+            jq -r '.entries[]?.projectPath // empty' "$f" 2>/dev/null
+        else
+            # Without jq we trust the file format; if it changes we get a
+            # noisy list which is harmless — the picker filters out
+            # non-existent directories before showing anything.
+            _extract_project_paths <"$f" 2>/dev/null
+        fi
+    done
+}
+
+# Final picker source: unique existing directory paths, freshest first
+# (by sessions-index file mtime), excluding paths already registered as
+# tower sessions.
+#
+# Deduplication uses awk with !seen[] so first-encountered order is kept.
+_load_claude_projects() {
+    local registered_paths=""
+    local id sid_path
+    # Build a set of paths that are already registered as tower sessions.
+    for id in "${SESSION_IDS[@]:-}"; do
+        if load_metadata "$id" 2>/dev/null; then
+            sid_path="$META_DIRECTORY_PATH"
+            [[ -n "$sid_path" ]] && registered_paths+="$sid_path"$'\n'
+        fi
+    done
+
+    {
+        _load_sessions_index_paths
+        _load_history_paths
+    } 2>/dev/null |
+        awk 'NF && !seen[$0]++' |
+        while IFS= read -r p; do
+            [[ -d "$p" ]] || continue
+            # Skip already-registered paths
+            if [[ -n "$registered_paths" ]] && grep -qxF "$p" <<<"$registered_paths"; then
+                continue
+            fi
+            echo "$p"
+        done
 }
 
 # ============================================================================
@@ -259,6 +356,12 @@ _prompt_inline() {
 
     # Move to bottom line, clear it, show cursor (terminal-only side effects).
     printf '\033[%d;1H\033[2K\033[?25h' "$term_height" >/dev/tty
+
+    # Make Ctrl-W delete the previous path segment (separator-aware) rather
+    # than wiping the whole line. The default unix-word-rubout treats `/`
+    # as part of a word so a path with no spaces gets nuked in one stroke.
+    # `backward-kill-word` honours `/` as a delimiter.
+    bind '"\C-w": backward-kill-word' 2>/dev/null || true
 
     local result=""
     # Read with readline editing, prefilled with default. Prompt (-p) writes
@@ -518,20 +621,12 @@ full_attach() {
     nav_tmux detach-client -E "TMUX= tmux -L '$TOWER_SESSION_SOCKET' attach-session -t '$selected'"
 }
 
-# Create a new session via inline prompt prefilled with caller CWD.
-# Invokes session-add.sh on confirmation. Cancelled if input is empty.
-add_new_session() {
-    local default_path
-    default_path=$(_load_caller_cwd)
+# Invoke session-add.sh for the chosen path. Shared by the picker
+# (Enter from the picker) and the manual entry flow.
+_create_session_for_path() {
+    local path="$1"
 
-    local path
-    path=$(_prompt_inline "New session path: " "$default_path")
-
-    if [[ -z "$path" ]]; then
-        return 0
-    fi
-
-    # Expand ~ and resolve to absolute path
+    # Expand ~ relative to $HOME
     # shellcheck disable=SC2086
     path="${path/#\~/$HOME}"
 
@@ -549,6 +644,144 @@ add_new_session() {
         echo "  ${NAV_C_ERROR}✗ Failed to create session${NAV_C_NORMAL}"
         sleep 1
     fi
+}
+
+# Inline path-entry fallback used when the picker is empty or the user
+# explicitly switches to manual mode with `m`.
+_add_session_manual_entry() {
+    local default_path
+    default_path=$(_load_caller_cwd)
+
+    local path
+    path=$(_prompt_inline "New session path: " "$default_path")
+    [[ -z "$path" ]] && return 0
+    _create_session_for_path "$path"
+}
+
+# Render the Claude-project picker. Returns the chosen index on stdout,
+# or one of the sentinel strings:
+#   "MANUAL"  user asked to enter a path manually
+#   "CANCEL"  user cancelled
+#
+# Arguments:
+#   $1 - selected index (0-based)
+#   $2 - newline-separated list of project paths
+_render_project_picker() {
+    local selected_index="$1"
+    local projects="$2"
+
+    local term_height
+    term_height=$(tput lines 2>/dev/null || echo 24)
+    local max_lines=$((term_height - 6))
+
+    local output=""
+    output+="${NAV_C_HEADER}New session — pick a Claude project${NAV_C_NORMAL}\n"
+    output+="${NAV_C_DIM}(reads ~/.claude/projects + history.jsonl)${NAV_C_NORMAL}\n"
+    output+="\n"
+
+    local i=0
+    local line
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        if ((i >= max_lines)); then
+            output+="${NAV_C_DIM}... (more not shown)${NAV_C_NORMAL}\n"
+            break
+        fi
+        if ((i == selected_index)); then
+            output+="${NAV_C_SELECTED} ${line} ${NAV_C_NORMAL}\n"
+        else
+            output+=" ${line}\n"
+        fi
+        ((i++)) || true
+    done <<<"$projects"
+
+    output+="\n"
+    output+="${NAV_C_DIM}j/k:nav  Enter:add  m:manual path  q/Esc:cancel${NAV_C_NORMAL}\n"
+
+    local clear_eos
+    clear_eos=$(tput ed 2>/dev/null || printf '\033[J')
+    printf '\033[?25l\033[H%b%s\033[?25h' "$output" "$clear_eos"
+}
+
+# Main picker loop. Returns:
+#   the chosen path on stdout (Enter)
+#   ""           cancel
+#   "MANUAL"     fallback to manual entry
+_run_project_picker() {
+    local projects="$1"
+    local count
+    count=$(grep -c '' <<<"$projects")
+
+    local selected_index=0
+    local key
+    while true; do
+        _render_project_picker "$selected_index" "$projects"
+
+        if IFS= read -rsn1 key; then
+            case "$key" in
+                j | $'\x1b')
+                    if [[ "$key" == $'\x1b' ]]; then
+                        local arrow=""
+                        read -rsn2 -t 0.1 arrow || true
+                        case "$arrow" in
+                            '[B') key="j" ;;
+                            '[A') key="k" ;;
+                            *)
+                                echo ""
+                                return 0
+                                ;; # plain Esc cancels
+                        esac
+                    fi
+                    [[ "$key" == "j" ]] &&
+                        ((selected_index < count - 1)) &&
+                        ((selected_index++)) || true
+                    ;;
+                k)
+                    ((selected_index > 0)) && ((selected_index--)) || true
+                    ;;
+                g)
+                    selected_index=0
+                    ;;
+                G)
+                    selected_index=$((count - 1))
+                    ;;
+                m | M)
+                    echo "MANUAL"
+                    return 0
+                    ;;
+                q | Q)
+                    echo ""
+                    return 0
+                    ;;
+                '') # Enter
+                    sed -n "$((selected_index + 1))p" <<<"$projects"
+                    return 0
+                    ;;
+            esac
+        fi
+    done
+}
+
+# Add a new session — first try the picker, fall back to manual entry
+# if Claude has no recorded projects (or all of them are already
+# registered as tower sessions).
+add_new_session() {
+    local projects
+    projects=$(_load_claude_projects)
+
+    if [[ -z "$projects" ]]; then
+        _add_session_manual_entry
+        return
+    fi
+
+    local choice
+    choice=$(_run_project_picker "$projects")
+
+    case "$choice" in
+        "") return 0 ;; # cancelled
+        MANUAL) _add_session_manual_entry ;;
+        *) _create_session_for_path "$choice" ;;
+    esac
 }
 
 # Delete the currently selected session after inline y/N confirmation.

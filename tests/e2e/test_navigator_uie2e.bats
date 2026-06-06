@@ -50,6 +50,12 @@ setup() {
     mkdir -p "$nav_state_dir"
     export CLAUDE_TOWER_CALLER_CWD_FILE="$nav_state_dir/caller-cwd"
 
+    # Point Claude Code's data dir at an empty location so the new-session
+    # picker stays empty and `n` falls back to the manual path prompt that
+    # these tests were originally written against.
+    export CLAUDE_TOWER_CLAUDE_DIR="$nav_state_dir/claude-empty"
+    mkdir -p "$CLAUDE_TOWER_CLAUDE_DIR/projects"
+
     # Ensure no stale sessions on the test sockets
     TMUX= tmux -L "$NAV_SOCKET" kill-server 2>/dev/null || true
     TMUX= tmux -L "$SESSION_SOCKET" kill-server 2>/dev/null || true
