@@ -503,6 +503,124 @@ nav_focus() {
 }
 
 # ============================================================================
+# Tile — behavioural tests (designed to catch the bugs the structural tests
+# above missed: wrong attach target, runaway re-render loop, dropped input).
+# ============================================================================
+
+# Spawn tile.sh directly in its own window on SESSION_SOCKET. This bypasses
+# the Navigator → Tab → switch_to_tile path so we can isolate tile.sh
+# behaviour from the navigator orchestration.
+spawn_tile_window() {
+    TMUX= tmux -L "$SESSION_SOCKET" new-window -n tower-tile "$TILE_SCRIPT"
+    # Wait until tile.sh has drawn its header at least once.
+    local attempt=0
+    while ((attempt < 50)); do
+        if TMUX= tmux -L "$SESSION_SOCKET" capture-pane -t tower-tile -J -p 2>/dev/null \
+            | grep -q "Tile View"; then
+            return 0
+        fi
+        sleep 0.1
+        ((attempt++)) || true
+    done
+    return 1
+}
+
+# Capture the tower-tile pane's visible content (joined, plain).
+capture_tile() {
+    TMUX= tmux -L "$SESSION_SOCKET" capture-pane -t tower-tile -J -p 2>/dev/null
+}
+
+# Same but include ANSI escape sequences (-e), needed for selection
+# verification (reverse video).
+capture_tile_ansi() {
+    TMUX= tmux -L "$SESSION_SOCKET" capture-pane -t tower-tile -e -J -p 2>/dev/null
+}
+
+# Send keystrokes to tower-tile.
+send_to_tile() {
+    TMUX= tmux -L "$SESSION_SOCKET" send-keys -t tower-tile "$@"
+}
+
+# Read the active window name for a given session on SESSION_SOCKET.
+active_window_for() {
+    TMUX= tmux -L "$SESSION_SOCKET" display-message -p \
+        -t "$1" '#{window_name}' 2>/dev/null
+}
+
+@test "uie2e: Tab makes tower-tile the active window of the attached session" {
+    skip_if_no_tmux
+    make_active "uie2e_tab_active"
+    launch_navigator
+    wait_for_text "navigator:0.0" "uie2e_tab_active"
+
+    nav_send "Tab"
+
+    # Wait for the tower-tile window to exist
+    local attempt=0
+    while ((attempt < 50)); do
+        if TMUX= tmux -L "$SESSION_SOCKET" list-windows -a 2>/dev/null \
+            | grep -q "tower-tile"; then
+            break
+        fi
+        sleep 0.1
+        ((attempt++)) || true
+    done
+
+    # Behavioural assertion: from the session a user would land in after
+    # the Tab-triggered attach, the active window must be tower-tile.
+    # If switch_to_tile attached the client to an arbitrary window
+    # (and tile.sh was running invisibly behind it), this fails.
+    local active
+    active=$(active_window_for "tower_uie2e_tab_active")
+    [ "$active" = "tower-tile" ]
+}
+
+@test "uie2e: Tile content is stable between refreshes (no runaway redraw)" {
+    skip_if_no_tmux
+    make_active "uie2e_stable_a"
+    make_active "uie2e_stable_b"
+
+    spawn_tile_window
+    # Give tile.sh's initial render time to complete (load_sessions + draw_tiles
+    # before the read-with-timeout loop starts).
+    sleep 0.8
+
+    local snap1 snap2 snap3
+    snap1=$(capture_tile)
+    # REFRESH_INTERVAL is 2s; sampling at 300ms intervals stays well inside
+    # one refresh window. Three consecutive snapshots should be identical
+    # if tile.sh is genuinely waiting in `read -t REFRESH_INTERVAL`.
+    sleep 0.3
+    snap2=$(capture_tile)
+    sleep 0.3
+    snap3=$(capture_tile)
+
+    [ "$snap1" = "$snap2" ]
+    [ "$snap2" = "$snap3" ]
+}
+
+@test "uie2e: Tile j key changes the highlighted tile (input reaches tile.sh)" {
+    skip_if_no_tmux
+    make_active "uie2e_jkey_a"
+    make_active "uie2e_jkey_b"
+    make_active "uie2e_jkey_c"
+
+    spawn_tile_window
+    sleep 0.8
+
+    local before after
+    before=$(capture_tile_ansi)
+    send_to_tile "j"
+    # Give tile.sh's main loop one cycle to read the key and redraw.
+    sleep 0.4
+    after=$(capture_tile_ansi)
+
+    # The pane must change after a `j` — if it doesn't, either the key
+    # isn't reaching tile.sh, or its main loop is wedged.
+    [ "$before" != "$after" ]
+}
+
+# ============================================================================
 # Help
 # ============================================================================
 
