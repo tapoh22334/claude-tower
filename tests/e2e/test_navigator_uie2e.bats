@@ -549,13 +549,21 @@ active_window_for() {
 
 @test "uie2e: Tab makes tower-tile the active window of the attached session" {
     skip_if_no_tmux
-    make_active "uie2e_tab_active"
+    # Use MULTIPLE active sessions on the session server. With a single
+    # session this test passes even when switch_to_tile's "first session"
+    # lookup and new-window's "most recently active session" agree by
+    # accident; with three sessions, only a correctly-pinned new-window
+    # places tower-tile on the session we then attach to.
+    make_active "uie2e_aaa_first"
+    make_active "uie2e_bbb"
+    make_active "uie2e_ccc"
+
     launch_navigator
-    wait_for_text "navigator:0.0" "uie2e_tab_active"
+    wait_for_text "navigator:0.0" "uie2e_aaa_first"
 
     nav_send "Tab"
 
-    # Wait for the tower-tile window to exist
+    # Wait for tower-tile window to be created somewhere on SESSION_SOCKET
     local attempt=0
     while ((attempt < 50)); do
         if TMUX= tmux -L "$SESSION_SOCKET" list-windows -a 2>/dev/null \
@@ -566,13 +574,18 @@ active_window_for() {
         ((attempt++)) || true
     done
 
-    # Behavioural assertion: from the session a user would land in after
-    # the Tab-triggered attach, the active window must be tower-tile.
-    # If switch_to_tile attached the client to an arbitrary window
-    # (and tile.sh was running invisibly behind it), this fails.
+    # switch_to_tile attaches to the alphabetically-first tower session
+    # (uie2e_aaa_first). For the bug to be ABSENT, tower-tile must live
+    # in THAT same session AND be its active window. Otherwise the user
+    # would land in a claude pane and the tile UI would run invisibly
+    # somewhere else.
     local active
-    active=$(active_window_for "tower_uie2e_tab_active")
+    active=$(active_window_for "tower_uie2e_aaa_first")
     [ "$active" = "tower-tile" ]
+
+    # And tower-tile must not exist on the wrong sessions.
+    ! TMUX= tmux -L "$SESSION_SOCKET" has-session -t "tower_uie2e_bbb:tower-tile" 2>/dev/null
+    ! TMUX= tmux -L "$SESSION_SOCKET" has-session -t "tower_uie2e_ccc:tower-tile" 2>/dev/null
 }
 
 @test "uie2e: Tile content is stable between refreshes (no runaway redraw)" {
