@@ -88,15 +88,18 @@ _load_caller_cwd() {
 # degrade the picker to "empty list, please type the path" — never
 # crash Navigator.
 
-# Extract projectPath values from a JSON stream using jq if available,
-# otherwise a forgiving grep+sed pipeline. Each output line is one path.
+# Extract project paths from a JSON stream. Different Claude Code releases
+# have used different key names — `projectPath` in older sessions-index
+# entries, `project` in newer history.jsonl lines. We accept either,
+# falling back to `cwd` if both are absent.
 _extract_project_paths() {
     if command -v jq >/dev/null 2>&1; then
-        # `?` after the selector makes jq tolerate missing fields.
-        jq -r '.projectPath // empty' 2>/dev/null
+        jq -r '(.projectPath // .project // .cwd // empty)' 2>/dev/null
     else
-        grep -oE '"projectPath"[[:space:]]*:[[:space:]]*"[^"]*"' 2>/dev/null |
-            sed 's/.*"projectPath"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/'
+        # Match any of the three key names. The capturing group picks up
+        # the value after the colon regardless of which key matched.
+        grep -oE '"(projectPath|project|cwd)"[[:space:]]*:[[:space:]]*"[^"]*"' 2>/dev/null |
+            sed -E 's/.*"(projectPath|project|cwd)"[[:space:]]*:[[:space:]]*"([^"]*)".*/\2/'
     fi
 }
 
@@ -119,7 +122,9 @@ _load_sessions_index_paths() {
         if command -v jq >/dev/null 2>&1; then
             ver=$(jq -r '.version // 0' "$f" 2>/dev/null || echo 0)
             [[ "$ver" -eq "$NAV_SESSIONS_INDEX_SUPPORTED_VERSION" ]] || continue
-            jq -r '.entries[]?.projectPath // empty' "$f" 2>/dev/null
+            # Same key fallback as _extract_project_paths.
+            jq -r '.entries[]? | (.projectPath // .project // .cwd // empty)' \
+                "$f" 2>/dev/null
         else
             # Without jq we trust the file format; if it changes we get a
             # noisy list which is harmless — the picker filters out

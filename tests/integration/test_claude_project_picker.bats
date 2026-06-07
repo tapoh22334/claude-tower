@@ -57,13 +57,16 @@ make_sessions_index() {
         >"$dir/sessions-index.json"
 }
 
-# Build a history.jsonl with one project path per line.
+# Build a history.jsonl with one project path per line. The schema key
+# defaults to "projectPath" (older Claude) but can be set via $HISTORY_KEY
+# to e.g. "project" (newer Claude) to exercise the multi-key loader.
 make_history() {
     local f="$CLAUDE_TOWER_CLAUDE_DIR/history.jsonl"
+    local key="${HISTORY_KEY:-projectPath}"
     : >"$f"
     local p
     for p in "$@"; do
-        printf '{"prompt":"hi","projectPath":"%s","timestamp":"x"}\n' "$p" >>"$f"
+        printf '{"prompt":"hi","%s":"%s","timestamp":"x"}\n' "$key" "$p" >>"$f"
     done
 }
 
@@ -172,6 +175,26 @@ EOF
 # ============================================================================
 # Deduplication and source mixing
 # ============================================================================
+
+@test "_load_claude_projects: reads history with 'project' key (newer Claude)" {
+    local d
+    d=$(mktemp -d)
+    HISTORY_KEY=project make_history "$d"
+    run _load_claude_projects
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"$d"* ]]
+    rm -rf "$d"
+}
+
+@test "_load_claude_projects: reads history with 'cwd' key (fallback)" {
+    local d
+    d=$(mktemp -d)
+    HISTORY_KEY=cwd make_history "$d"
+    run _load_claude_projects
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"$d"* ]]
+    rm -rf "$d"
+}
 
 @test "_load_claude_projects: dedups when same path comes from both sources" {
     local d
