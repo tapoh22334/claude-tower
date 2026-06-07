@@ -106,19 +106,22 @@ Press `prefix + t` to open the Navigator.
 | `?` | Show help |
 | `q` | Quit Navigator |
 
-### Tile View Keybindings (reached via `Tab` from Navigator)
+### Tile View (reached via `Tab` from Navigator)
+
+Tile View arranges every active tower session as a native tmux split pane.
+Each pane is a live view of its Claude session — type to interact directly.
+Dormant sessions are not shown (manage them from the Navigator list).
 
 | Key | Action |
 |-----|--------|
-| `j` / `↓` | Next tile |
-| `k` / `↑` | Previous tile |
-| `g` / `G` | First / Last tile |
-| `1`–`9` | Jump to Nth tile **and enter input mode** for that session |
-| `Enter` | Enter input mode for currently selected tile |
-| `Tab` | Return to Navigator list (no input mode) |
-| `q` | Quit Navigator |
+| _(any text)_       | Sent to the focused tile's Claude |
+| `prefix + arrow`   | Move focus to the neighbouring tile |
+| `prefix + o`       | Cycle focus to the next tile |
+| `prefix + z`       | Zoom / un-zoom the focused tile |
+| `prefix + t`       | Exit Tile View back to the caller session |
 
-Tiles auto-refresh; no manual refresh key. Pressing Escape from input mode always returns to the Navigator list.
+Pane sizing follows tmux's `tiled` layout and adjusts automatically on
+terminal resize.
 
 ### CLI Commands
 

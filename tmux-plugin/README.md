@@ -15,16 +15,21 @@ tmux-plugin/
 │   ├── common.sh          # Shared utilities (v2 metadata, session ops)
 │   └── error-recovery.sh  # Error handling and TUI recovery
 └── scripts/
-    ├── navigator.sh       # Navigator entry point
-    ├── navigator-list.sh  # List pane UI (n/d/1-9 keys included)
-    ├── navigator-view.sh  # View pane UI (input mode)
-    ├── tile.sh            # Tile view (auto-refresh, 1-9 → input mode)
-    ├── statusline.sh      # tmux status line content
-    ├── session-add.sh     # Add session (called by tower add and Navigator n)
-    ├── session-delete.sh  # Delete session (called by tower rm and Navigator d)
-    ├── session-list.sh    # List sessions
-    └── session-restore.sh # Restore dormant sessions
+    ├── navigator.sh        # Navigator entry point
+    ├── navigator-list.sh   # List pane UI (n/d/1-9; Tab → Tile via switch_to_tile)
+    ├── navigator-view.sh   # View pane UI (input mode)
+    ├── return-to-caller.sh # prefix+t handler — return to caller session
+    ├── statusline.sh       # tmux status line content
+    ├── session-add.sh      # Add session (called by tower add and Navigator n)
+    ├── session-delete.sh   # Delete session (called by tower rm and Navigator d)
+    ├── session-list.sh     # List sessions
+    └── session-restore.sh  # Restore dormant sessions
 ```
+
+Tile View is native tmux: `switch_to_tile` in `navigator-list.sh` creates a
+`tower-tile` window with one `split-window` per active session and applies
+the `tiled` layout. Each pane is a nested `tmux attach-session -t tower_X`
+configured by `conf/tile-pane.conf`. There is no `tile.sh` any more.
 
 ## Key Components
 
@@ -57,9 +62,9 @@ TUI error recovery patterns:
 
 ### Navigator Scripts
 - `navigator.sh` - Entry point, launched via `prefix + t`
-- `navigator-list.sh` - Left pane showing session list with paths
-- `navigator-view.sh` - Right pane showing live session preview
-- `tile.sh` - Grid view of all sessions
+- `navigator-list.sh` - Left pane (session list + `switch_to_tile` orchestrator)
+- `navigator-view.sh` - Right pane (live session preview)
+- Tile View - native tmux split layout, no dedicated script
 
 ## Session States
 

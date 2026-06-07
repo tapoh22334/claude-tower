@@ -15,7 +15,7 @@ SESSION_SOCKET="ct-uie2e-sess-$$"
 
 NAV_LIST_SCRIPT="$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
 NAV_VIEW_SCRIPT="$PROJECT_ROOT/tmux-plugin/scripts/navigator-view.sh"
-TILE_SCRIPT="$PROJECT_ROOT/tmux-plugin/scripts/tile.sh"
+TILE_PANE_CONF="$PROJECT_ROOT/tmux-plugin/conf/tile-pane.conf"
 SESSION_ADD_SCRIPT="$PROJECT_ROOT/tmux-plugin/scripts/session-add.sh"
 
 # A no-op stand-in for the `claude` binary so session-add/restore don't try
@@ -496,141 +496,106 @@ nav_focus() {
     return 1
 }
 
-@test "uie2e: Tile no longer binds 'r' (no manual refresh case)" {
-    skip_if_no_tmux
-    # The wiring is verified at source level — assert no r) Refresh case remains
-    ! grep -qE "^\s*r\)\s*#\s*Refresh" "$TILE_SCRIPT"
-}
-
 # ============================================================================
-# Tile — behavioural tests (designed to catch the bugs the structural tests
-# above missed: wrong attach target, runaway re-render loop, dropped input).
+# Tile View — native tmux split implementation (v3)
 # ============================================================================
+# Tile View is no longer a self-rendered UI. switch_to_tile orchestrates
+# a `tower-tile` window on the session server with one nested-attach
+# pane per active tower_* session. The tests below verify the structure
+# (the right number of panes, on the right session, with the tile-pane
+# config) — visual behaviour (live mirror, scroll, etc.) is tmux's job.
 
-# Spawn tile.sh directly in its own window on SESSION_SOCKET. This bypasses
-# the Navigator → Tab → switch_to_tile path so we can isolate tile.sh
-# behaviour from the navigator orchestration.
-spawn_tile_window() {
-    TMUX= tmux -L "$SESSION_SOCKET" new-window -n tower-tile "$TILE_SCRIPT"
-    # Wait until tile.sh has drawn its header at least once.
-    local attempt=0
-    while ((attempt < 50)); do
-        if TMUX= tmux -L "$SESSION_SOCKET" capture-pane -t tower-tile -J -p 2>/dev/null \
-            | grep -q "Tile View"; then
-            return 0
-        fi
-        sleep 0.1
-        ((attempt++)) || true
-    done
-    return 1
-}
-
-# Capture the tower-tile pane's visible content (joined, plain).
-capture_tile() {
-    TMUX= tmux -L "$SESSION_SOCKET" capture-pane -t tower-tile -J -p 2>/dev/null
-}
-
-# Same but include ANSI escape sequences (-e), needed for selection
-# verification (reverse video).
-capture_tile_ansi() {
-    TMUX= tmux -L "$SESSION_SOCKET" capture-pane -t tower-tile -e -J -p 2>/dev/null
-}
-
-# Send keystrokes to tower-tile.
-send_to_tile() {
-    TMUX= tmux -L "$SESSION_SOCKET" send-keys -t tower-tile "$@"
-}
-
-# Read the active window name for a given session on SESSION_SOCKET.
 active_window_for() {
     TMUX= tmux -L "$SESSION_SOCKET" display-message -p \
         -t "$1" '#{window_name}' 2>/dev/null
 }
 
-@test "uie2e: Tab makes tower-tile the active window of the attached session" {
+@test "uie2e: tile-pane.conf disables prefix in nested-attach panes" {
+    [ -f "$TILE_PANE_CONF" ]
+    grep -q "set -g prefix None" "$TILE_PANE_CONF"
+    grep -q "unbind-key -a" "$TILE_PANE_CONF"
+}
+
+@test "uie2e: Tab from Navigator creates a tower-tile window with one pane per active session" {
     skip_if_no_tmux
-    # Use MULTIPLE active sessions on the session server. With a single
-    # session this test passes even when switch_to_tile's "first session"
-    # lookup and new-window's "most recently active session" agree by
-    # accident; with three sessions, only a correctly-pinned new-window
-    # places tower-tile on the session we then attach to.
-    make_active "uie2e_aaa_first"
-    make_active "uie2e_bbb"
-    make_active "uie2e_ccc"
+    make_active "uie2e_tile_a"
+    make_active "uie2e_tile_b"
+    make_active "uie2e_tile_c"
 
     launch_navigator
-    wait_for_text "navigator:0.0" "uie2e_aaa_first"
+    wait_for_text "navigator:0.0" "uie2e_tile_a"
 
     nav_send "Tab"
 
-    # Wait for tower-tile window to be created somewhere on SESSION_SOCKET
+    # Wait for tower-tile window to exist on the alphabetically-first session.
     local attempt=0
     while ((attempt < 50)); do
-        if TMUX= tmux -L "$SESSION_SOCKET" list-windows -a 2>/dev/null \
-            | grep -q "tower-tile"; then
+        if TMUX= tmux -L "$SESSION_SOCKET" has-session \
+            -t "tower_uie2e_tile_a:tower-tile" 2>/dev/null; then
             break
         fi
         sleep 0.1
         ((attempt++)) || true
     done
 
-    # switch_to_tile attaches to the alphabetically-first tower session
-    # (uie2e_aaa_first). For the bug to be ABSENT, tower-tile must live
-    # in THAT same session AND be its active window. Otherwise the user
-    # would land in a claude pane and the tile UI would run invisibly
-    # somewhere else.
-    local active
-    active=$(active_window_for "tower_uie2e_aaa_first")
-    [ "$active" = "tower-tile" ]
+    # One pane per active session (3 in this test).
+    local pane_count
+    pane_count=$(TMUX= tmux -L "$SESSION_SOCKET" list-panes \
+        -t "tower_uie2e_tile_a:tower-tile" 2>/dev/null | wc -l)
+    [ "$pane_count" -eq 3 ]
 
-    # And tower-tile must not exist on the wrong sessions.
-    ! TMUX= tmux -L "$SESSION_SOCKET" has-session -t "tower_uie2e_bbb:tower-tile" 2>/dev/null
-    ! TMUX= tmux -L "$SESSION_SOCKET" has-session -t "tower_uie2e_ccc:tower-tile" 2>/dev/null
+    # Window is not duplicated onto the other sessions.
+    ! TMUX= tmux -L "$SESSION_SOCKET" has-session -t "tower_uie2e_tile_b:tower-tile" 2>/dev/null
+    ! TMUX= tmux -L "$SESSION_SOCKET" has-session -t "tower_uie2e_tile_c:tower-tile" 2>/dev/null
 }
 
-@test "uie2e: Tile content is stable between refreshes (no runaway redraw)" {
+@test "uie2e: Tile panes use tile-pane.conf for nested attach" {
     skip_if_no_tmux
-    make_active "uie2e_stable_a"
-    make_active "uie2e_stable_b"
+    make_active "uie2e_tileconf_a"
+    launch_navigator
+    wait_for_text "navigator:0.0" "uie2e_tileconf_a"
 
-    spawn_tile_window
-    # Give tile.sh's initial render time to complete (load_sessions + draw_tiles
-    # before the read-with-timeout loop starts).
-    sleep 0.8
+    nav_send "Tab"
+    local attempt=0
+    while ((attempt < 50)); do
+        if TMUX= tmux -L "$SESSION_SOCKET" has-session \
+            -t "tower_uie2e_tileconf_a:tower-tile" 2>/dev/null; then
+            break
+        fi
+        sleep 0.1
+        ((attempt++)) || true
+    done
 
-    local snap1 snap2 snap3
-    snap1=$(capture_tile)
-    # REFRESH_INTERVAL is 2s; sampling at 300ms intervals stays well inside
-    # one refresh window. Three consecutive snapshots should be identical
-    # if tile.sh is genuinely waiting in `read -t REFRESH_INTERVAL`.
-    sleep 0.3
-    snap2=$(capture_tile)
-    sleep 0.3
-    snap3=$(capture_tile)
-
-    [ "$snap1" = "$snap2" ]
-    [ "$snap2" = "$snap3" ]
+    # The first pane's start command should include `tile-pane.conf`.
+    local cmd
+    cmd=$(TMUX= tmux -L "$SESSION_SOCKET" list-panes \
+        -t "tower_uie2e_tileconf_a:tower-tile" \
+        -F '#{pane_start_command}' 2>/dev/null | head -1)
+    [[ "$cmd" == *"tile-pane.conf"* ]]
 }
 
-@test "uie2e: Tile j key changes the highlighted tile (input reaches tile.sh)" {
+@test "uie2e: Tab with no active sessions stays in Navigator (no tile window created)" {
     skip_if_no_tmux
-    make_active "uie2e_jkey_a"
-    make_active "uie2e_jkey_b"
-    make_active "uie2e_jkey_c"
+    launch_navigator
+    wait_for_text "navigator:0.0" "(no sessions)"
 
-    spawn_tile_window
-    sleep 0.8
+    nav_send "Tab"
+    sleep 0.5
 
-    local before after
-    before=$(capture_tile_ansi)
-    send_to_tile "j"
-    # Give tile.sh's main loop one cycle to read the key and redraw.
-    sleep 0.4
-    after=$(capture_tile_ansi)
+    # No tower_* sessions → switch_to_tile bails out, no tower-tile anywhere.
+    ! TMUX= tmux -L "$SESSION_SOCKET" list-windows -a 2>/dev/null | grep -q "tower-tile"
+}
 
-    # The pane must change after a `j` — if it doesn't, either the key
-    # isn't reaching tile.sh, or its main loop is wedged.
-    [ "$before" != "$after" ]
+@test "uie2e: switch_to_tile kills any prior tower-tile before rebuilding" {
+    # Regression guard at source level: re-entry into Tile must rebuild
+    # the window so the session list is current. The actual rebuild
+    # behaviour needs a full client cycle which the harness can't drive,
+    # so we assert the kill-window invocation is present in the function.
+    local body
+    body=$(awk '/^switch_to_tile\(\)/,/^}/' \
+        "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh")
+    echo "$body" | grep -q "kill-window"
+    echo "$body" | grep -q "tower-tile"
 }
 
 # ============================================================================
@@ -774,31 +739,6 @@ active_window_for() {
     while ((attempt < 30)); do
         if [[ "$(nav_focus)" == "view" ]]; then
             return 0
-        fi
-        sleep 0.1
-        ((attempt++)) || true
-    done
-    return 1
-}
-
-@test "uie2e: Tile renders the session list with names and state icons" {
-    skip_if_no_tmux
-    make_active "uie2e_tile_render"
-    launch_navigator
-    wait_for_text "navigator:0.0" "uie2e_tile_render"
-
-    nav_send "Tab"
-
-    # The Tile window on SESSION socket should appear and its drawn header
-    # should include the session name + active-state glyph.
-    local attempt=0
-    while ((attempt < 50)); do
-        if TMUX= tmux -L "$SESSION_SOCKET" list-windows -a 2>/dev/null | grep -q "tower-tile"; then
-            local content
-            content=$(TMUX= tmux -L "$SESSION_SOCKET" capture-pane -t tower-tile -J -p 2>/dev/null)
-            if [[ "$content" == *"Tile View"* && "$content" == *"uie2e_tile_render"* ]]; then
-                return 0
-            fi
         fi
         sleep 0.1
         ((attempt++)) || true

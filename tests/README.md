@@ -103,5 +103,5 @@ teardown() {
 ## Known Gaps
 
 Scripts without dedicated tests:
-- `tile.sh`, `statusline.sh`
+- `statusline.sh`
 - `session-delete.sh`, `session-restore.sh`

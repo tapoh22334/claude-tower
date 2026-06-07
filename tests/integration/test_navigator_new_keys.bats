@@ -5,7 +5,7 @@
 
 PROJECT_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
 NAV="$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
-TILE="$PROJECT_ROOT/tmux-plugin/scripts/tile.sh"
+TILE_CONF="$PROJECT_ROOT/tmux-plugin/conf/tile-pane.conf"
 TMUX_PLUGIN="$PROJECT_ROOT/tmux-plugin/claude-tower.tmux"
 
 # ============================================================================
@@ -91,47 +91,30 @@ TMUX_PLUGIN="$PROJECT_ROOT/tmux-plugin/claude-tower.tmux"
 }
 
 # ============================================================================
-# US2 — Tile direct-input routing
+# US2 — Tile View now uses native tmux split-window
 # ============================================================================
+# In the v3 rewrite, tile.sh is gone. switch_to_tile orchestrates a
+# tower-tile window with one nested-attach pane per active session. The
+# old "input mode" concept disappears — every tile pane is interactive.
 
-@test "Tile defines enter_input_mode_for action" {
-    run grep -E "^enter_input_mode_for\(\)" "$TILE"
-    [ "$status" -eq 0 ]
+@test "Tile View: tile.sh has been removed" {
+    [ ! -e "$PROJECT_ROOT/tmux-plugin/scripts/tile.sh" ]
 }
 
-@test "Tile 1-9 case calls enter_input_mode_for (not return_to_list_view)" {
-    # Locate the [1-9] case block and verify it calls enter_input_mode_for.
-    # Uses POSIX character classes (`[[:space:]]`) for portability — mawk
-    # (Ubuntu's default) does not understand `\s`.
-    run awk '/^[[:space:]]*\[1-9\]\)/,/;;/' "$TILE"
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"enter_input_mode_for"* ]]
+@test "Tile View: tile-pane.conf exists for nested-attach panes" {
+    [ -f "$TILE_CONF" ]
+    grep -q "prefix None" "$TILE_CONF"
+    grep -q "unbind-key -a" "$TILE_CONF"
 }
 
-@test "Tile Enter case calls enter_input_mode_for" {
-    # Find the Enter case ('' | $'\n') by its surrounding context — the case
-    # block should be immediately followed by a line containing enter_input_mode_for.
-    run grep -n "enter_input_mode_for" "$TILE"
-    [ "$status" -eq 0 ]
-    # Expect at least two references: one in the [1-9] case and one in the Enter case.
-    local count
-    count=$(grep -c "enter_input_mode_for" "$TILE")
-    [ "$count" -ge 3 ]  # function def + [1-9] case + Enter case
-}
-
-@test "Tile no longer binds 'r' for manual refresh" {
-    # The literal 'r) # Refresh' pattern should be gone
-    ! grep -qE "^\s*r\)\s*#\s*Refresh" "$TILE"
-}
-
-@test "Tile uses REFRESH_INTERVAL timed read for auto-refresh" {
-    run grep "read -rsn1 -t \"\$REFRESH_INTERVAL\"" "$TILE"
-    [ "$status" -eq 0 ]
-}
-
-@test "Tile defines REFRESH_INTERVAL constant" {
-    run grep "readonly REFRESH_INTERVAL" "$TILE"
-    [ "$status" -eq 0 ]
+@test "switch_to_tile orchestrates split-window + tiled layout" {
+    local script="$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
+    local body
+    body=$(awk '/^switch_to_tile\(\)/,/^}/' "$script")
+    echo "$body" | grep -q "new-window"
+    echo "$body" | grep -q "split-window"
+    echo "$body" | grep -q "select-layout"
+    echo "$body" | grep -q "tile-pane.conf"
 }
 
 # ============================================================================

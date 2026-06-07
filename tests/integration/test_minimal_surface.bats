@@ -50,20 +50,26 @@ SCRIPTS_DIR="$PROJECT_ROOT/tmux-plugin/scripts"
 }
 
 @test "Keeper set present: 9 expected scripts" {
+    # tile.sh is gone in the v3 Tile rewrite — Tile View is now a native
+    # tmux split layout orchestrated by switch_to_tile in navigator-list.sh.
     local expected=(
         navigator.sh
         navigator-list.sh
         navigator-view.sh
-        tile.sh
         statusline.sh
         session-add.sh
         session-delete.sh
         session-list.sh
         session-restore.sh
+        return-to-caller.sh
     )
     for f in "${expected[@]}"; do
         [ -e "$SCRIPTS_DIR/$f" ] || { echo "missing: $f"; return 1; }
     done
+}
+
+@test "tile.sh removed (Tile View is native tmux now)" {
+    [ ! -e "$SCRIPTS_DIR/tile.sh" ]
 }
 
 @test "Worktree directory creation removed from claude-tower.tmux" {

@@ -16,6 +16,13 @@
 - Q: When the user enters input mode from Tile (via `1-9` / Enter) and then presses Escape, where should they return? → A: Always return to the Navigator list, regardless of whether input mode was entered from Tile or from the list. Consistency is prioritized over caller-context preservation; the list becomes the single canonical "home" after input mode exit. Users who want to return to Tile press `Tab` from the list.
 - Q: At what cadence should Tile auto-refresh? → A: Use the same refresh interval as Navigator (the existing `REFRESH_INTERVAL`, approximately 2 seconds). Sharing the cadence keeps implementation uniform and matches user expectation of equal responsiveness across views.
 
+### Session 2026-06-07 (Tile View redesign)
+
+- Q: The original Tile View used a self-rendered grid of capture-pane snapshots. After in-use testing this proved poor: snapshots lag behind live output, layout was fixed (2 cols, 6 max), and the custom key handling fought with tmux conventions. Replace with what? → A: Use native tmux split-window. The `tower-tile` window contains one pane per active tower session, each running a nested `tmux attach-session` to that session. The `tiled` layout arranges panes automatically and tmux handles resize. This supersedes FR-006/-007/-008/-009/-009a below.
+- Q: What happens to dormant sessions in the new Tile? → A: Excluded. Tile View is now defined as a live-monitoring dashboard for active sessions only. Dormant sessions are managed from the Navigator list (where `r` restores them).
+- Q: How does the user navigate between tiles? → A: Native tmux pane focus. `prefix + arrow`, `prefix + o`, and mouse click all work as users already expect from tmux. Typing into a focused tile sends the keys straight to that session's Claude.
+- Q: How does the user exit Tile? → A: `prefix + t` (the return-to-caller binding installed on the Session server). The Tile-specific `Tab`-back-to-list and `1-9`/`Enter`-to-input-mode keys from US2 are obsoleted.
+
 ## Background
 
 Claude Code now provides its own worktree management (`claude wt`), eliminating the need for Tower to manage worktrees or generalize to multiple agents. Tower's enduring value is being a **viewer and switcher** for multiple running Claude sessions inside tmux. The redesign focuses Tower on this single purpose: simple metadata storage plus interactive views (Navigator and Tile).

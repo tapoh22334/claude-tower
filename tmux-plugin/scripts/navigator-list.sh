@@ -577,31 +577,60 @@ restore_all_dormant_sessions() {
 switch_to_tile() {
     info_log "Switching to Tile mode"
 
-    # Pick a target session (alphabetically first tower_* on the server) so
-    # the new-window goes somewhere deterministic, not "whatever was most
-    # recently active". Without this, when several tower_* sessions exist
-    # the new-window may land on session X while we attach to session Y,
-    # and the user sees a claude pane instead of the tile UI.
-    local target_session
-    target_session=$(session_tmux list-sessions -F '#{session_name}' 2>/dev/null | head -1 || echo "")
+    # Tile View is a native-tmux split layout. Each active tower_* session
+    # is mirrored as its own pane via a nested attach. No custom rendering,
+    # no auto-refresh loop — tmux handles all of it.
 
-    if [[ -z "$target_session" ]]; then
-        # No tower sessions yet — nothing to tile. Stay in Navigator.
+    # Collect the active tower_* sessions on the session server. Dormant
+    # sessions are intentionally excluded (Tile is a live-monitoring
+    # dashboard; dormant sessions belong to the Navigator list).
+    local sessions=()
+    while IFS= read -r s; do
+        [[ -z "$s" ]] && continue
+        [[ "$s" == tower_* ]] || continue
+        sessions+=("$s")
+    done < <(session_tmux list-sessions -F '#{session_name}' 2>/dev/null | sort)
+
+    if [[ ${#sessions[@]} -eq 0 ]]; then
+        echo ""
+        echo "  ${NAV_C_DIM}No active sessions to tile${NAV_C_NORMAL}"
+        sleep 0.8
         return
     fi
 
-    # Create tile window explicitly inside the target session. Default
-    # new-window behaviour selects the new window, which is what we want
-    # — combined with the explicit `:tower-tile` in the attach below, the
-    # user reliably lands on the tile pane regardless of which client is
-    # attached.
-    session_tmux new-window -t "$target_session" -n "tower-tile" \
-        "$SCRIPT_DIR/tile.sh" 2>/dev/null || true
+    local target_session="${sessions[0]}"
+    local tile_pane_conf="$SCRIPT_DIR/../conf/tile-pane.conf"
 
-    # Detach from Navigator and attach to the target session WITH tower-tile
-    # as the active window. The `-t session:window` syntax pins both at
-    # once so the user lands directly on the tile pane.
-    nav_tmux detach-client -E "TMUX= tmux -L '$TOWER_SESSION_SOCKET' attach-session -t '${target_session}:tower-tile'"
+    # If a previous tower-tile window is still around (we left it behind
+    # last time, or sessions have changed since), drop it so we rebuild
+    # cleanly with the current session list.
+    session_tmux kill-window -t "${target_session}:tower-tile" 2>/dev/null || true
+
+    # Create the tile window with -d (don't auto-select). The first session
+    # is launched as the window's initial pane via a nested attach.
+    session_tmux new-window -d -t "$target_session" -n "tower-tile" \
+        "TMUX= tmux -L '$TOWER_SESSION_SOCKET' -f '$tile_pane_conf' \
+            attach-session -t '${sessions[0]}'" 2>/dev/null || true
+
+    # Split a pane for each additional session.
+    local i
+    for ((i = 1; i < ${#sessions[@]}; i++)); do
+        session_tmux split-window -t "${target_session}:tower-tile" \
+            "TMUX= tmux -L '$TOWER_SESSION_SOCKET' -f '$tile_pane_conf' \
+                attach-session -t '${sessions[$i]}'" 2>/dev/null || true
+    done
+
+    # Tiled layout arranges panes in a near-square grid automatically.
+    session_tmux select-layout -t "${target_session}:tower-tile" tiled 2>/dev/null || true
+
+    # Focus the first tile.
+    session_tmux select-pane -t "${target_session}:tower-tile.0" 2>/dev/null || true
+
+    # Hand the client over to the tile window. prefix+t (installed by
+    # install_return_binding on the session server) will return them
+    # to the caller from anywhere inside the tile.
+    nav_tmux detach-client \
+        -E "TMUX= tmux -L '$TOWER_SESSION_SOCKET' attach-session -t '${target_session}:tower-tile'"
 }
 
 # Full attach to selected session
