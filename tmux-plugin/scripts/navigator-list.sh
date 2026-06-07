@@ -705,7 +705,11 @@ _render_project_picker() {
 
     local clear_eos
     clear_eos=$(tput ed 2>/dev/null || printf '\033[J')
-    printf '\033[?25l\033[H%b%s\033[?25h' "$output" "$clear_eos"
+
+    # Write to /dev/tty so the render reaches the pane even when the
+    # caller wraps us in command substitution (which captures stdout).
+    # The selection result still goes to stdout from _run_project_picker.
+    printf '\033[?25l\033[H%b%s\033[?25h' "$output" "$clear_eos" >/dev/tty
 }
 
 # Main picker loop. Returns:
