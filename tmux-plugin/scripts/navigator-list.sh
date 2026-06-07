@@ -601,24 +601,53 @@ switch_to_tile() {
     local target_session="${sessions[0]}"
     local tile_pane_conf="$SCRIPT_DIR/../conf/tile-pane.conf"
 
+    # Capture the target session's current (Claude) window BEFORE we add
+    # tower-tile to it. When the per-session pane for `target_session`
+    # nested-attaches back to `target_session`, it must attach to THIS
+    # window, not to tower-tile itself — otherwise the pane shows the
+    # very window it lives in (mirror-in-a-mirror recursion) and tmux
+    # negotiates the session size smaller every redraw cycle, producing
+    # a "screen shrinks by 1 row every ~0.5s" visual.
+    local target_original_window
+    target_original_window=$(session_tmux display-message -p \
+        -t "$target_session" '#{window_id}' 2>/dev/null)
+
     # If a previous tower-tile window is still around (we left it behind
     # last time, or sessions have changed since), drop it so we rebuild
     # cleanly with the current session list.
     session_tmux kill-window -t "${target_session}:tower-tile" 2>/dev/null || true
 
+    # Resolve the attach target for one tile pane. For the host session
+    # (the one hosting tower-tile), point at its original (Claude) window
+    # to avoid self-reference; for every other session the nested attach
+    # to its plain session name does the right thing.
+    _tile_attach_target() {
+        local sess="$1"
+        if [[ "$sess" == "$target_session" ]]; then
+            printf '%s' "${target_session}:${target_original_window}"
+        else
+            printf '%s' "$sess"
+        fi
+    }
+
     # Create the tile window with -d (don't auto-select). The first session
     # is launched as the window's initial pane via a nested attach.
+    local first_target
+    first_target=$(_tile_attach_target "${sessions[0]}")
     session_tmux new-window -d -t "$target_session" -n "tower-tile" \
         "TMUX= tmux -L '$TOWER_SESSION_SOCKET' -f '$tile_pane_conf' \
-            attach-session -t '${sessions[0]}'" 2>/dev/null || true
+            attach-session -t '$first_target'" 2>/dev/null || true
 
     # Split a pane for each additional session.
-    local i
+    local i pane_target
     for ((i = 1; i < ${#sessions[@]}; i++)); do
+        pane_target=$(_tile_attach_target "${sessions[$i]}")
         session_tmux split-window -t "${target_session}:tower-tile" \
             "TMUX= tmux -L '$TOWER_SESSION_SOCKET' -f '$tile_pane_conf' \
-                attach-session -t '${sessions[$i]}'" 2>/dev/null || true
+                attach-session -t '$pane_target'" 2>/dev/null || true
     done
+
+    unset -f _tile_attach_target
 
     # Tiled layout arranges panes in a near-square grid automatically.
     session_tmux select-layout -t "${target_session}:tower-tile" tiled 2>/dev/null || true

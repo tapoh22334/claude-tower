@@ -549,6 +549,44 @@ active_window_for() {
     ! TMUX= tmux -L "$SESSION_SOCKET" has-session -t "tower_uie2e_tile_c:tower-tile" 2>/dev/null
 }
 
+@test "uie2e: host-session tile pane targets the original window (no mirror recursion)" {
+    skip_if_no_tmux
+    # The host session's pane must NOT attach to bare 'tower_X' (which
+    # would let tmux pick tower_X's active window — and after the outer
+    # client attaches to tower_X:tower-tile, that active window IS
+    # tower-tile, producing a nested self-mirror that shrinks the screen
+    # by 1 row every refresh).
+    make_active "uie2e_host_recursion_a"
+    make_active "uie2e_host_recursion_b"
+
+    launch_navigator
+    wait_for_text "navigator:0.0" "uie2e_host_recursion_a"
+
+    nav_send "Tab"
+    local attempt=0
+    while ((attempt < 50)); do
+        if TMUX= tmux -L "$SESSION_SOCKET" has-session \
+            -t "tower_uie2e_host_recursion_a:tower-tile" 2>/dev/null; then
+            break
+        fi
+        sleep 0.1
+        ((attempt++)) || true
+    done
+
+    # The host pane's start command must include "<host>:<window-id>"
+    # form, not just the bare host session name. We don't know the
+    # exact window id, but we can assert the colon syntax for the host
+    # session and the bare form for the OTHER session.
+    local cmds
+    cmds=$(TMUX= tmux -L "$SESSION_SOCKET" list-panes \
+        -t "tower_uie2e_host_recursion_a:tower-tile" \
+        -F '#{pane_start_command}' 2>/dev/null)
+    # Host pane: ends with `tower_uie2e_host_recursion_a:@<id>` style
+    echo "$cmds" | grep -qE "tower_uie2e_host_recursion_a:@[0-9]+'"
+    # Non-host pane: ends with bare `tower_uie2e_host_recursion_b'`
+    echo "$cmds" | grep -qE "tower_uie2e_host_recursion_b'"
+}
+
 @test "uie2e: Tile panes use tile-pane.conf for nested attach" {
     skip_if_no_tmux
     make_active "uie2e_tileconf_a"
