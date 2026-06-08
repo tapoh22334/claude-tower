@@ -1,0 +1,45 @@
+#!/usr/bin/env bats
+# Behavioural tests for the join-pane Tile View (lib/tile.sh).
+# Each Claude session is stood in by `/bin/sleep 600` so panes have a
+# stable PID we can track across the collapse/disband round trip.
+
+PROJECT_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
+SESSION_SOCKET="ct-tile-sess-$$"
+
+setup() {
+    export TMUX_TMPDIR="/tmp/ct-tile-$$"
+    mkdir -p "$TMUX_TMPDIR"; chmod 700 "$TMUX_TMPDIR"
+    export CLAUDE_TOWER_SESSION_SOCKET="$SESSION_SOCKET"
+    export TOWER_NAV_STATE_DIR_OVERRIDE="/tmp/ct-tile-state-$$"
+    rm -rf "$TOWER_NAV_STATE_DIR_OVERRIDE"; mkdir -p "$TOWER_NAV_STATE_DIR_OVERRIDE"
+
+    # common.sh sets strict mode + an ERR trap that, under bats, can spiral
+    # on a failing assertion. Source defensively and drop the trap — this
+    # mirrors tests/integration/test_return_to_caller.bats.
+    set +euo pipefail
+    # shellcheck disable=SC1090,SC1091
+    source "$PROJECT_ROOT/tmux-plugin/lib/common.sh"
+    source "$PROJECT_ROOT/tmux-plugin/lib/tile.sh"
+    set -euo pipefail
+    trap - ERR
+
+    TMUX= tmux -L "$SESSION_SOCKET" kill-server 2>/dev/null || true
+}
+
+teardown() {
+    TMUX= tmux -L "$SESSION_SOCKET" kill-server 2>/dev/null || true
+    rm -rf "$TMUX_TMPDIR" "$TOWER_NAV_STATE_DIR_OVERRIDE" 2>/dev/null || true
+}
+
+# Make an active Claude session: one window named `claude` running sleep.
+make_claude() {
+    local name="$1"
+    TMUX= tmux -L "$SESSION_SOCKET" new-session -d -s "tower_${name}" \
+        -n claude -x 200 -y 50 "exec /bin/sleep 600"
+}
+
+@test "tile: constants are defined" {
+    [ "$TOWER_TILE_SESSION" = "tower-tile" ]
+    [ "$TOWER_TILE_HOLDER_WINDOW" = "_tile_holder" ]
+    [ -n "$TOWER_TILE_MAP_FILE" ]
+}

@@ -148,6 +148,38 @@ readonly TOWER_NAV_FOCUS_FILE="${TOWER_NAV_STATE_DIR}/focus"
 # tmux wait-for channel for view pane updates
 readonly TOWER_VIEW_UPDATE_CHANNEL="tower-view-update"
 
+# ----------------------------------------------------------------------------
+# Tile View (join-pane) constants and state
+# ----------------------------------------------------------------------------
+
+# Dedicated session that hosts the tile grid (all Claude panes joined here).
+readonly TOWER_TILE_SESSION="tower-tile"
+
+# Per-session placeholder window that keeps a tower_X alive while its Claude
+# pane is on loan to the tile grid. Leading underscore marks it internal.
+readonly TOWER_TILE_HOLDER_WINDOW="_tile_holder"
+
+# Map file: lines of "<pane_id>\t<session_name>", the teardown source of truth.
+# Test override lets the bats suite isolate state.
+readonly TOWER_TILE_MAP_FILE="${TOWER_NAV_STATE_DIR_OVERRIDE:-$TOWER_NAV_STATE_DIR}/tile.map"
+
+# Warning breadcrumb the Navigator renders on its next draw.
+readonly TOWER_NAV_WARNING_FILE="${TOWER_NAV_STATE_DIR_OVERRIDE:-$TOWER_NAV_STATE_DIR}/warning"
+
+# Record a one-line warning for the Navigator to surface to the user.
+set_nav_warning() {
+    mkdir -p "$(dirname "$TOWER_NAV_WARNING_FILE")" 2>/dev/null || true
+    printf '%s\n' "$1" >"$TOWER_NAV_WARNING_FILE" 2>/dev/null || true
+}
+
+# Read and clear the pending Navigator warning (empty if none).
+get_nav_warning() {
+    if [[ -f "$TOWER_NAV_WARNING_FILE" ]]; then
+        cat "$TOWER_NAV_WARNING_FILE" 2>/dev/null || true
+        rm -f "$TOWER_NAV_WARNING_FILE" 2>/dev/null || true
+    fi
+}
+
 # ============================================================================
 # Navigator Helper Functions
 # ============================================================================
