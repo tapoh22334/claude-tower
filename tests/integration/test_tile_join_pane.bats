@@ -91,3 +91,79 @@ make_claude() {
     run tile_disband
     [ "$status" -eq 0 ]
 }
+
+@test "tile_collapse: collapses N sessions into tower-tile, panes tagged" {
+    make_claude one; make_claude two; make_claude three
+    run tile_collapse
+    [ "$status" -eq 0 ]
+
+    # tower-tile exists with one pane per session.
+    TMUX= tmux -L "$SESSION_SOCKET" has-session -t tower-tile
+    local pc; pc=$(TMUX= tmux -L "$SESSION_SOCKET" list-panes -t tower-tile | wc -l)
+    [ "$pc" -eq 3 ]
+
+    # Each pane carries @tower_name; map file matches.
+    local tags; tags=$(TMUX= tmux -L "$SESSION_SOCKET" \
+        list-panes -t tower-tile -F '#{@tower_name}' | sort | tr '\n' ' ')
+    [ "$tags" = "tower_one tower_three tower_two " ]
+    [ "$(wc -l <"$TOWER_TILE_MAP_FILE")" -eq 3 ]
+
+    # Each source session is still alive (held by _tile_holder).
+    TMUX= tmux -L "$SESSION_SOCKET" has-session -t tower_one
+    TMUX= tmux -L "$SESSION_SOCKET" has-session -t tower_two
+    TMUX= tmux -L "$SESSION_SOCKET" has-session -t tower_three
+}
+
+@test "tile_collapse: round-trips back to standalone sessions, same PIDs" {
+    make_claude a; make_claude b
+    local pa; pa=$(TMUX= tmux -L "$SESSION_SOCKET" list-panes -t tower_a:claude -F '#{pane_pid}')
+    local pb; pb=$(TMUX= tmux -L "$SESSION_SOCKET" list-panes -t tower_b:claude -F '#{pane_pid}')
+
+    tile_collapse
+    tile_disband
+
+    TMUX= tmux -L "$SESSION_SOCKET" has-session -t tower_a
+    TMUX= tmux -L "$SESSION_SOCKET" has-session -t tower_b
+    [ "$(TMUX= tmux -L "$SESSION_SOCKET" list-panes -t tower_a -F '#{pane_pid}')" = "$pa" ]
+    [ "$(TMUX= tmux -L "$SESSION_SOCKET" list-panes -t tower_b -F '#{pane_pid}')" = "$pb" ]
+    ! TMUX= tmux -L "$SESSION_SOCKET" has-session -t tower-tile
+}
+
+@test "tile_collapse: 5 sessions tile without 'pane too small'" {
+    make_claude s1; make_claude s2; make_claude s3; make_claude s4; make_claude s5
+    run tile_collapse
+    [ "$status" -eq 0 ]
+    [ "$(TMUX= tmux -L "$SESSION_SOCKET" list-panes -t tower-tile | wc -l)" -eq 5 ]
+}
+
+@test "tile_collapse: multi-window session is skipped and counted" {
+    make_claude solo
+    make_claude multi
+    TMUX= tmux -L "$SESSION_SOCKET" new-window -d -t tower_multi -n extra "exec /bin/sleep 600"
+
+    run tile_collapse
+    [ "$status" -eq 0 ]
+    # Only the single-window session is tiled.
+    [ "$(TMUX= tmux -L "$SESSION_SOCKET" list-panes -t tower-tile | wc -l)" -eq 1 ]
+    # The skip count is exposed via the global TILE_SKIPPED.
+    [ "$TILE_SKIPPED" -eq 1 ]
+    # The multi-window session is untouched.
+    [ "$(TMUX= tmux -L "$SESSION_SOCKET" list-windows -t tower_multi | wc -l)" -eq 2 ]
+}
+
+@test "tile_collapse: no tileable sessions returns non-zero, builds nothing" {
+    run tile_collapse
+    [ "$status" -ne 0 ]
+    ! TMUX= tmux -L "$SESSION_SOCKET" has-session -t tower-tile
+}
+
+@test "tile_collapse: re-entry after interrupted state recovers (idempotent)" {
+    make_claude x; make_claude y
+    tile_collapse
+    # Simulate a fresh ENTER while already tiled: should disband then rebuild.
+    run tile_collapse
+    [ "$status" -eq 0 ]
+    [ "$(TMUX= tmux -L "$SESSION_SOCKET" list-panes -t tower-tile | wc -l)" -eq 2 ]
+    # No stray holders left in the sessions.
+    [ "$(TMUX= tmux -L "$SESSION_SOCKET" list-windows -t tower_x | wc -l)" -eq 1 ]
+}
