@@ -166,3 +166,24 @@ make_claude() {
     # No stray holders left in the sessions.
     [ "$(TMUX= tmux -L "$SESSION_SOCKET" list-windows -t tower_x | wc -l)" -eq 1 ]
 }
+
+@test "tile-exit.sh: disbands tile and restores sessions" {
+    make_claude p; make_claude q
+    tile_collapse
+    # TOWER_TILE_NO_REENTER short-circuits the navigator exec for tests.
+    TOWER_TILE_NO_REENTER=1 run "$PROJECT_ROOT/tmux-plugin/scripts/tile-exit.sh"
+    [ "$status" -eq 0 ]
+    TMUX= tmux -L "$SESSION_SOCKET" has-session -t tower_p
+    TMUX= tmux -L "$SESSION_SOCKET" has-session -t tower_q
+    ! TMUX= tmux -L "$SESSION_SOCKET" has-session -t tower-tile
+}
+
+@test "tile-exit.sh: writes a warning on teardown anomaly" {
+    make_claude r
+    tile_collapse
+    # Corrupt the map so one entry references a dead pane.
+    printf '%s\t%s\n' "%999" tower_ghost >>"$TOWER_TILE_MAP_FILE"
+    TOWER_TILE_NO_REENTER=1 run "$PROJECT_ROOT/tmux-plugin/scripts/tile-exit.sh"
+    # Warning file exists for the Navigator to surface.
+    [ -f "$TOWER_NAV_WARNING_FILE" ]
+}
