@@ -5,7 +5,6 @@
 
 PROJECT_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
 NAV="$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
-TILE_CONF="$PROJECT_ROOT/tmux-plugin/conf/tile-pane.conf"
 TMUX_PLUGIN="$PROJECT_ROOT/tmux-plugin/claude-tower.tmux"
 
 # ============================================================================
@@ -99,6 +98,10 @@ TMUX_PLUGIN="$PROJECT_ROOT/tmux-plugin/claude-tower.tmux"
 
 @test "Tile View: tile.sh has been removed" {
     [ ! -e "$PROJECT_ROOT/tmux-plugin/scripts/tile.sh" ]
+}
+
+@test "Tile View: tile-pane.conf has been removed" {
+    [ ! -e "$PROJECT_ROOT/tmux-plugin/conf/tile-pane.conf" ]
 }
 
 @test "switch_to_tile delegates to tile_collapse and installs exit wiring" {
