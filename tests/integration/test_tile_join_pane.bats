@@ -43,3 +43,51 @@ make_claude() {
     [ "$TOWER_TILE_HOLDER_WINDOW" = "_tile_holder" ]
     [ -n "$TOWER_TILE_MAP_FILE" ]
 }
+
+# Hand-build a tile state: collapse one claude pane into tower-tile with a
+# holder left behind, write the map, then disband and assert restoration.
+@test "tile_disband: restores session by name with same PID" {
+    make_claude alpha
+    local pid; pid=$(TMUX= tmux -L "$SESSION_SOCKET" \
+        list-panes -t tower_alpha:claude -F '#{pane_pid}')
+    local pane; pane=$(TMUX= tmux -L "$SESSION_SOCKET" \
+        list-panes -t tower_alpha:claude -F '#{pane_id}')
+
+    # Build tile-tile session + holder, then join the claude pane in.
+    TMUX= tmux -L "$SESSION_SOCKET" new-session -d -s tower-tile -n tile "exec /bin/sleep 600"
+    local tw; tw=$(TMUX= tmux -L "$SESSION_SOCKET" display-message -p -t tower-tile '#{window_id}')
+    TMUX= tmux -L "$SESSION_SOCKET" new-window -d -t tower_alpha -n _tile_holder "exec /bin/sleep 600"
+    TMUX= tmux -L "$SESSION_SOCKET" set-option -p -t "$pane" @tower_name tower_alpha
+    printf '%s\t%s\n' "$pane" tower_alpha >"$TOWER_TILE_MAP_FILE"
+    TMUX= tmux -L "$SESSION_SOCKET" join-pane -s "$pane" -t "$tw"
+
+    run tile_disband
+    [ "$status" -eq 0 ]
+
+    # tower_alpha restored, single window named claude, same PID, no holder.
+    TMUX= tmux -L "$SESSION_SOCKET" has-session -t tower_alpha
+    local wc; wc=$(TMUX= tmux -L "$SESSION_SOCKET" list-windows -t tower_alpha | wc -l)
+    [ "$wc" -eq 1 ]
+    local newpid; newpid=$(TMUX= tmux -L "$SESSION_SOCKET" \
+        list-panes -t tower_alpha -F '#{pane_pid}')
+    [ "$newpid" = "$pid" ]
+    ! TMUX= tmux -L "$SESSION_SOCKET" has-session -t tower-tile
+    [ ! -f "$TOWER_TILE_MAP_FILE" ]
+}
+
+@test "tile_disband: skips a crashed pane and warns (non-zero)" {
+    make_claude beta
+    local pane; pane=$(TMUX= tmux -L "$SESSION_SOCKET" \
+        list-panes -t tower_beta:claude -F '#{pane_id}')
+    # Map references a pane id that does not exist (simulated crash).
+    printf '%s\t%s\n' "%999" tower_beta >"$TOWER_TILE_MAP_FILE"
+
+    run tile_disband
+    [ "$status" -eq 1 ]                 # anomaly reported
+    [ ! -f "$TOWER_TILE_MAP_FILE" ]     # map still cleared
+}
+
+@test "tile_disband: no map file is a clean no-op" {
+    run tile_disband
+    [ "$status" -eq 0 ]
+}
