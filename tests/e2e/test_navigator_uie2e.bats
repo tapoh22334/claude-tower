@@ -485,17 +485,18 @@ nav_focus() {
     wait_for_text "navigator:0.0" "uie2e_jp_a"
     nav_send "Tab"
 
-    # tower-tile session appears on the session server with 2 panes.
-    local attempt=0
+    # tower-tile collapses both sessions into a single grid. The pane count is
+    # transiently 3 mid-build (holder + 2 joined) before the holder is killed,
+    # so poll until it SETTLES at 2 rather than checking once.
+    local attempt=0 pc=0
     while ((attempt < 50)); do
         if TMUX= tmux -L "$SESSION_SOCKET" has-session -t tower-tile 2>/dev/null; then
-            break
+            pc=$(TMUX= tmux -L "$SESSION_SOCKET" list-panes -t tower-tile 2>/dev/null | wc -l)
+            [ "$pc" -eq 2 ] && break
         fi
         sleep 0.1; ((attempt++)) || true
     done
     TMUX= tmux -L "$SESSION_SOCKET" has-session -t tower-tile
-    local pc
-    pc=$(TMUX= tmux -L "$SESSION_SOCKET" list-panes -t tower-tile 2>/dev/null | wc -l)
     [ "$pc" -eq 2 ]
 
     # Source sessions are kept alive by their holder windows.

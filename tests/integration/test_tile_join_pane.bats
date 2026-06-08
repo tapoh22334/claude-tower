@@ -210,3 +210,39 @@ make_claude() {
     [ "$(get_nav_warning)" = "boom" ]
     [ -z "$(get_nav_warning)" ]   # cleared after read
 }
+
+@test "tile_disband: recreates a session that vanished entirely" {
+    make_claude solo
+    local pid; pid=$(TMUX= tmux -L "$SESSION_SOCKET" \
+        list-panes -t tower_solo: -F '#{pane_pid}')
+    local pane; pane=$(TMUX= tmux -L "$SESSION_SOCKET" \
+        list-panes -t tower_solo: -F '#{pane_id}')
+
+    # Build a tile holding the pane, then DESTROY the source session outright
+    # (no holder) so disband must take the recreate branch.
+    TMUX= tmux -L "$SESSION_SOCKET" new-session -d -s tower-tile -n tile "exec /bin/sleep 600"
+    local tw; tw=$(TMUX= tmux -L "$SESSION_SOCKET" display-message -p -t tower-tile '#{window_id}')
+    TMUX= tmux -L "$SESSION_SOCKET" set-option -p -t "$pane" @tower_name tower_solo
+    printf '%s\t%s\n' "$pane" tower_solo >"$TOWER_TILE_MAP_FILE"
+    TMUX= tmux -L "$SESSION_SOCKET" join-pane -s "$pane" -t "$tw"
+    # tower_solo had only that pane, so the join already destroyed it.
+    ! TMUX= tmux -L "$SESSION_SOCKET" has-session -t tower_solo
+
+    run tile_disband
+    [ "$status" -eq 0 ]
+    # Recreated by name, single window, original pane PID preserved.
+    TMUX= tmux -L "$SESSION_SOCKET" has-session -t tower_solo
+    [ "$(TMUX= tmux -L "$SESSION_SOCKET" list-windows -t tower_solo | wc -l)" -eq 1 ]
+    [ "$(TMUX= tmux -L "$SESSION_SOCKET" list-panes -t tower_solo -F '#{pane_pid}')" = "$pid" ]
+}
+
+@test "tile_disband: removes the tile-only prefix+Tab binding" {
+    make_claude k1; make_claude k2
+    tile_collapse
+    # switch_to_tile installs this prefix+Tab binding; simulate it here.
+    session_tmux bind-key Tab run-shell -b /bin/true
+    session_tmux list-keys 2>/dev/null | grep -q "Tab"
+    tile_disband
+    # Binding gone after disband.
+    ! session_tmux list-keys 2>/dev/null | grep -qw "Tab"
+}

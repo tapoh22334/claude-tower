@@ -43,6 +43,9 @@ tile_disband() {
         fi
     done <"$TOWER_TILE_MAP_FILE"
     rm -f "$TOWER_TILE_MAP_FILE"
+    # Remove the tile-only `prefix+Tab` binding so it does not linger on the
+    # session server and hijack prefix+Tab inside a normal tower_X session.
+    session_tmux unbind-key Tab 2>/dev/null || true
     if session_tmux has-session -t "$TOWER_TILE_SESSION" 2>/dev/null; then
         session_tmux kill-session -t "$TOWER_TILE_SESSION" 2>/dev/null || true
     fi
@@ -128,9 +131,15 @@ tile_collapse() {
 
 # tile_sweep_orphans — startup recovery: kill any leftover tower-tile session
 # and any _tile_holder window in any tower_X session, independent of the map
-# file (which /tmp loses on reboot). Safe to call unconditionally.
+# file (which /tmp loses on reboot). Safe to call unconditionally — EXCEPT it
+# bails out if a tile is currently live (a client is attached to tower-tile),
+# so re-sourcing the plugin config while tiled does not destroy an active tile.
 tile_sweep_orphans() {
+    # A live tile has a client attached to tower-tile; never sweep that.
     if session_tmux has-session -t "$TOWER_TILE_SESSION" 2>/dev/null; then
+        local clients
+        clients=$(session_tmux list-clients -t "$TOWER_TILE_SESSION" 2>/dev/null | wc -l)
+        [[ "$clients" -gt 0 ]] && return 0
         session_tmux kill-session -t "$TOWER_TILE_SESSION" 2>/dev/null || true
     fi
     session_tmux list-windows -a \
