@@ -771,12 +771,14 @@ _run_project_picker() {
                                 ;; # plain Esc cancels
                         esac
                     fi
-                    [[ "$key" == "j" ]] &&
-                        ((selected_index < count - 1)) &&
-                        ((selected_index++)) || true
+                    if [[ "$key" == "j" ]] && ((selected_index < count - 1)); then
+                        ((selected_index++))
+                    fi
                     ;;
                 k)
-                    ((selected_index > 0)) && ((selected_index--)) || true
+                    if ((selected_index > 0)); then
+                        ((selected_index--))
+                    fi
                     ;;
                 g)
                     selected_index=0
