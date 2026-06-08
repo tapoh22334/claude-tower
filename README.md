@@ -108,20 +108,27 @@ Press `prefix + t` to open the Navigator.
 
 ### Tile View (reached via `Tab` from Navigator)
 
-Tile View arranges every active tower session as a native tmux split pane.
-Each pane is a live view of its Claude session — type to interact directly.
-Dormant sessions are not shown (manage them from the Navigator list).
+Tile View collapses every active tower session into a single tmux grid by
+relocating each session's pane (via `join-pane`) into one `tower-tile`
+session. Because the grid has a single client, panes stay correctly sized.
+Each pane is the live Claude session itself — type to interact directly.
+Only single-window sessions are tiled; dormant or multi-window sessions are
+skipped (a notice reports how many were skipped). On exit, every pane is
+returned to its own session, intact.
 
 | Key | Action |
 |-----|--------|
 | _(any text)_       | Sent to the focused tile's Claude |
+| `prefix + Tab`     | Exit Tile View, back to the Navigator (focused session selected) |
+| `prefix + z`       | Zoom / un-zoom the focused tile (the work surface for one session) |
 | `prefix + arrow`   | Move focus to the neighbouring tile |
 | `prefix + o`       | Cycle focus to the next tile |
-| `prefix + z`       | Zoom / un-zoom the focused tile |
-| `prefix + t`       | Exit Tile View back to the caller session |
+| `prefix + t`       | Leave Tower entirely (its global meaning everywhere) |
 
-Pane sizing follows tmux's `tiled` layout and adjusts automatically on
-terminal resize.
+The tiles are real tmux panes, so native pane keys (`prefix + z`,
+`prefix + arrow`, `prefix + o`, `prefix + {`/`}`, `prefix + q`) work
+unchanged. Pane sizing follows tmux's `tiled` layout and adjusts
+automatically on terminal resize.
 
 ### CLI Commands
 
