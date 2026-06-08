@@ -125,3 +125,19 @@ tile_collapse() {
     session_tmux select-pane -t "${tw}.0" 2>/dev/null || true
     return 0
 }
+
+# tile_sweep_orphans — startup recovery: kill any leftover tower-tile session
+# and any _tile_holder window in any tower_X session, independent of the map
+# file (which /tmp loses on reboot). Safe to call unconditionally.
+tile_sweep_orphans() {
+    if session_tmux has-session -t "$TOWER_TILE_SESSION" 2>/dev/null; then
+        session_tmux kill-session -t "$TOWER_TILE_SESSION" 2>/dev/null || true
+    fi
+    session_tmux list-windows -a \
+        -F '#{session_name}:#{window_id} #{window_name}' 2>/dev/null |
+        while read -r target name; do
+            [[ "$name" == "$TOWER_TILE_HOLDER_WINDOW" ]] || continue
+            session_tmux kill-window -t "${target%% *}" 2>/dev/null || true
+        done
+    rm -f "$TOWER_TILE_MAP_FILE" 2>/dev/null || true
+}

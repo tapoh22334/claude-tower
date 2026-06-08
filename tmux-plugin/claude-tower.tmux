@@ -50,6 +50,8 @@ tmux set-environment -g CLAUDE_TOWER_PREFIX "$TOWER_PREFIX"
 
 # Ensure metadata directory exists
 mkdir -p "${CLAUDE_TOWER_METADATA_DIR:-$HOME/.claude-tower/metadata}" 2>/dev/null || true
+# Clean up any tile artifacts orphaned by a crash/reboot (best effort).
+"$CURRENT_DIR/scripts/tile-sweep.sh" 2>/dev/null || true
 
 # Make 'tower' command available in PATH
 mkdir -p "$HOME/.local/bin" 2>/dev/null || true

@@ -189,3 +189,18 @@ make_claude() {
     # Warning file exists for the Navigator to surface.
     [ -f "$TOWER_NAV_WARNING_FILE" ]
 }
+
+@test "tile_sweep_orphans: removes stray holder windows and tower-tile" {
+    make_claude orphan
+    # Simulate a crashed tile: a holder window with no map file.
+    TMUX= tmux -L "$SESSION_SOCKET" new-window -d -t tower_orphan -n _tile_holder "exec /bin/sleep 600"
+    TMUX= tmux -L "$SESSION_SOCKET" new-session -d -s tower-tile -n tile "exec /bin/sleep 600"
+    rm -f "$TOWER_TILE_MAP_FILE"
+
+    tile_sweep_orphans
+
+    ! TMUX= tmux -L "$SESSION_SOCKET" has-session -t tower-tile
+    ! TMUX= tmux -L "$SESSION_SOCKET" list-windows -t tower_orphan -F '#{window_name}' | grep -q _tile_holder
+    # The real session survives.
+    TMUX= tmux -L "$SESSION_SOCKET" has-session -t tower_orphan
+}
