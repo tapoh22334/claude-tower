@@ -98,13 +98,17 @@ tile_collapse() {
     session_tmux set-option -t "$TOWER_TILE_SESSION" pane-active-border-style 'fg=green,bold' 2>/dev/null || true
     session_tmux set-option -w -t "$tw" monitor-activity on 2>/dev/null || true
 
-    # 3. For each session: explicit claude pane, holder FIRST, tag, record,
-    #    join, and re-tile after EVERY join (Bug 3: join-then-tile-once fails
-    #    "pane too small" at N>=4).
+    # 3. For each session: grab its sole window's first pane, add the holder
+    #    FIRST, tag, record, join, and re-tile after EVERY join (Bug 3:
+    #    join-then-tile-once fails "pane too small" at N>=4).
+    #    We target the session's only window (these are single-window sessions
+    #    by the step-1 filter) rather than a window literally named "claude":
+    #    sessions are created without -n claude (common.sh), so the window name
+    #    depends on tmux automatic-rename and cannot be relied on.
     : >"${TOWER_TILE_MAP_FILE}.tmp"
     local p
     for s in "${sessions[@]}"; do
-        p=$(session_tmux list-panes -t "${s}:claude" -F '#{pane_id}' 2>/dev/null | head -1)
+        p=$(session_tmux list-panes -t "${s}:" -F '#{pane_id}' 2>/dev/null | head -1)
         [[ -n "$p" ]] || continue
         session_tmux new-window -d -t "$s" -n "$TOWER_TILE_HOLDER_WINDOW" \
             "exec sleep 2147483647"

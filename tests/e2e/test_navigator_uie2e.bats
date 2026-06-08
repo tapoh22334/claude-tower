@@ -98,9 +98,7 @@ make_active() {
     local name="$1"
     local dir="${2:-/tmp}"
     make_dormant "$name" "$dir"
-    # Single window named `claude` — matches the active-session shape that
-    # tile_collapse looks for (it reads `${session}:claude`).
-    TMUX= tmux -L "$SESSION_SOCKET" new-session -d -s "tower_${name}" -n claude -c "$dir"
+    TMUX= tmux -L "$SESSION_SOCKET" new-session -d -s "tower_${name}" -c "$dir"
 }
 
 # Start a Navigator with split panes (list + view) and return when the

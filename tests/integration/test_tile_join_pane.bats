@@ -31,11 +31,13 @@ teardown() {
     rm -rf "$TMUX_TMPDIR" "$TOWER_NAV_STATE_DIR_OVERRIDE" 2>/dev/null || true
 }
 
-# Make an active Claude session: one window named `claude` running sleep.
+# Make an active Claude session. Deliberately does NOT pass `-n claude`:
+# production sessions are created plain (common.sh), so the window name
+# depends on tmux automatic-rename. tile_collapse must not assume "claude".
 make_claude() {
     local name="$1"
     TMUX= tmux -L "$SESSION_SOCKET" new-session -d -s "tower_${name}" \
-        -n claude -x 200 -y 50 "exec /bin/sleep 600"
+        -x 200 -y 50 "exec /bin/sleep 600"
 }
 
 @test "tile: constants are defined" {
@@ -49,9 +51,9 @@ make_claude() {
 @test "tile_disband: restores session by name with same PID" {
     make_claude alpha
     local pid; pid=$(TMUX= tmux -L "$SESSION_SOCKET" \
-        list-panes -t tower_alpha:claude -F '#{pane_pid}')
+        list-panes -t tower_alpha: -F '#{pane_pid}')
     local pane; pane=$(TMUX= tmux -L "$SESSION_SOCKET" \
-        list-panes -t tower_alpha:claude -F '#{pane_id}')
+        list-panes -t tower_alpha: -F '#{pane_id}')
 
     # Build tile-tile session + holder, then join the claude pane in.
     TMUX= tmux -L "$SESSION_SOCKET" new-session -d -s tower-tile -n tile "exec /bin/sleep 600"
@@ -78,7 +80,7 @@ make_claude() {
 @test "tile_disband: skips a crashed pane and warns (non-zero)" {
     make_claude beta
     local pane; pane=$(TMUX= tmux -L "$SESSION_SOCKET" \
-        list-panes -t tower_beta:claude -F '#{pane_id}')
+        list-panes -t tower_beta: -F '#{pane_id}')
     # Map references a pane id that does not exist (simulated crash).
     printf '%s\t%s\n' "%999" tower_beta >"$TOWER_TILE_MAP_FILE"
 
@@ -116,8 +118,8 @@ make_claude() {
 
 @test "tile_collapse: round-trips back to standalone sessions, same PIDs" {
     make_claude a; make_claude b
-    local pa; pa=$(TMUX= tmux -L "$SESSION_SOCKET" list-panes -t tower_a:claude -F '#{pane_pid}')
-    local pb; pb=$(TMUX= tmux -L "$SESSION_SOCKET" list-panes -t tower_b:claude -F '#{pane_pid}')
+    local pa; pa=$(TMUX= tmux -L "$SESSION_SOCKET" list-panes -t tower_a: -F '#{pane_pid}')
+    local pb; pb=$(TMUX= tmux -L "$SESSION_SOCKET" list-panes -t tower_b: -F '#{pane_pid}')
 
     tile_collapse
     tile_disband
