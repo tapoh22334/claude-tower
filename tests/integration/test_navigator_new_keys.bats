@@ -101,20 +101,21 @@ TMUX_PLUGIN="$PROJECT_ROOT/tmux-plugin/claude-tower.tmux"
     [ ! -e "$PROJECT_ROOT/tmux-plugin/scripts/tile.sh" ]
 }
 
-@test "Tile View: tile-pane.conf exists for nested-attach panes" {
-    [ -f "$TILE_CONF" ]
-    grep -q "prefix None" "$TILE_CONF"
-    grep -q "unbind-key -a" "$TILE_CONF"
-}
-
-@test "switch_to_tile orchestrates split-window + tiled layout" {
+@test "switch_to_tile delegates to tile_collapse and installs exit wiring" {
     local script="$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
     local body
     body=$(awk '/^switch_to_tile\(\)/,/^}/' "$script")
-    echo "$body" | grep -q "new-window"
-    echo "$body" | grep -q "split-window"
-    echo "$body" | grep -q "select-layout"
-    echo "$body" | grep -q "tile-pane.conf"
+    echo "$body" | grep -q "tile_collapse"
+    echo "$body" | grep -q "bind-key"
+    echo "$body" | grep -q "client-detached"
+    echo "$body" | grep -q "tile-exit.sh"
+    # Old nested-attach mechanics are gone.
+    ! echo "$body" | grep -q "tile-pane.conf"
+    ! echo "$body" | grep -q "split-window"
+}
+
+@test "navigator-list.sh sources lib/tile.sh" {
+    grep -q "lib/tile.sh" "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
 }
 
 # ============================================================================
