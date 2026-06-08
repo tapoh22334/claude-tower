@@ -278,6 +278,14 @@ render_list() {
 
     # Header with focus indicator
     output+="${NAV_C_HEADER}Sessions${NAV_C_NORMAL} ${focus_indicator}\n"
+
+    # Surface a pending warning (e.g. an incomplete Tile teardown) once.
+    local warning
+    warning=$(get_nav_warning)
+    if [[ -n "$warning" ]]; then
+        output+="${NAV_C_ACCENT}⚠ ${warning}${NAV_C_NORMAL}\n"
+    fi
+
     output+="\n"
 
     if [[ ${#SESSION_IDS[@]} -eq 0 ]]; then

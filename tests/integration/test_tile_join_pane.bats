@@ -204,3 +204,9 @@ make_claude() {
     # The real session survives.
     TMUX= tmux -L "$SESSION_SOCKET" has-session -t tower_orphan
 }
+
+@test "get_nav_warning returns then clears the warning" {
+    set_nav_warning "boom"
+    [ "$(get_nav_warning)" = "boom" ]
+    [ -z "$(get_nav_warning)" ]   # cleared after read
+}
