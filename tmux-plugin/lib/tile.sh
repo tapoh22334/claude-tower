@@ -50,42 +50,8 @@ tile_disband() {
 }
 
 # TILE_SKIPPED is set by tile_collapse to the count of sessions excluded
-# because they had more than one window (Bug 1 guard). In production callers
-# invoke tile_collapse directly, so the in-memory value is authoritative. It is
-# additionally mirrored to a sidecar file so callers that run tile_collapse in a
-# subshell (notably bats' `run`, which forks) can still observe the count.
+# because they had more than one window.
 TILE_SKIPPED=0
-
-# Sidecar path mirroring TILE_SKIPPED (lives beside the tile map).
-_tile_skipped_file() {
-    printf '%s' "$(dirname "$TOWER_TILE_MAP_FILE")/tile.skipped"
-}
-
-# Persist TILE_SKIPPED so it survives a subshell boundary.
-_tile_write_skipped() {
-    mkdir -p "$(dirname "$TOWER_TILE_MAP_FILE")" 2>/dev/null || true
-    printf '%s\n' "$TILE_SKIPPED" >"$(_tile_skipped_file)" 2>/dev/null || true
-}
-
-# Refresh TILE_SKIPPED from the sidecar when present (no-op otherwise). Only
-# wired up under bats — see below — so production scripts that source this lib
-# are never burdened with a DEBUG trap.
-_tile_sync_skipped() {
-    local f
-    f="$(_tile_skipped_file)"
-    [[ -f "$f" ]] || return 0
-    local v
-    v="$(cat "$f" 2>/dev/null)"
-    [[ "$v" =~ ^[0-9]+$ ]] && TILE_SKIPPED="$v"
-    return 0
-}
-
-# Under bats, `run tile_collapse` executes in a subshell and the in-memory
-# TILE_SKIPPED set there is discarded. Mirror it back in the test shell via a
-# DEBUG trap. Guarded on BATS_VERSION so it never installs in production.
-if [[ -n "${BATS_VERSION:-}" ]]; then
-    trap '_tile_sync_skipped' DEBUG
-fi
 
 # tile_collapse — move every single-window active tower_X's claude pane into a
 # dedicated tower-tile grid. Idempotent (disbands any prior tile first). Sets
@@ -115,7 +81,6 @@ tile_collapse() {
     done < <(session_tmux list-sessions -F '#{session_name}' 2>/dev/null | sort)
 
     if [[ ${#sessions[@]} -eq 0 ]]; then
-        _tile_write_skipped
         return 1
     fi
 
@@ -154,6 +119,5 @@ tile_collapse() {
     session_tmux kill-pane -t "$holder" 2>/dev/null || true
     session_tmux select-layout -t "$tw" tiled
     session_tmux select-pane -t "${tw}.0" 2>/dev/null || true
-    _tile_write_skipped
     return 0
 }

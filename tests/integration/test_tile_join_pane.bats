@@ -141,8 +141,7 @@ make_claude() {
     make_claude multi
     TMUX= tmux -L "$SESSION_SOCKET" new-window -d -t tower_multi -n extra "exec /bin/sleep 600"
 
-    run tile_collapse
-    [ "$status" -eq 0 ]
+    tile_collapse
     # Only the single-window session is tiled.
     [ "$(TMUX= tmux -L "$SESSION_SOCKET" list-panes -t tower-tile | wc -l)" -eq 1 ]
     # The skip count is exposed via the global TILE_SKIPPED.
