@@ -608,12 +608,21 @@ switch_to_tile() {
             "$TILE_SKIPPED multi-window session(s) skipped" 2>/dev/null || true
     fi
 
-    # Exit wiring, server-side: prefix+Tab disbands and returns to Navigator.
+    # Exit wiring, server-side. prefix+Tab is the intentional exit: it must
+    # carry the client's tty across the teardown so tile-exit.sh can re-attach
+    # the Navigator. detach-client -E does exactly that (same mechanism used to
+    # ENTER the tile below) — run-shell -b would run tty-less in the server and
+    # the re-attach would fail, dropping the client and quitting tmux.
     # The session server's normal prefix is left intact, so native pane keys
     # (prefix+z zoom, prefix+arrow, prefix+o, prefix+{/}, prefix+q) keep working.
-    session_tmux bind-key Tab run-shell -b "$SCRIPT_DIR/tile-exit.sh" 2>/dev/null || true
+    session_tmux bind-key Tab \
+        detach-client -E "exec '$SCRIPT_DIR/tile-exit.sh'" 2>/dev/null || true
+    # Safety net: if the client detaches some OTHER way (e.g. prefix+d), just
+    # disband the tile to restore sessions — do NOT re-enter the Navigator
+    # (there is no client tty to attach). TOWER_TILE_NO_REENTER stops before
+    # the re-attach. tile_disband is idempotent, so this never double-tears-down.
     session_tmux set-hook -t "$TOWER_TILE_SESSION" client-detached \
-        "run-shell -b '$SCRIPT_DIR/tile-exit.sh'" 2>/dev/null || true
+        "run-shell -b 'TOWER_TILE_NO_REENTER=1 $SCRIPT_DIR/tile-exit.sh'" 2>/dev/null || true
 
     # Hand the Navigator client over to the tile session.
     nav_tmux detach-client \

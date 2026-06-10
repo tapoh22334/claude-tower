@@ -121,6 +121,21 @@ TMUX_PLUGIN="$PROJECT_ROOT/tmux-plugin/claude-tower.tmux"
     grep -q "lib/tile.sh" "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
 }
 
+@test "switch_to_tile: prefix+Tab exit uses detach-client -E (carries tty)" {
+    # Regression: the intentional Tab exit MUST detach-client -E so the
+    # client's tty survives teardown and tile-exit.sh can re-attach the
+    # Navigator. A bare `run-shell -b` here runs tty-less and drops the
+    # client — tmux quits instead of returning to the Navigator.
+    local script="$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
+    local body
+    body=$(awk '/^switch_to_tile\(\)/,/^}/' "$script")
+    # The Tab binding uses detach-client -E, not run-shell.
+    echo "$body" | grep -A1 "bind-key Tab" | grep -q "detach-client -E"
+    ! echo "$body" | grep -A1 "bind-key Tab" | grep -q "run-shell"
+    # The client-detached safety net must NOT re-enter (no tty on a detach).
+    echo "$body" | grep -A1 "client-detached" | grep -q "TOWER_TILE_NO_REENTER=1"
+}
+
 # ============================================================================
 # FR-009a — Escape from input mode returns to Navigator list
 # ============================================================================
