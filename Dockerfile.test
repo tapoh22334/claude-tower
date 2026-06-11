@@ -27,6 +27,7 @@ RUN apt-get update && apt-get install -y \
     procps \
     curl \
     bats \
+    python3 \
     && rm -rf /var/lib/apt/lists/*
 
 # bats helper libraries (used by some tests that load them explicitly)

@@ -20,6 +20,9 @@ PTY_CLIENT="$PROJECT_ROOT/tests/helpers/pty_client.py"
 TILE_EXIT="$PROJECT_ROOT/tmux-plugin/scripts/tile-exit.sh"
 
 setup() {
+    # The PTY driver needs python3 (stdlib only). Skip rather than hard-fail on
+    # an environment without it; CI images install it (Dockerfile.test).
+    command -v python3 >/dev/null || skip "python3 not available for PTY client"
     export TMUX_TMPDIR="/tmp/ct-tilelive-$$"
     mkdir -p "$TMUX_TMPDIR"; chmod 700 "$TMUX_TMPDIR"
     export CLAUDE_TOWER_SESSION_SOCKET="$SESSION_SOCKET"
@@ -144,10 +147,13 @@ min_tile_height() {
 
     local fifo="$TMUX_TMPDIR/keys"
     mkfifo "$fifo"
+    # If the client cannot attach, fail here — never fall through to the FIFO
+    # write below, which would block forever on a reader-less pipe.
     attach_client "$TOWER_TILE_SESSION" 200 50 "$fifo"
 
-    # Press prefix (C-b = 0x02) then Tab (0x09), as real keyboard input.
-    printf '\002\t' >"$fifo"
+    # Press prefix (C-b = 0x02) then Tab (0x09), as real keyboard input. Bound
+    # the write with timeout so a missing reader can never hang the suite.
+    timeout 5 bash -c "printf '\\002\\t' > '$fifo'"
 
     # The tile must disband.
     local i gone=

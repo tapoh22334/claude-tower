@@ -53,6 +53,11 @@ def main() -> int:
         fcntl.ioctl(0, termios.TIOCSWINSZ, winsize)
         env = dict(os.environ)
         env.pop("TMUX", None)  # never inherit an outer tmux
+        # tmux refuses to attach under a terminal whose terminfo lacks `clear`
+        # (headless CI containers default to TERM=dumb). Force a sane TERM with
+        # standard terminfo; keep a real inherited TERM for local runs.
+        if env.get("TERM", "") in ("", "dumb", "unknown", "network"):
+            env["TERM"] = "xterm"
         os.execvpe(
             "tmux",
             ["tmux", "-L", socket, "attach-session", "-t", target],
