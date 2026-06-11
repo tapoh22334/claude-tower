@@ -5,27 +5,47 @@
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$TEST_DIR")"
 
-# Set up test environment
-export CLAUDE_TOWER_METADATA_DIR="${TEST_DIR}/tmp/metadata"
-export CLAUDE_TOWER_WORKTREE_DIR="${TEST_DIR}/tmp/worktrees"
+# NOTE on scratch directory:
+#
+# common.sh defines TOWER_METADATA_DIR as readonly the first time it is
+# sourced, so we can't legitimately change the metadata path between tests
+# inside the same bats file. The scratch path is therefore fixed for the
+# whole file's lifetime, but `setup_test_env` always rebuilds an empty
+# directory at it so individual tests start from a known clean slate.
+#
+# Tests that pre-set CLAUDE_TOWER_METADATA_DIR before loading this helper
+# keep their override; otherwise we use a stable /tmp path.
+: "${CLAUDE_TOWER_TEST_SCRATCH:=/tmp/claude-tower-tests-$$}"
+export CLAUDE_TOWER_TEST_SCRATCH
+export CLAUDE_TOWER_METADATA_DIR="${CLAUDE_TOWER_METADATA_DIR:-${CLAUDE_TOWER_TEST_SCRATCH}/metadata}"
+export CLAUDE_TOWER_WORKTREE_DIR="${CLAUDE_TOWER_WORKTREE_DIR:-${CLAUDE_TOWER_TEST_SCRATCH}/worktrees}"
 
-# Source the common library (without strict mode for testing)
+# Source the common library (without strict mode for testing).
+# Idempotent: if common.sh has already been sourced in this shell, the
+# readonly redeclarations would error under strict mode — we relax it.
 source_common() {
-    # Temporarily disable strict mode for sourcing
     set +euo pipefail
+    # shellcheck disable=SC1091
     source "$PROJECT_ROOT/tmux-plugin/lib/common.sh"
     set -euo pipefail
 }
 
-# Set up test fixtures
+# Rebuild a clean fixture directory for the upcoming test.
+# Wipes the actual metadata/worktree dirs (not just the scratch parent) so
+# tests don't see leftover files from a previous test, even when those dirs
+# live outside CLAUDE_TOWER_TEST_SCRATCH (e.g. when the Docker image sets
+# CLAUDE_TOWER_METADATA_DIR to a fixed path).
 setup_test_env() {
+    rm -rf "$CLAUDE_TOWER_METADATA_DIR" "$CLAUDE_TOWER_WORKTREE_DIR" \
+        "$CLAUDE_TOWER_TEST_SCRATCH"
     mkdir -p "$CLAUDE_TOWER_METADATA_DIR"
     mkdir -p "$CLAUDE_TOWER_WORKTREE_DIR"
 }
 
-# Clean up test fixtures
+# Clean up test fixtures at end of test.
 teardown_test_env() {
-    rm -rf "${TEST_DIR}/tmp"
+    rm -rf "$CLAUDE_TOWER_METADATA_DIR" "$CLAUDE_TOWER_WORKTREE_DIR" \
+        "$CLAUDE_TOWER_TEST_SCRATCH"
 }
 
 # Create a mock metadata file (v2 format)

@@ -18,10 +18,10 @@ teardown() {
 
 @test "safe_git: returns 0 for successful command" {
     # Initialize a git repo for testing
-    mkdir -p "${TEST_DIR}/tmp/git_test"
-    git -C "${TEST_DIR}/tmp/git_test" init -q
+    mkdir -p "${CLAUDE_TOWER_TEST_SCRATCH}/git_test"
+    git -C "${CLAUDE_TOWER_TEST_SCRATCH}/git_test" init -q
 
-    run safe_git -C "${TEST_DIR}/tmp/git_test" status
+    run safe_git -C "${CLAUDE_TOWER_TEST_SCRATCH}/git_test" status
     [ "$status" -eq 0 ]
 }
 

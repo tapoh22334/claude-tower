@@ -39,14 +39,23 @@ TOWER_PREFIX=$(get_tmux_option "@tower-prefix" "${CLAUDE_TOWER_PREFIX:-t}")
 #   R → Restore all dormant sessions
 #   d → Delete session
 #   ? → Help
-tmux bind-key "$TOWER_PREFIX" run-shell -b "mkdir -p /tmp/claude-tower && echo '#{session_name}' > /tmp/claude-tower/caller && tmux detach-client -E 'exec $CURRENT_DIR/scripts/navigator.sh --direct'"
+tmux bind-key "$TOWER_PREFIX" run-shell -b "mkdir -p /tmp/claude-tower && echo '#{session_name}' > /tmp/claude-tower/caller && echo '#{pane_current_path}' > /tmp/claude-tower/caller-cwd && tmux detach-client -E 'exec $CURRENT_DIR/scripts/navigator.sh --direct'"
 
-# Set environment variables for scripts
+# Set environment variables for scripts.
+# Exposing CLAUDE_TOWER_PREFIX makes the same `prefix+t` binding available
+# to the Navigator and Session servers — used as the "return to caller"
+# binding from anywhere inside Tower.
 tmux set-environment -g CLAUDE_TOWER_DIR "$CURRENT_DIR"
+tmux set-environment -g CLAUDE_TOWER_PREFIX "$TOWER_PREFIX"
 
-# Ensure directories exist
+# Ensure metadata directory exists
 mkdir -p "${CLAUDE_TOWER_METADATA_DIR:-$HOME/.claude-tower/metadata}" 2>/dev/null || true
-mkdir -p "${CLAUDE_TOWER_WORKTREE_DIR:-$HOME/.claude-tower/worktrees}" 2>/dev/null || true
+# Clean up any tile artifacts orphaned by a crash/reboot (best effort).
+"$CURRENT_DIR/scripts/tile-sweep.sh" 2>/dev/null || true
+
+# Make 'tower' command available in PATH
+mkdir -p "$HOME/.local/bin" 2>/dev/null || true
+ln -sf "$CURRENT_DIR/bin/tower" "$HOME/.local/bin/tower" 2>/dev/null || true
 
 # Auto-restore dormant sessions on plugin load (optional)
 if [[ "$(get_tmux_option "@tower-auto-restore" "0")" == "1" ]]; then

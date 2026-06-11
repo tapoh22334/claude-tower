@@ -91,6 +91,10 @@ create_navigator() {
     # Focus on left pane
     nav_tmux select-pane -t "$TOWER_NAV_SESSION:0.0"
 
+    # Install the tmux-side "return to caller" binding so prefix+t works as
+    # a toggle from within Navigator as well.
+    install_return_binding "$TOWER_NAV_SOCKET"
+
     debug_log "Navigator session created"
 }
 
@@ -178,7 +182,7 @@ close_navigator() {
             target_socket="$TOWER_SESSION_SOCKET"
         elif TMUX= tmux has-session -t "$caller" 2>/dev/null; then
             target_session="$caller"
-            target_socket=""  # default server
+            target_socket="" # default server
         fi
     fi
 
@@ -347,6 +351,10 @@ open_navigator_direct() {
 
     # Focus on left pane
     nav_tmux select-pane -t "$TOWER_NAV_SESSION:0.0"
+
+    # Install the tmux-side "return to caller" binding so prefix+t works as
+    # a toggle from within Navigator as well.
+    install_return_binding "$TOWER_NAV_SOCKET"
 
     # Setup auto-restart hooks for crashed panes
     # This ensures Navigator never shows a shell prompt if a pane crashes

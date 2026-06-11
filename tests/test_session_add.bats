@@ -8,11 +8,11 @@ setup() {
     setup_test_env
 
     # Create a test directory for valid paths
-    TEST_WORK_DIR="${TEST_DIR}/tmp/workdir"
+    TEST_WORK_DIR="${CLAUDE_TOWER_TEST_SCRATCH}/workdir"
     mkdir -p "$TEST_WORK_DIR"
 
     # Create a test file (not directory) for invalid path tests
-    TEST_FILE="${TEST_DIR}/tmp/testfile.txt"
+    TEST_FILE="${CLAUDE_TOWER_TEST_SCRATCH}/testfile.txt"
     touch "$TEST_FILE"
 }
 

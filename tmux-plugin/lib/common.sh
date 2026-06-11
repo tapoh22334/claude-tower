@@ -111,7 +111,6 @@ readonly ICON_GIT="⎇"
 # ============================================================================
 # Configuration
 # ============================================================================
-readonly TOWER_WORKTREE_DIR="${CLAUDE_TOWER_WORKTREE_DIR:-$HOME/.claude-tower/worktrees}"
 readonly TOWER_PROGRAM="${CLAUDE_TOWER_PROGRAM:-claude}"
 readonly TOWER_METADATA_DIR="${CLAUDE_TOWER_METADATA_DIR:-$HOME/.claude-tower/metadata}"
 readonly PREVIEW_LINES=30
@@ -148,6 +147,38 @@ readonly TOWER_NAV_FOCUS_FILE="${TOWER_NAV_STATE_DIR}/focus"
 
 # tmux wait-for channel for view pane updates
 readonly TOWER_VIEW_UPDATE_CHANNEL="tower-view-update"
+
+# ----------------------------------------------------------------------------
+# Tile View (join-pane) constants and state
+# ----------------------------------------------------------------------------
+
+# Dedicated session that hosts the tile grid (all Claude panes joined here).
+readonly TOWER_TILE_SESSION="tower-tile"
+
+# Per-session placeholder window that keeps a tower_X alive while its Claude
+# pane is on loan to the tile grid. Leading underscore marks it internal.
+readonly TOWER_TILE_HOLDER_WINDOW="_tile_holder"
+
+# Map file: lines of "<pane_id>\t<session_name>", the teardown source of truth.
+# Test override lets the bats suite isolate state.
+readonly TOWER_TILE_MAP_FILE="${TOWER_NAV_STATE_DIR_OVERRIDE:-$TOWER_NAV_STATE_DIR}/tile.map"
+
+# Warning breadcrumb the Navigator renders on its next draw.
+readonly TOWER_NAV_WARNING_FILE="${TOWER_NAV_STATE_DIR_OVERRIDE:-$TOWER_NAV_STATE_DIR}/warning"
+
+# Record a one-line warning for the Navigator to surface to the user.
+set_nav_warning() {
+    mkdir -p "$(dirname "$TOWER_NAV_WARNING_FILE")" 2>/dev/null || true
+    printf '%s\n' "$1" >"$TOWER_NAV_WARNING_FILE" 2>/dev/null || true
+}
+
+# Read and clear the pending Navigator warning (empty if none).
+get_nav_warning() {
+    if [[ -f "$TOWER_NAV_WARNING_FILE" ]]; then
+        cat "$TOWER_NAV_WARNING_FILE" 2>/dev/null || true
+        rm -f "$TOWER_NAV_WARNING_FILE" 2>/dev/null || true
+    fi
+}
 
 # ============================================================================
 # Navigator Helper Functions
@@ -225,6 +256,29 @@ nav_tmux() {
 # This isolates all Claude sessions from the user's default tmux server
 session_tmux() {
     TMUX= tmux -L "$TOWER_SESSION_SOCKET" "$@"
+}
+
+# Path to the return-to-caller helper, resolved relative to this library
+# regardless of where the caller script lives.
+_TOWER_LIB_DIR_ABS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly TOWER_RETURN_SCRIPT="${_TOWER_LIB_DIR_ABS}/../scripts/return-to-caller.sh"
+
+# Install the `prefix+<TOWER_PREFIX>` binding on the given tmux server so the
+# user can press it from anywhere inside Tower (Navigator pane, tower
+# session, etc.) and be returned to the default-server session that
+# launched Tower. Idempotent — repeat calls overwrite the prior binding.
+#
+# Arguments:
+#   $1 - tmux server socket (TOWER_NAV_SOCKET or TOWER_SESSION_SOCKET)
+install_return_binding() {
+    local server_socket="$1"
+    local prefix_key="${CLAUDE_TOWER_PREFIX:-t}"
+
+    # `2>/dev/null || true` keeps us silent if the server is briefly absent
+    # or the bind cannot be installed; the binding is a UX nicety, not a
+    # correctness requirement.
+    TMUX= tmux -L "$server_socket" bind-key "$prefix_key" \
+        detach-client -E "$TOWER_RETURN_SCRIPT" 2>/dev/null || true
 }
 
 # Get currently selected session from state file
@@ -909,7 +963,6 @@ session_exists() {
     session_tmux has-session -t "$session_id" 2>/dev/null
 }
 
-
 # ============================================================================
 # Session State Detection (v3.0 - Idempotent)
 # ============================================================================
@@ -1090,7 +1143,7 @@ _create_simple_session() {
 # Uses tmux capture-pane to check for prompt characters
 _wait_for_shell_ready() {
     local session_id="$1"
-    local max_attempts=30  # 3 seconds max (30 * 0.1s)
+    local max_attempts=30 # 3 seconds max (30 * 0.1s)
     local attempt=0
 
     while [[ $attempt -lt $max_attempts ]]; do
@@ -1105,7 +1158,7 @@ _wait_for_shell_ready() {
         fi
 
         sleep 0.1
-        ((attempt++)) || true  # Prevent exit on attempt=0 (returns 1 with set -e)
+        ((attempt++)) || true # Prevent exit on attempt=0 (returns 1 with set -e)
     done
 
     # Timeout - proceed anyway but log warning
@@ -1139,6 +1192,11 @@ _start_session_with_claude() {
 
     # Use C-m (Ctrl-M) instead of Enter for more reliable key sending
     session_tmux send-keys -t "$session_id" "$claude_cmd" C-m
+
+    # Make sure prefix+t works from inside this session to exit Tower.
+    # The bind is server-global so installing it once per session creation
+    # is idempotent and tolerates the server being killed and recreated.
+    install_return_binding "$TOWER_SESSION_SOCKET"
 
     handle_success "Session created: ${session_id#tower_}"
 }
@@ -1280,7 +1338,7 @@ send_to_session() {
 # Auto-restore dormant sessions
 # ============================================================================
 
-# Restore all dormant worktree sessions
+# Restore all dormant sessions
 restore_all_dormant() {
     local restored=0
     local failed=0

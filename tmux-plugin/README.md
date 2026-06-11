@@ -7,35 +7,42 @@ This directory contains the core tmux plugin implementation for Claude Tower.
 ```
 tmux-plugin/
 ├── claude-tower.tmux      # Plugin entry point (loaded by tpm)
+├── bin/
+│   └── tower              # CLI entry point (tower add/rm/list/restore)
 ├── conf/
 │   └── view-focus.conf    # tmux configuration for view pane focus mode
 ├── lib/
 │   ├── common.sh          # Shared utilities (v2 metadata, session ops)
 │   └── error-recovery.sh  # Error handling and TUI recovery
 └── scripts/
-    ├── tower              # CLI entry point (tower add/rm)
-    ├── session-add.sh     # tower add implementation
-    ├── session-delete.sh  # tower rm implementation
-    ├── navigator.sh       # Navigator entry point
-    ├── navigator-list.sh  # List pane UI
-    ├── navigator-view.sh  # View pane UI
-    ├── tile.sh            # Tile view display
-    ├── session-new.sh     # [DEPRECATED] Use tower add
-    ├── session-restore.sh # Restore dormant sessions
-    ├── session-list.sh    # List sessions
-    ├── cleanup.sh         # Dormant session cleanup
-    └── [other utilities]
+    ├── navigator.sh        # Navigator entry point
+    ├── navigator-list.sh   # List pane UI (n/d/1-9; Tab → Tile via switch_to_tile)
+    ├── navigator-view.sh   # View pane UI (input mode)
+    ├── return-to-caller.sh # prefix+t handler — return to caller session
+    ├── statusline.sh       # tmux status line content
+    ├── session-add.sh      # Add session (called by tower add and Navigator n)
+    ├── session-delete.sh   # Delete session (called by tower rm and Navigator d)
+    ├── session-list.sh     # List sessions
+    └── session-restore.sh  # Restore dormant sessions
 ```
+
+Tile View is native tmux: `switch_to_tile` in `navigator-list.sh` creates a
+`tower-tile` window with one `split-window` per active session and applies
+the `tiled` layout. Each pane is a nested `tmux attach-session -t tower_X`
+configured by `conf/tile-pane.conf`. There is no `tile.sh` any more.
 
 ## Key Components
 
 ### claude-tower.tmux
 Plugin entry point loaded by TPM (Tmux Plugin Manager). Sets up keybindings and initializes the tower environment.
 
-### scripts/tower
+### bin/tower
 CLI entry point for session management:
+- `tower` (no args) - Launch Navigator
 - `tower add <path> [-n name]` - Add session for directory
 - `tower rm <name> [-f]` - Remove session (keeps directory)
+- `tower list` - List all sessions
+- `tower restore` - Restore all dormant sessions
 
 ### lib/common.sh
 Shared library providing:
@@ -55,9 +62,9 @@ TUI error recovery patterns:
 
 ### Navigator Scripts
 - `navigator.sh` - Entry point, launched via `prefix + t`
-- `navigator-list.sh` - Left pane showing session list with paths
-- `navigator-view.sh` - Right pane showing live session preview
-- `tile.sh` - Grid view of all sessions
+- `navigator-list.sh` - Left pane (session list + `switch_to_tile` orchestrator)
+- `navigator-view.sh` - Right pane (live session preview)
+- Tile View - native tmux split layout, no dedicated script
 
 ## Session States
 

@@ -8,7 +8,7 @@ A tmux plugin for managing multiple Claude Code sessions with Navigator UI.
 
 - **Navigator UI** - Two-pane interface for session management
 - **Live Preview** - Real-time view of selected session content
-- **CLI Commands** - `tower add` / `tower rm` for session management
+- **CLI Commands** - `tower add` / `tower rm` for scripting; full management also available inside Navigator (`n`/`d`)
 - **Session Persistence** - Dormant sessions restore automatically
 - **Directory-Based Sessions** - Work with any directory
 - **3-Server Architecture** - Isolated session management
@@ -81,7 +81,7 @@ Press `prefix + t` to open the Navigator.
 │ ○ old-project ~/work/old  │  Use 'i' to focus and interact         │
 │                           │  Use Escape to return to list          │
 │                           │                                        │
-│ j/k:nav Enter:attach q:quit                                        │
+│ j/k:nav 1-9:jump Enter:attach i:input n:new d:del r:restore ?:help q:quit │
 └───────────────────────────┴────────────────────────────────────────┘
      List Pane (24%)              View Pane (76%)
 ```
@@ -94,14 +94,41 @@ Press `prefix + t` to open the Navigator.
 | `k` / `↑` | Move up |
 | `g` | Go to first session |
 | `G` | Go to last session |
-| `Enter` | Attach to selected session |
+| `1`–`9` | Jump to Nth session (first 9 only) |
+| `Enter` | Full attach to selected session |
 | `i` | Focus view pane (input mode) |
 | `Escape` | Return to list (from view) |
+| `n` | New session (inline prompt prefilled with caller CWD) |
+| `d` | Delete selected session (with `[y/N]` confirmation) |
 | `Tab` | Switch to tile view |
 | `r` | Restore selected dormant session |
 | `R` | Restore all dormant sessions |
 | `?` | Show help |
 | `q` | Quit Navigator |
+
+### Tile View (reached via `Tab` from Navigator)
+
+Tile View collapses every active tower session into a single tmux grid by
+relocating each session's pane (via `join-pane`) into one `tower-tile`
+session. Because the grid has a single client, panes stay correctly sized.
+Each pane is the live Claude session itself — type to interact directly.
+Only single-window sessions are tiled; dormant or multi-window sessions are
+skipped (a notice reports how many were skipped). On exit, every pane is
+returned to its own session, intact.
+
+| Key | Action |
+|-----|--------|
+| _(any text)_       | Sent to the focused tile's Claude |
+| `prefix + Tab`     | Exit Tile View, back to the Navigator (focused session selected) |
+| `prefix + z`       | Zoom / un-zoom the focused tile (the work surface for one session) |
+| `prefix + arrow`   | Move focus to the neighbouring tile |
+| `prefix + o`       | Cycle focus to the next tile |
+| `prefix + t`       | Leave Tower entirely (its global meaning everywhere) |
+
+The tiles are real tmux panes, so native pane keys (`prefix + z`,
+`prefix + arrow`, `prefix + o`, `prefix + {`/`}`, `prefix + q`) work
+unchanged. Pane sizing follows tmux's `tiled` layout and adjusts
+automatically on terminal resize.
 
 ### CLI Commands
 
@@ -109,10 +136,11 @@ Press `prefix + t` to open the Navigator.
 tower add <path> [-n name]       # Add directory as session
 tower rm <name> [-f]             # Remove session
 tower list                       # List all sessions
-tower restore [--all]            # Restore dormant sessions
-tower tile                       # Launch tile view
+tower restore                    # Restore all dormant sessions
 tower help                       # Show help
 ```
+
+> Note: Tile view is reachable from Navigator with `Tab`; there is no `tower tile` CLI.
 
 ### Session States
 
@@ -279,6 +307,18 @@ make lint
 
 ## Troubleshooting
 
+### `tower: command not found`
+
+The plugin automatically creates a symlink at `~/.local/bin/tower` on load.
+If `~/.local/bin` is not in your PATH, add it to your shell profile:
+
+```bash
+# ~/.bashrc or ~/.zshrc
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Then reload your shell or run `source ~/.bashrc` (or `~/.zshrc`).
+
 ### Plugin not loading
 
 ```bash
@@ -315,15 +355,12 @@ make reset
 
 ### Clean up orphaned metadata
 
+Sessions whose tmux session was killed and whose metadata you no longer want
+can be removed from the Navigator with `d` (or from the CLI with
+`tower rm <name>`). To list metadata files directly:
+
 ```bash
-# List orphaned metadata (sessions without active tmux sessions)
-tmux-plugin/scripts/cleanup.sh --list
-
-# Remove orphaned metadata interactively
-tmux-plugin/scripts/cleanup.sh
-
-# Force remove all orphaned metadata
-tmux-plugin/scripts/cleanup.sh --force
+ls ~/.claude-tower/metadata/
 ```
 
 ## License

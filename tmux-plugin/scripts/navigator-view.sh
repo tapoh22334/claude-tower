@@ -115,8 +115,7 @@ show_dormant_info() {
     # Load and show metadata if available
     if load_metadata "$session_id" 2>/dev/null; then
         echo "  Metadata:"
-        [[ -n "$META_REPOSITORY_PATH" ]] && echo "    Repository: $META_REPOSITORY_PATH"
-        [[ -n "$META_WORKTREE_PATH" ]] && echo "    Worktree: $META_WORKTREE_PATH"
+        [[ -n "$META_DIRECTORY_PATH" ]] && echo "    Directory: $META_DIRECTORY_PATH"
         [[ -n "$META_CREATED_AT" ]] && echo "    Created: $META_CREATED_AT"
     fi
 }

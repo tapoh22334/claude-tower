@@ -1,7 +1,13 @@
 # Claude Tower - Development Makefile
 # Usage: make <target>
 
-.PHONY: help lint lint-fix format format-fix test test-docker clean reload reset status
+.PHONY: help lint lint-fix format format-fix \
+        test test-unit test-integration test-e2e test-scenarios \
+        test-docker test-unit-docker test-integration-docker test-e2e-docker \
+        test-scenarios-docker test-file-docker test-shell-docker \
+        fuzz fuzz-docker fuzz-random-docker fuzz-smart-docker fuzz-scenarios-docker \
+        check ci \
+        clean reload reset status
 
 # Default target
 help:
@@ -19,10 +25,33 @@ help:
 	@echo "    make format-fix - Format scripts with shfmt (in-place)"
 	@echo ""
 	@echo "  Testing:"
-	@echo "    make test       - Run all tests locally"
-	@echo "    make test-docker- Run tests in Docker container"
+	@echo "    make test             - Run unit + integration + e2e tests"
+	@echo "    make test-unit        - Run unit tests only (bats tests/*.bats)"
+	@echo "    make test-integration - Run integration tests (tests/integration/)"
+	@echo "    make test-e2e         - Run end-to-end tests (tests/e2e/)"
+	@echo "    make test-scenarios   - Run scenario tests (tests/scenarios/)"
 	@echo ""
-	@echo "  Docker:"
+	@echo "  Testing in Docker (isolated from host tmux/state):"
+	@echo "    make test-docker              - All suites inside container"
+	@echo "    make test-unit-docker         - Unit suite only"
+	@echo "    make test-integration-docker  - Integration suite only"
+	@echo "    make test-e2e-docker          - E2E suite only"
+	@echo "    make test-scenarios-docker    - Scenario suite only"
+	@echo "    make test-file-docker FILE=…  - Run a specific .bats file/dir"
+	@echo "    make test-shell-docker        - Drop into a shell in the test container"
+	@echo ""
+	@echo "  Fuzz testing (monkey-style exploratory, Docker-isolated):"
+	@echo "    make fuzz-docker              - Run all fuzz modes in container"
+	@echo "    make fuzz-random-docker       - Pure-random key fuzz"
+	@echo "    make fuzz-smart-docker        - Legal + trash key fuzz"
+	@echo "    make fuzz-scenarios-docker    - Hand-picked bad sequences"
+	@echo "    make fuzz                     - Same on the host (uses isolated sockets)"
+	@echo ""
+	@echo "  Aggregate (CI gate):"
+	@echo "    make check      - Run lint + format + all tests (local CI gate)"
+	@echo "    make ci         - Alias for 'make check'"
+	@echo ""
+	@echo "  Docker image:"
 	@echo "    make docker-lint  - Build lint Docker image"
 	@echo "    make docker-test  - Build test Docker image"
 	@echo ""
@@ -30,7 +59,7 @@ help:
 	@echo "    make clean      - Remove Docker images"
 
 # Scripts to check
-SCRIPTS := $(shell find tmux-plugin -name "*.sh" -type f)
+SCRIPTS := $(shell find tmux-plugin -name "*.sh" -type f) $(shell find tmux-plugin/bin -type f 2>/dev/null)
 
 # ============================================================================
 # Linting
@@ -82,14 +111,100 @@ format-fix:
 # Testing
 # ============================================================================
 
-# Run tests locally
-test:
-	@echo "Running tests..."
-	@bats tests/
+# Bats binary: prefer the project's vendored copy, fall back to PATH.
+BATS := $(shell [ -x tests/bats/bin/bats ] && echo tests/bats/bin/bats || echo bats)
 
-# Run tests in Docker
-test-docker: docker-test
-	docker run --rm -it claude-tower-test
+# Unit tests live directly under tests/ (top-level *.bats files only).
+test-unit:
+	@echo "=== Unit tests (tests/*.bats) ==="
+	@$(BATS) tests/
+
+# Integration tests use the dedicated runner (sets up tmux fixtures).
+test-integration:
+	@echo "=== Integration tests (tests/integration/) ==="
+	@./tests/run_integration_tests.sh
+
+# E2E tests use the dedicated runner.
+test-e2e:
+	@echo "=== E2E tests (tests/e2e/) ==="
+	@./tests/run_e2e_tests.sh
+
+# Scenario tests live under tests/scenarios/.
+test-scenarios:
+	@echo "=== Scenario tests (tests/scenarios/) ==="
+	@$(BATS) tests/scenarios/
+
+# Run the full test suite (unit + integration + e2e + scenarios).
+test: test-unit test-integration test-e2e test-scenarios
+	@echo ""
+	@echo "✓ All test suites passed"
+
+# Local CI gate: lint + format check + full test suite.
+# Mirrors what CI runs so a clean local 'make check' should mean a green PR.
+check: lint format test
+	@echo ""
+	@echo "✓ check passed (lint + format + test)"
+
+ci: check
+
+# ============================================================================
+# Containerized tests
+# ============================================================================
+# Common docker-compose invocation. `run --rm` ensures the container is
+# removed after each run so /tmp state from one suite never carries over.
+DOCKER_TEST := docker compose -f docker-compose.test.yml run --rm tests
+
+# Run the entire test suite in a container.
+test-docker:
+	@$(DOCKER_TEST) all
+
+# Run a single suite in a container.
+test-unit-docker:
+	@$(DOCKER_TEST) unit
+
+test-integration-docker:
+	@$(DOCKER_TEST) integration
+
+test-e2e-docker:
+	@$(DOCKER_TEST) e2e
+
+test-scenarios-docker:
+	@$(DOCKER_TEST) scenarios
+
+# Run a single test file or directory in a container.
+# Usage: make test-file-docker FILE=tests/integration/test_session_restore.bats
+test-file-docker:
+	@if [ -z "$(FILE)" ]; then \
+		echo "Usage: make test-file-docker FILE=<path-to-.bats-file-or-dir>"; \
+		exit 1; \
+	fi
+	@$(DOCKER_TEST) $(FILE)
+
+# Drop into an interactive shell inside the test container for debugging.
+test-shell-docker:
+	@docker compose -f docker-compose.test.yml run --rm --entrypoint /bin/bash tests
+
+# ============================================================================
+# Fuzz / monkey testing
+# ============================================================================
+# All fuzz runs use isolated per-PID tmux sockets so they never touch the
+# host's real tmux. The Docker variants add an extra layer of isolation —
+# the entire fuzz run lives in a throwaway container.
+
+fuzz:
+	@./tests/fuzz/run-fuzz.sh
+
+fuzz-docker:
+	@$(DOCKER_TEST) fuzz all
+
+fuzz-random-docker:
+	@$(DOCKER_TEST) fuzz random
+
+fuzz-smart-docker:
+	@$(DOCKER_TEST) fuzz smart
+
+fuzz-scenarios-docker:
+	@$(DOCKER_TEST) fuzz scenarios
 
 # ============================================================================
 # Docker Build

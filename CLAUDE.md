@@ -1,6 +1,6 @@
 # Claude Tower Development Guidelines
 
-Auto-generated from feature plans. **Last updated**: 2026-02-11
+Auto-generated from feature plans. **Last updated**: 2026-06-03
 
 ## Active Technologies
 
@@ -61,6 +61,7 @@ make status        # Show servers, sessions, state files
 
 ## Recent Changes
 
+- 003-simplify: Narrowed Tower to Claude-session-only viewer. Removed Sidebar + 9 dead scripts. Added Navigator keys `n` (new), `d` (delete), `1-9` (jump). Tile `1-9`/Enter now route directly to input mode. Removed `tower tile` and per-id `tower restore`.
 - 001-tower-v2-simplify: Simplified session management, removed worktree logic, added tower CLI (add/rm)
 
 <!-- MANUAL ADDITIONS START -->

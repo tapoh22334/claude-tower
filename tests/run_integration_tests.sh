@@ -25,12 +25,12 @@ check_prerequisites() {
         missing+=("tmux")
     fi
 
-    if ! command -v bats &>/dev/null; then
-        if [[ -x "${PROJECT_ROOT}/tests/bats/bin/bats" ]]; then
-            export PATH="${PROJECT_ROOT}/tests/bats/bin:$PATH"
-        else
-            missing+=("bats")
-        fi
+    # Prefer the project's vendored bats over the system one for version
+    # consistency (system bats on Ubuntu 22.04 is 1.2.1; vendored is newer).
+    if [[ -x "${PROJECT_ROOT}/tests/bats/bin/bats" ]]; then
+        export PATH="${PROJECT_ROOT}/tests/bats/bin:$PATH"
+    elif ! command -v bats &>/dev/null; then
+        missing+=("bats")
     fi
 
     if [[ ${#missing[@]} -gt 0 ]]; then

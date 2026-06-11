@@ -1,46 +1,23 @@
-version: '3.8'
+# Compose file for running claude-tower tests in containers.
+#
+# Single `tests` service used by every target. Arguments to `docker compose run`
+# go to the entrypoint, so `run --rm tests scenarios` works the same as
+# `docker run ... claude-tower-test scenarios`.
+#
+# The project tree is mounted read-only so test edits are visible without
+# rebuilding the image.
 
 services:
-  # Unit tests - fast, no external dependencies
-  unit-tests:
+  tests:
     build:
       context: .
       dockerfile: Dockerfile.test
-    command: ["./tests/run_tests.sh"]
+    image: claude-tower-test
     volumes:
       - ./tests:/app/tests:ro
       - ./tmux-plugin:/app/tmux-plugin:ro
-
-  # Integration tests - with tmux server
-  integration-tests:
-    build:
-      context: .
-      dockerfile: Dockerfile.test
-    command: ["./tests/run_integration_tests.sh"]
-    volumes:
-      - ./tests:/app/tests:ro
-      - ./tmux-plugin:/app/tmux-plugin:ro
+      - ./Makefile:/app/Makefile:ro
     environment:
-      - CLAUDE_TOWER_DEBUG=1
-
-  # E2E tests - full workflow simulation
-  e2e-tests:
-    build:
-      context: .
-      dockerfile: Dockerfile.test
-    command: ["./tests/run_e2e_tests.sh"]
-    volumes:
-      - ./tests:/app/tests:ro
-      - ./tmux-plugin:/app/tmux-plugin:ro
-    environment:
-      - CLAUDE_TOWER_DEBUG=1
-
-  # All tests
-  all-tests:
-    build:
-      context: .
-      dockerfile: Dockerfile.test
-    command: ["bash", "-c", "./tests/run_tests.sh && ./tests/run_integration_tests.sh"]
-    volumes:
-      - ./tests:/app/tests:ro
-      - ./tmux-plugin:/app/tmux-plugin:ro
+      - CLAUDE_TOWER_DEBUG=${CLAUDE_TOWER_DEBUG:-0}
+    # No `command:` — Dockerfile's default CMD (`all`) applies, and any
+    # extra argument passed via `docker compose run` overrides it.

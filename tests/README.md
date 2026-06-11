@@ -103,8 +103,5 @@ teardown() {
 ## Known Gaps
 
 Scripts without dedicated tests:
-- `tile.sh`, `cleanup.sh`, `diff.sh`, `help.sh`
+- `statusline.sh`
 - `session-delete.sh`, `session-restore.sh`
-- `sidebar.sh`, `statusline.sh`, `tree-view.sh`
-
-See `/docs/development/GAP_ANALYSIS.md` for full coverage analysis.
