@@ -40,9 +40,8 @@ Commands:
   delete        Delete session
     SESSION_ID    Session to delete
     --force       Skip confirmation
-  restore       Restore dormant sessions
+  restore       Restore a dormant session
     SESSION_ID    Specific session to restore
-    --all         Restore all dormant sessions
   tile          Launch Tile mode
   help          Show this help
 
@@ -66,7 +65,7 @@ Key Bindings (in Navigator):
 Examples:
   tower.sh                           # Launch Navigator
   tower.sh list                      # List all sessions
-  tower.sh restore --all             # Restore dormant sessions
+  tower.sh restore feat-login        # Restore a dormant session
   tower.sh delete feat-login         # Delete session
 
 EOF

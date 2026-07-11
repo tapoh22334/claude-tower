@@ -116,9 +116,6 @@ Session state is derived from two sources:
 
 # Change tower prefix key (default: t)
 set -g @tower-prefix 't'
-
-# Auto-restore dormant sessions on plugin load (default: 0)
-set -g @tower-auto-restore '1'
 ```
 
 ### Environment Variables
