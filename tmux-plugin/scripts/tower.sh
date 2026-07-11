@@ -7,7 +7,7 @@
 # Commands:
 #   (none)      Launch Navigator UI
 #   list        List all sessions
-#   new         Create new session
+#   add         Add or create a session
 #   delete      Delete session
 #   restore     Restore dormant session(s)
 #   tile        Launch Tile mode
@@ -31,12 +31,12 @@ show_help() {
     cat <<'EOF'
 claude-tower - Parallel Claude Code Orchestrator
 
-Usage: tower.sh [command] [args...]
+Usage: tower.sh list|add|delete|restore|tile|help
 
 Commands:
   (default)     Launch Navigator UI
   list          List all sessions
-  new           (unavailable; add flow lands in Task 6)
+  add           Add an existing session or start a new one
   delete        Delete session
     SESSION_ID    Session to delete
     --force       Skip confirmation
@@ -85,9 +85,9 @@ main() {
             shift
             "$SCRIPT_DIR/session-list.sh" "${1:-pretty}"
             ;;
-        new | add)
-            handle_error "add flow lands in Task 6"
-            exit 1
+        add)
+            shift
+            exec "$SCRIPT_DIR/session-add.sh" "$@"
             ;;
         delete)
             shift

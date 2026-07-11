@@ -118,3 +118,38 @@ get_display_state() {
         echo "dormant"
     fi
 }
+
+# Candidate sessions for the add flow.
+# Output: <sessionId>\t<mtime_epoch>\t<cwd>   newest first
+# Excludes: registered, empty shells, tmp-internal, missing-cwd sessions.
+list_addable_sessions() {
+    local f session_id cwd mtime
+    for f in "$CLAUDE_PROJECTS_DIR"/*/*.jsonl; do
+        [[ -f "$f" ]] || continue
+        session_id=$(basename -- "$f" .jsonl)
+        [[ "$session_id" =~ ^[0-9a-f-]{36}$ ]] || continue
+        has_metadata "tower_${session_id}" && continue
+        session_has_messages "$f" || continue
+        cwd=$(get_session_cwd "$f") || continue
+        [[ -n "$cwd" && -d "$cwd" ]] || continue
+        case "$cwd" in
+            "${TMPDIR:-/tmp}"/*) continue ;;
+        esac
+        mtime=$(stat -c %Y -- "$f" 2>/dev/null) || continue
+        printf '%s\t%s\t%s\n' "$session_id" "$mtime" "$cwd"
+    done | sort -t "$(printf '\t')" -k2,2nr
+}
+
+# "2m ago" / "3h ago" / "5d ago"
+format_relative_time() {
+    local epoch="$1" now diff
+    now=$(date +%s)
+    diff=$((now - epoch))
+    if ((diff < 3600)); then
+        echo "$((diff / 60))m ago"
+    elif ((diff < 86400)); then
+        echo "$((diff / 3600))h ago"
+    else
+        echo "$((diff / 86400))d ago"
+    fi
+}

@@ -124,3 +124,59 @@ teardown() {
     run is_session_busy "$f"
     [ "$status" -eq 1 ]
 }
+
+@test "list_addable_sessions: lists unregistered real sessions newest first" {
+    local old new
+    old=$(create_mock_jsonl "-home-user-proj" "$UUID_A" "$HOME")
+    new=$(create_mock_jsonl "-home-user-other" "$UUID_B" "$HOME")
+    touch -d "2020-01-01 00:00:00" "$old"
+    run list_addable_sessions
+    [ "$status" -eq 0 ]
+    [ "${lines[0]%%$'\t'*}" = "$UUID_B" ]
+    [ "${lines[1]%%$'\t'*}" = "$UUID_A" ]
+}
+
+@test "list_addable_sessions: excludes registered sessions" {
+    create_mock_jsonl "-home-user-proj" "$UUID_A" "$HOME" > /dev/null
+    create_mock_metadata "tower_${UUID_A}"
+    run list_addable_sessions
+    [ -z "$output" ]
+}
+
+@test "list_addable_sessions: excludes empty shells" {
+    create_empty_jsonl "-home-user-proj" "$UUID_A" > /dev/null
+    run list_addable_sessions
+    [ -z "$output" ]
+}
+
+@test "list_addable_sessions: excludes sessions with missing cwd" {
+    create_mock_jsonl "-home-user-proj" "$UUID_A" "/nonexistent/dir/xyz" > /dev/null
+    run list_addable_sessions
+    [ -z "$output" ]
+}
+
+@test "list_addable_sessions: excludes tmp-dir internal sessions" {
+    create_mock_jsonl "-tmp-something" "$UUID_A" "${TMPDIR:-/tmp}/whatever" > /dev/null
+    mkdir -p "${TMPDIR:-/tmp}/whatever"
+    run list_addable_sessions
+    [ -z "$output" ]
+    rmdir "${TMPDIR:-/tmp}/whatever" 2>/dev/null || true
+}
+
+@test "list_addable_sessions: skips non-uuid jsonl files" {
+    mkdir -p "${CLAUDE_PROJECTS_DIR}/-home-user-proj"
+    echo '{"type":"user","cwd":"'"$HOME"'"}' > "${CLAUDE_PROJECTS_DIR}/-home-user-proj/notauuid.jsonl"
+    run list_addable_sessions
+    [ -z "$output" ]
+}
+
+@test "format_relative_time: minutes and hours" {
+    local now
+    now=$(date +%s)
+    run format_relative_time "$((now - 120))"
+    [ "$output" = "2m ago" ]
+    run format_relative_time "$((now - 7200))"
+    [ "$output" = "2h ago" ]
+    run format_relative_time "$((now - 172800))"
+    [ "$output" = "2d ago" ]
+}
