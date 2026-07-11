@@ -932,7 +932,9 @@ readonly TYPE_SIMPLE="simple"
 readonly ICON_TYPE_WORKTREE="[W]"
 readonly ICON_TYPE_SIMPLE="[S]"
 
-# Get session state (always checks default server)
+# Cheap 2-state check (active/dormant), for callers that don't need
+# busy-granularity. See get_display_state (claude-sessions.sh) for the
+# full 5-state (busy/active/dormant/dead/lost) Navigator-facing check.
 # Arguments:
 #   $1 - Session ID (with tower_ prefix)
 # Returns:
@@ -1008,58 +1010,26 @@ get_type_icon() {
 # Session List (v2.0)
 # ============================================================================
 
-# List all tower sessions (active + dormant) - OPTIMIZED
-# Output format: session_id:state:type
-# Uses single tmux call for all active sessions
+# List all tower sessions. Output: session_id:state
+# state: busy|active|dormant|dead|lost
 list_all_sessions() {
-    local -A active_sessions=()
+    local -A seen=()
+    local session_id
 
-    # Get all tower sessions in ONE tmux call
-    while IFS=$'\t' read -r session_id _; do
+    while IFS= read -r session_id; do
         [[ -z "$session_id" ]] && continue
         [[ "$session_id" != tower_* ]] && continue
-
-        active_sessions["$session_id"]=1
-
-        # tmux session exists = active (simplified, idempotent)
-        local state="$STATE_ACTIVE"
-
-        # Get type
-        local type="$TYPE_SIMPLE"
-        if has_metadata "$session_id"; then
-            type="$TYPE_WORKTREE"
-        fi
-
-        echo "${session_id}:${state}:${type}"
+        seen["$session_id"]=1
+        echo "${session_id}:$(get_display_state "$session_id")"
     done < <(session_tmux list-sessions -F '#{session_name}' 2>/dev/null || true)
 
-    # Check metadata for dormant sessions
+    local meta_file
     for meta_file in "${TOWER_METADATA_DIR}"/*.meta; do
         [[ -f "$meta_file" ]] || continue
-
-        local session_id
         session_id=$(basename "$meta_file" .meta)
-
-        # Skip if already processed (active session)
-        [[ -n "${active_sessions[$session_id]:-}" ]] && continue
-
-        # This is a dormant session
-        echo "${session_id}:${STATE_DORMANT}:${TYPE_WORKTREE}"
+        [[ -n "${seen[$session_id]:-}" ]] && continue
+        echo "${session_id}:$(get_display_state "$session_id")"
     done
-}
-
-# Output session info in standard format (optimized - no git calls)
-# Arguments:
-#   $1 - Session ID
-# Output: session_id:state:type
-_output_session_info() {
-    local session_id="$1"
-    local state type
-
-    state=$(get_session_state "$session_id")
-    type=$(get_session_type "$session_id")
-
-    echo "${session_id}:${state}:${type}"
 }
 
 # ============================================================================
@@ -1190,158 +1160,101 @@ _wait_for_shell_ready() {
     return 0
 }
 
-# Start tmux session with Claude (internal)
-# Start a tmux session with Claude on the SESSION server
-# This isolates Claude sessions from the user's default tmux server
-_start_session_with_claude() {
+# Start a tmux session running Claude for a known session ID.
+# Arguments:
+#   $1 - Tower session ID (tower_<uuid>)
+#   $2 - Working directory (must exist; --resume only finds the session there)
+#   $3 - Mode: "new" (claude --session-id) or "resume" (claude --resume)
+start_claude_session() {
     local session_id="$1"
     local working_dir="$2"
-    local continue_flag="${3:-}"
+    local mode="$3"
+    local claude_id="${session_id#tower_}"
 
-    # Create detached tmux session on SESSION server (isolated from user's default)
-    session_tmux new-session -d -s "$session_id" -c "$working_dir"
+    if [[ ! -d "$working_dir" ]]; then
+        handle_error "Directory not found: ${working_dir} — press D to unregister"
+        return 1
+    fi
 
-    # Wait for shell prompt to be ready before sending keys
+    if session_tmux has-session -t "$session_id" 2>/dev/null; then
+        handle_info "Session already running: ${claude_id:0:7}"
+        return 0
+    fi
+
+    if ! session_tmux new-session -d -s "$session_id" -c "$working_dir"; then
+        handle_error "Failed to create tmux session"
+        return 1
+    fi
+
     _wait_for_shell_ready "$session_id"
-
-    # Clear screen first to flush any terminal initialization noise
     session_tmux send-keys -t "$session_id" C-l
-
-    # Wait for clear to complete
     _wait_for_shell_ready "$session_id"
 
-    # Start Claude
-    local claude_cmd="$TOWER_PROGRAM"
-    [[ -n "$continue_flag" ]] && claude_cmd="$TOWER_PROGRAM --continue"
-
-    # Use C-m (Ctrl-M) instead of Enter for more reliable key sending
+    local claude_cmd
+    if [[ "$mode" == "resume" ]]; then
+        claude_cmd="$TOWER_PROGRAM --resume $claude_id"
+    else
+        claude_cmd="$TOWER_PROGRAM --session-id $claude_id"
+    fi
     session_tmux send-keys -t "$session_id" "$claude_cmd" C-m
 
-    handle_success "Session created: ${session_id#tower_}"
+    handle_success "Session started: ${claude_id:0:7}"
 }
 
-# Restore a dormant session
-# Arguments:
-#   $1 - Session ID
-# Returns:
-#   0 on success, 1 on failure
+# Restore a dormant session (resume in its jsonl-derived launch cwd).
 restore_session() {
     local session_id="$1"
 
-    # Check if session is dormant
-    local state
-    state=$(get_session_state "$session_id")
-
-    if [[ "$state" != "$STATE_DORMANT" ]]; then
-        if [[ "$state" == "" ]]; then
-            handle_error "Session does not exist: ${session_id#tower_}"
-        else
-            handle_info "Session is already active: ${session_id#tower_}"
-        fi
+    if session_tmux has-session -t "$session_id" 2>/dev/null; then
+        handle_info "Session is already active: ${session_id#tower_}"
         return 1
     fi
 
-    # Load metadata
-    if ! load_metadata "$session_id"; then
-        handle_error "Cannot load session metadata: ${session_id#tower_}"
+    if ! has_metadata "$session_id"; then
+        handle_error "Session does not exist: ${session_id#tower_}"
         return 1
     fi
 
-    # Determine working directory based on session type
-    local working_dir=""
-    if [[ "$META_SESSION_TYPE" == "worktree" ]]; then
-        # Worktree session - use worktree path
-        working_dir="$META_WORKTREE_PATH"
-        if [[ ! -d "$working_dir" ]]; then
-            handle_error "Worktree directory not found: $working_dir"
-            return 1
-        fi
-    elif [[ -n "$META_REPOSITORY_PATH" && -d "$META_REPOSITORY_PATH" ]]; then
-        # Simple session - use repository path
-        working_dir="$META_REPOSITORY_PATH"
-    else
-        # Fallback to home directory if no valid path
-        working_dir="$HOME"
-    fi
-
-    if [[ ! -d "$working_dir" ]]; then
-        handle_error "Working directory not found: $working_dir"
+    local claude_id="${session_id#tower_}"
+    local jsonl
+    if ! jsonl=$(find_session_jsonl "$claude_id"); then
+        handle_error "Claude transcript not found (auto-deleted after ~30 days) — press D to unregister"
         return 1
     fi
 
-    # Create tmux session and start Claude with --continue
-    _start_session_with_claude "$session_id" "$working_dir" "continue"
+    local cwd
+    cwd=$(get_session_cwd "$jsonl" || true)
+    if [[ -z "$cwd" || ! -d "$cwd" ]]; then
+        handle_error "Directory not found: ${cwd:-unknown} — press D to unregister"
+        return 1
+    fi
+
+    start_claude_session "$session_id" "$cwd" "resume"
 }
 
-# Delete a session
-# Arguments:
-#   $1 - Session ID
-#   $2 - Force flag (optional, "force" to skip confirmation)
-# Returns:
-#   0 on success, 1 on failure
+# Delete a session: kill tmux + remove registry entry.
+# Claude's transcript is never touched (re-add via `n` until Claude's
+# ~30-day cleanup removes it).
 delete_session() {
     local session_id="$1"
     local force="${2:-}"
 
-    local state type
-    state=$(get_session_state "$session_id")
-    type=$(get_session_type "$session_id")
+    local state
+    state=$(get_display_state "$session_id")
 
     if [[ -z "$state" ]]; then
         handle_error "Session does not exist: ${session_id#tower_}"
         return 1
     fi
 
-    # Confirmation (unless forced)
     if [[ "$force" != "force" ]]; then
-        local msg="Delete session '${session_id#tower_}'?"
-        [[ "$type" == "$TYPE_WORKTREE" ]] && msg="$msg (includes worktree and branch)"
-        if ! confirm "$msg"; then
+        if ! confirm "Delete session '${session_id#tower_}'?"; then
             handle_info "Cancelled"
             return 1
         fi
     fi
 
-    # Kill tmux session if active (on session server)
-    if [[ "$state" != "$STATE_DORMANT" ]]; then
-        session_tmux kill-session -t "$session_id" 2>/dev/null || true
-    fi
-
-    # For worktree sessions, cleanup worktree and branch
-    if [[ "$type" == "$TYPE_WORKTREE" ]]; then
-        if load_metadata "$session_id" 2>/dev/null; then
-            local worktree_path="$META_WORKTREE_PATH"
-            local repo_path="$META_REPOSITORY_PATH"
-
-            # Read branch name from metadata
-            local branch_name=""
-            local metadata_file="${TOWER_METADATA_DIR}/${session_id}.meta"
-            if [[ -f "$metadata_file" ]]; then
-                branch_name=$(grep "^branch_name=" "$metadata_file" 2>/dev/null | cut -d= -f2)
-            fi
-
-            # Remove worktree
-            if [[ -d "$worktree_path" ]] && validate_path_within "$worktree_path" "$TOWER_WORKTREE_DIR"; then
-                if [[ -n "$repo_path" && -d "$repo_path" ]]; then
-                    git -C "$repo_path" worktree remove "$worktree_path" 2>/dev/null ||
-                        git -C "$repo_path" worktree remove --force "$worktree_path" 2>/dev/null ||
-                        rm -rf "$worktree_path"
-                else
-                    rm -rf "$worktree_path"
-                fi
-            fi
-
-            # Delete branch (only if not pushed to remote)
-            if [[ -n "$branch_name" && -n "$repo_path" && -d "$repo_path" ]]; then
-                # Check if branch exists on remote
-                if ! git -C "$repo_path" ls-remote --exit-code --heads origin "$branch_name" &>/dev/null; then
-                    git -C "$repo_path" branch -D "$branch_name" 2>/dev/null || true
-                fi
-            fi
-        fi
-    fi
-
-    # Delete metadata
+    session_tmux kill-session -t "$session_id" 2>/dev/null || true
     delete_metadata "$session_id"
 
     handle_success "Session deleted: ${session_id#tower_}"
@@ -1373,11 +1286,7 @@ restart_session() {
     session_tmux send-keys -t "$session_id" C-c 2>/dev/null || true
     sleep 0.5
 
-    local type
-    type=$(get_session_type "$session_id")
-
-    local claude_cmd="$TOWER_PROGRAM"
-    [[ "$type" == "$TYPE_WORKTREE" ]] && claude_cmd="$TOWER_PROGRAM --continue"
+    local claude_cmd="$TOWER_PROGRAM --resume ${session_id#tower_}"
 
     session_tmux send-keys -t "$session_id" "$claude_cmd" C-m
 

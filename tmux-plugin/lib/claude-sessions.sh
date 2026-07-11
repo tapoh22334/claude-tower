@@ -81,3 +81,40 @@ is_session_busy() {
     now=$(date +%s)
     ((now - activity <= TOWER_BUSY_WINDOW))
 }
+
+# Display state for the Navigator list.
+#   busy    - tmux session exists, activity within window
+#   active  - tmux session exists
+#   dormant - registered, resumable (jsonl + cwd exist)
+#   dead    - registered but cwd dir is gone -> --resume can never find it
+#   lost    - registered but transcript gone (Claude's ~30-day cleanup)
+#   ""      - not registered, no tmux
+get_display_state() {
+    local session_id="$1"
+    local claude_id="${session_id#tower_}"
+    local jsonl
+
+    if session_tmux has-session -t "$session_id" 2>/dev/null; then
+        if jsonl=$(find_session_jsonl "$claude_id") && is_session_busy "$jsonl"; then
+            echo "busy"
+        else
+            echo "active"
+        fi
+        return 0
+    fi
+
+    has_metadata "$session_id" || return 0
+
+    if ! jsonl=$(find_session_jsonl "$claude_id"); then
+        echo "lost"
+        return 0
+    fi
+
+    local cwd
+    cwd=$(get_session_cwd "$jsonl" || true)
+    if [[ -z "$cwd" || ! -d "$cwd" ]]; then
+        echo "dead"
+    else
+        echo "dormant"
+    fi
+}
