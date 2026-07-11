@@ -98,7 +98,7 @@ create_test_navigator_session() {
     run list_all_sessions
 
     [ "$status" -eq 0 ]
-    # Output should be in format: session_id:state:type
+    # Output should be in format: session_id:state
     [[ "$output" == *":"* ]]
 }
 
@@ -114,14 +114,6 @@ create_test_navigator_session() {
     [ "$output" = "?" ]
 }
 
-@test "display: type icons are correct" {
-    run get_type_icon "worktree"
-    [ "$output" = "[W]" ]
-
-    run get_type_icon "simple"
-    [ "$output" = "[S]" ]
-}
-
 # ============================================================================
 # Output Format Tests
 # ============================================================================
@@ -133,7 +125,7 @@ create_test_navigator_session() {
     local output
     output=$(list_all_sessions)
 
-    # Each line should match: session_id:state:type
+    # Each line should match: session_id:state
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
 
@@ -141,8 +133,8 @@ create_test_navigator_session() {
         local colon_count
         colon_count=$(echo "$line" | tr -cd ':' | wc -c)
 
-        # Should have exactly 2 colons (3 fields)
-        [ "$colon_count" -eq 2 ]
+        # Should have exactly 1 colon (2 fields)
+        [ "$colon_count" -eq 1 ]
     done <<< "$output"
 }
 

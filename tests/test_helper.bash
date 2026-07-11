@@ -7,7 +7,6 @@ PROJECT_ROOT="$(dirname "$TEST_DIR")"
 
 # Set up test environment
 export CLAUDE_TOWER_METADATA_DIR="${TEST_DIR}/tmp/metadata"
-export CLAUDE_TOWER_WORKTREE_DIR="${TEST_DIR}/tmp/worktrees"
 
 # Source the common library (without strict mode for testing)
 source_common() {
@@ -20,7 +19,6 @@ source_common() {
 # Set up test fixtures
 setup_test_env() {
     mkdir -p "$CLAUDE_TOWER_METADATA_DIR"
-    mkdir -p "$CLAUDE_TOWER_WORKTREE_DIR"
     mkdir -p "$CLAUDE_PROJECTS_DIR"
 }
 

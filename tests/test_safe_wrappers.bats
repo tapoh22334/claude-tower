@@ -54,20 +54,3 @@ teardown() {
     run run_with_timeout 5 ls -la /tmp
     [ "$status" -eq 0 ]
 }
-
-# ============================================================================
-# get_active_sessions() tests
-# ============================================================================
-
-@test "get_active_sessions: does not error" {
-    # This test just verifies the function doesn't crash
-    # It may return empty if tmux is not running
-    run get_active_sessions
-    [ "$status" -eq 0 ]
-}
-
-@test "get_active_sessions: returns string output" {
-    result=$(get_active_sessions)
-    # Result should be a string (possibly empty)
-    [ -n "$result" ] || [ -z "$result" ]
-}

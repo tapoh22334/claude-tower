@@ -46,7 +46,6 @@ tmux set-environment -g CLAUDE_TOWER_DIR "$CURRENT_DIR"
 
 # Ensure directories exist
 mkdir -p "${CLAUDE_TOWER_METADATA_DIR:-$HOME/.claude-tower/metadata}" 2>/dev/null || true
-mkdir -p "${CLAUDE_TOWER_WORKTREE_DIR:-$HOME/.claude-tower/worktrees}" 2>/dev/null || true
 
 # Auto-restore dormant sessions on plugin load (optional)
 if [[ "$(get_tmux_option "@tower-auto-restore" "0")" == "1" ]]; then

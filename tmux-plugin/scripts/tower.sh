@@ -15,7 +15,6 @@
 #
 # Environment:
 #   CLAUDE_TOWER_PROGRAM      Program to run (default: claude)
-#   CLAUDE_TOWER_WORKTREE_DIR Worktree directory
 #   CLAUDE_TOWER_METADATA_DIR Metadata directory
 #   CLAUDE_TOWER_DEBUG        Enable debug logging (1)
 
@@ -37,10 +36,7 @@ Usage: tower.sh [command] [args...]
 Commands:
   (default)     Launch Navigator UI
   list          List all sessions
-  new           Create new session
-    -n NAME       Session name
-    -w            Create worktree session (persistent)
-    -d DIR        Working directory
+  new           (unavailable; add flow lands in Task 6)
   delete        Delete session
     SESSION_ID    Session to delete
     --force       Skip confirmation
@@ -49,10 +45,6 @@ Commands:
     --all         Restore all dormant sessions
   tile          Launch Tile mode
   help          Show this help
-
-Session Types:
-  [W] Worktree  Persistent with git worktree, auto-restores
-  [S] Simple    Volatile, lost on tmux restart
 
 Session States:
   ◉ Running     Claude is actively working
@@ -73,8 +65,6 @@ Key Bindings (in Navigator):
 
 Examples:
   tower.sh                           # Launch Navigator
-  tower.sh new -n feat-login -w      # Create worktree session
-  tower.sh new -n experiment         # Create simple session
   tower.sh list                      # List all sessions
   tower.sh restore --all             # Restore dormant sessions
   tower.sh delete feat-login         # Delete session
@@ -95,9 +85,9 @@ main() {
             shift
             "$SCRIPT_DIR/session-list.sh" "${1:-pretty}"
             ;;
-        new)
-            shift
-            "$SCRIPT_DIR/session-new.sh" "$@"
+        new | add)
+            handle_error "add flow lands in Task 6"
+            exit 1
             ;;
         delete)
             shift
@@ -120,10 +110,5 @@ main() {
             ;;
     esac
 }
-
-# Auto-restore dormant sessions on startup (if enabled)
-if [[ "${CLAUDE_TOWER_AUTO_RESTORE:-0}" == "1" ]]; then
-    restore_all_dormant
-fi
 
 main "$@"

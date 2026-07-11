@@ -194,7 +194,6 @@ show_help() {
     echo "    n          Create new session"
     echo "    D          Delete selected session"
     echo "    r          Restore selected dormant session"
-    echo "    R          Restore all dormant sessions"
     echo "    Tab        Switch to Tile view"
     echo ""
     echo "  Other:"
@@ -289,91 +288,7 @@ focus_view() {
 
 # Create new session (inline input in list pane)
 create_session_inline() {
-    # Clear prompt area
-    local term_height
-    term_height=$(tput lines 2>/dev/null || echo 24)
-
-    # Move cursor to bottom of list area
-    tput cup "$((term_height - 6))" 0 2>/dev/null || true
-    echo -e "${NAV_C_HEADER}┌─ New Session ───────────┐${NAV_C_NORMAL}"
-
-    # Get session name
-    printf "│ Name: "
-    local name=""
-    read -r name
-
-    if [[ -z "$name" ]]; then
-        echo -e "│ ${NAV_C_DIM}Cancelled${NAV_C_NORMAL}"
-        echo -e "${NAV_C_HEADER}└─────────────────────────┘${NAV_C_NORMAL}"
-        sleep 0.5
-        return
-    fi
-
-    # Check if session already exists (early check to avoid tmux display-message)
-    local sanitized_name new_session_id
-    sanitized_name=$(echo "$name" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/_/g')
-    new_session_id="tower_${sanitized_name}"
-    if session_tmux has-session -t "$new_session_id" 2>/dev/null; then
-        echo -e "│ ${NAV_C_ERROR}✗${NAV_C_NORMAL} Already exists: ${sanitized_name}"
-        echo -e "${NAV_C_HEADER}└─────────────────────────┘${NAV_C_NORMAL}"
-        echo ""
-        echo -e "${NAV_C_DIM}Press any key to continue...${NAV_C_NORMAL}"
-        read -rsn1
-        return
-    fi
-
-    # Ask about worktree
-    printf "│ Worktree? [y/n]: "
-    local worktree_choice=""
-    read -rsn1 worktree_choice
-    echo ""
-
-    local use_worktree=0
-    if [[ "$worktree_choice" == "y" || "$worktree_choice" == "Y" ]]; then
-        use_worktree=1
-    fi
-
-    echo -e "│ ${NAV_C_DIM}Creating...${NAV_C_NORMAL}"
-
-    # Create session
-    local result
-    local working_dir="$HOME"
-
-    if [[ $use_worktree -eq 1 ]]; then
-        # Get working directory from caller session
-        local caller
-        caller=$(get_nav_caller)
-        if [[ -n "$caller" ]]; then
-            # Try session server first (for tower_* sessions), then fall back to default
-            working_dir=$(session_tmux display-message -t "$caller" -p '#{pane_current_path}' 2>/dev/null) ||
-                working_dir=$(TMUX= tmux display-message -t "$caller" -p '#{pane_current_path}' 2>/dev/null) ||
-                working_dir="$HOME"
-        fi
-        # TOWER_QUIET_ERRORS suppresses tmux display-message (errors shown in Navigator UI)
-        result=$(TOWER_QUIET_ERRORS=1 "$SCRIPT_DIR/session-new.sh" -n "$name" --worktree --dir "$working_dir" --no-attach 2>&1)
-    else
-        result=$(TOWER_QUIET_ERRORS=1 "$SCRIPT_DIR/session-new.sh" -n "$name" --no-attach 2>&1)
-    fi
-
-    if session_tmux has-session -t "$new_session_id" 2>/dev/null; then
-        echo -e "│ ${NAV_C_ACCENT}✓${NAV_C_NORMAL} Created: ${sanitized_name}"
-        # Select the newly created session
-        set_nav_selected "$new_session_id"
-        signal_view_update
-    else
-        # Extract error message (remove ANSI codes and tmux display-message noise)
-        local error_msg
-        error_msg=$(echo "$result" | grep -i "error" | sed 's/\x1b\[[0-9;]*m//g' | head -1)
-        [[ -z "$error_msg" ]] && error_msg="Failed to create session"
-        echo -e "│ ${NAV_C_ERROR}✗${NAV_C_NORMAL} ${error_msg}"
-        echo -e "${NAV_C_HEADER}└─────────────────────────┘${NAV_C_NORMAL}"
-        echo ""
-        echo -e "${NAV_C_DIM}Press any key to continue...${NAV_C_NORMAL}"
-        read -rsn1
-        return
-    fi
-
-    echo -e "${NAV_C_HEADER}└─────────────────────────┘${NAV_C_NORMAL}"
+    echo "  ${NAV_C_DIM}add flow lands in Task 7${NAV_C_NORMAL}"
     sleep 0.5
 }
 
@@ -461,49 +376,6 @@ restore_selected() {
         echo "  ${NAV_C_ERROR}✗${NAV_C_NORMAL} Failed to restore"
     fi
     sleep 0.5
-}
-
-# Restore all dormant sessions
-restore_all_dormant_sessions() {
-    local dormant_count=0
-    local restored=0
-    local failed=0
-
-    # Count dormant sessions
-    for id in "${SESSION_IDS[@]:-}"; do
-        local state
-        state=$(get_session_state "$id")
-        [[ "$state" == "$STATE_DORMANT" ]] && ((dormant_count++)) || true
-    done
-
-    if [[ $dormant_count -eq 0 ]]; then
-        echo ""
-        echo "  ${NAV_C_DIM}No dormant sessions${NAV_C_NORMAL}"
-        sleep 0.5
-        return
-    fi
-
-    echo ""
-    echo "  ${NAV_C_ACCENT}Restoring $dormant_count dormant sessions...${NAV_C_NORMAL}"
-
-    # Restore each dormant session
-    for id in "${SESSION_IDS[@]:-}"; do
-        local state
-        state=$(get_session_state "$id")
-        if [[ "$state" == "$STATE_DORMANT" ]]; then
-            if "$SCRIPT_DIR/session-restore.sh" "$id" 2>/dev/null; then
-                ((restored++)) || true
-                echo "  ${NAV_C_ACCENT}✓${NAV_C_NORMAL} ${id#tower_}"
-            else
-                ((failed++)) || true
-                echo "  ${NAV_C_ERROR}✗${NAV_C_NORMAL} ${id#tower_}"
-            fi
-        fi
-    done
-
-    echo ""
-    echo "  ${NAV_C_ACCENT}Done:${NAV_C_NORMAL} $restored restored, $failed failed"
-    sleep 1
 }
 
 # Switch to Tile mode
@@ -700,13 +572,6 @@ main_loop() {
                 r)
                     # Restore selected dormant session
                     restore_selected
-                    build_session_list
-                    selected_index=$(get_selection_index)
-                    clear
-                    ;;
-                R)
-                    # Restore all dormant sessions
-                    restore_all_dormant_sessions
                     build_session_list
                     selected_index=$(get_selection_index)
                     clear

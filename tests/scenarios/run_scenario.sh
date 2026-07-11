@@ -118,8 +118,6 @@ execute_bash_block() {
     export TEST_DIR="${TEST_DIR:-$(mktemp -d)}"
     export TEST_METADATA_DIR="${TEST_METADATA_DIR:-$(mktemp -d)}"
     export CLAUDE_TOWER_METADATA_DIR="$TEST_METADATA_DIR"
-    export CLAUDE_TOWER_WORKTREE_DIR="${TEST_DIR}/worktrees"
-    mkdir -p "$CLAUDE_TOWER_WORKTREE_DIR"
 
     # Source common library if not already
     if ! declare -f save_metadata &>/dev/null; then

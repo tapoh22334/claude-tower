@@ -65,28 +65,6 @@ teardown() {
 }
 
 # ============================================================================
-# get_active_sessions() tests with real tmux
-# ============================================================================
-
-@test "integration: get_active_sessions lists sessions" {
-    # Create test sessions
-    tmux -L "$TMUX_SOCKET" new-session -d -s "tower_list1"
-    tmux -L "$TMUX_SOCKET" new-session -d -s "tower_list2"
-
-    # Override tmux
-    tmux() { command tmux -L "$TMUX_SOCKET" "$@"; }
-    export -f tmux
-
-    result=$(get_active_sessions)
-
-    [[ "$result" == *"tower_list1"* ]]
-    [[ "$result" == *"tower_list2"* ]]
-
-    tmux -L "$TMUX_SOCKET" kill-session -t "tower_list1"
-    tmux -L "$TMUX_SOCKET" kill-session -t "tower_list2"
-}
-
-# ============================================================================
 # safe_tmux() tests with real tmux
 # ============================================================================
 
@@ -149,28 +127,4 @@ teardown() {
     [ "$source_val" = "abc123" ]
 
     tmux -L "$TMUX_SOCKET" kill-session -t "tower_persist_test"
-}
-
-# ============================================================================
-# Orphan detection with real tmux
-# ============================================================================
-
-@test "integration: find_orphaned_worktrees detects sessions not in tmux" {
-    tmux() { command tmux -L "$TMUX_SOCKET" "$@"; }
-    export -f tmux
-
-    # Create metadata for sessions
-    create_mock_metadata "tower_active_int"
-    create_mock_metadata "tower_orphan_int"
-
-    # Only create tmux session for "active"
-    tmux -L "$TMUX_SOCKET" new-session -d -s "tower_active_int"
-
-    # Find orphans
-    orphans=$(find_orphaned_worktrees)
-
-    [[ "$orphans" == *"tower_orphan_int"* ]]
-    [[ "$orphans" != *"tower_active_int"* ]]
-
-    tmux -L "$TMUX_SOCKET" kill-session -t "tower_active_int"
 }

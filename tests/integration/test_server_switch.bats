@@ -126,9 +126,9 @@ teardown() {
     unset TMUX
 }
 
-@test "server-switch: _start_session_with_claude uses session_tmux" {
+@test "server-switch: start_claude_session uses session_tmux" {
     local func_def
-    func_def=$(declare -f _start_session_with_claude)
+    func_def=$(declare -f start_claude_session)
 
     # Should use session_tmux for new-session
     [[ "$func_def" == *"session_tmux new-session"* ]]

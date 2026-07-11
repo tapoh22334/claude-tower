@@ -38,11 +38,8 @@ teardown() {
     # Create tmux session
     tmux -L "$TMUX_SOCKET" new-session -d -s "$SESSION_ID" -c /tmp
 
-    # Set session type
-    tmux -L "$TMUX_SOCKET" set-option -t "$SESSION_ID" @tower_session_type "simple"
-
-    # Save metadata
-    save_metadata "$SESSION_ID" "simple"
+    # Save metadata (minimal registry: session_name + created_at only)
+    save_metadata "$SESSION_ID" "$SESSION_NAME"
 
     # Verify session exists
     run tmux -L "$TMUX_SOCKET" has-session -t "$SESSION_ID"
@@ -50,97 +47,12 @@ teardown() {
 
     # Verify metadata was saved
     [ -f "${CLAUDE_TOWER_METADATA_DIR}/${SESSION_ID}.meta" ]
-    grep -q "session_type=simple" "${CLAUDE_TOWER_METADATA_DIR}/${SESSION_ID}.meta"
+    grep -q "session_name=${SESSION_NAME}" "${CLAUDE_TOWER_METADATA_DIR}/${SESSION_ID}.meta"
 
     # Cleanup
     tmux -L "$TMUX_SOCKET" kill-session -t "$SESSION_ID"
     rm -f "${CLAUDE_TOWER_METADATA_DIR}/${SESSION_ID}.meta"
     tmux -L "$TMUX_SOCKET" kill-server 2>/dev/null || true
-}
-
-# ============================================================================
-# Scenario: Workspace Session (02_workspace_session.md)
-# ============================================================================
-
-@test "scenario-02: create workspace with worktree" {
-    local SESSION_NAME="scenario-workspace-$$"
-    local SESSION_ID="tower_${SESSION_NAME}"
-    local TMUX_SOCKET="scenario-ws-$$"
-    local TEST_REPO
-
-    # Create test repository
-    TEST_REPO=$(mktemp -d)
-    git -C "$TEST_REPO" init -q
-    git -C "$TEST_REPO" config user.email "test@test.com"
-    git -C "$TEST_REPO" config user.name "Test"
-    echo "initial" > "$TEST_REPO/README.md"
-    git -C "$TEST_REPO" add .
-    git -C "$TEST_REPO" commit -q -m "Initial commit"
-
-    local WORKTREE_PATH="${CLAUDE_TOWER_WORKTREE_DIR}/${SESSION_NAME}"
-    local SOURCE_COMMIT
-    SOURCE_COMMIT=$(git -C "$TEST_REPO" rev-parse HEAD)
-
-    # Create worktree
-    git -C "$TEST_REPO" worktree add -b "tower/${SESSION_NAME}" "$WORKTREE_PATH" "$SOURCE_COMMIT"
-
-    # Verify worktree created
-    [ -d "$WORKTREE_PATH" ]
-    [ -f "$WORKTREE_PATH/README.md" ]
-
-    # Create tmux session
-    tmux -L "$TMUX_SOCKET" new-session -d -s "$SESSION_ID" -c "$WORKTREE_PATH"
-
-    # Save metadata
-    save_metadata "$SESSION_ID" "workspace" "$TEST_REPO" "$SOURCE_COMMIT"
-
-    # Verify
-    run tmux -L "$TMUX_SOCKET" has-session -t "$SESSION_ID"
-    [ "$status" -eq 0 ]
-
-    load_metadata "$SESSION_ID"
-    [ "$META_SESSION_TYPE" = "workspace" ]
-    [ "$META_REPOSITORY_PATH" = "$TEST_REPO" ]
-
-    # Cleanup
-    tmux -L "$TMUX_SOCKET" kill-session -t "$SESSION_ID"
-    git -C "$TEST_REPO" worktree remove --force "$WORKTREE_PATH" 2>/dev/null || rm -rf "$WORKTREE_PATH"
-    rm -f "${CLAUDE_TOWER_METADATA_DIR}/${SESSION_ID}.meta"
-    rm -rf "$TEST_REPO"
-    tmux -L "$TMUX_SOCKET" kill-server 2>/dev/null || true
-}
-
-@test "scenario-02: worktree changes are isolated" {
-    local SESSION_NAME="scenario-isolated-$$"
-    local TEST_REPO
-
-    TEST_REPO=$(mktemp -d)
-    git -C "$TEST_REPO" init -q
-    git -C "$TEST_REPO" config user.email "test@test.com"
-    git -C "$TEST_REPO" config user.name "Test"
-    echo "original" > "$TEST_REPO/README.md"
-    git -C "$TEST_REPO" add .
-    git -C "$TEST_REPO" commit -q -m "Initial"
-
-    local WORKTREE_PATH="${CLAUDE_TOWER_WORKTREE_DIR}/${SESSION_NAME}"
-    git -C "$TEST_REPO" worktree add -b "tower/${SESSION_NAME}" "$WORKTREE_PATH"
-
-    # Modify worktree
-    echo "modified" >> "$WORKTREE_PATH/README.md"
-
-    # Main repo unchanged
-    local main_content
-    main_content=$(cat "$TEST_REPO/README.md")
-    [ "$main_content" = "original" ]
-
-    # Worktree has changes
-    local worktree_content
-    worktree_content=$(cat "$WORKTREE_PATH/README.md")
-    [[ "$worktree_content" == *"modified"* ]]
-
-    # Cleanup
-    git -C "$TEST_REPO" worktree remove --force "$WORKTREE_PATH" 2>/dev/null || rm -rf "$WORKTREE_PATH"
-    rm -rf "$TEST_REPO"
 }
 
 # ============================================================================
@@ -216,7 +128,7 @@ teardown() {
     local SESSION_ID="tower_dormant_test_$$"
 
     # Create metadata without tmux session
-    create_mock_metadata "$SESSION_ID" "workspace"
+    create_mock_metadata "$SESSION_ID"
 
     # Override tmux to use a non-existent socket
     local TMUX_SOCKET="nonexistent-$$"
@@ -229,41 +141,19 @@ teardown() {
     [ "$output" = "dormant" ]
 }
 
-@test "scenario-lifecycle: cleanup removes metadata and worktree" {
+@test "scenario-lifecycle: delete_metadata removes registry entry" {
     local SESSION_ID="tower_cleanup_test_$$"
-    local TEST_REPO
 
-    # Setup
-    TEST_REPO=$(mktemp -d)
-    git -C "$TEST_REPO" init -q
-    git -C "$TEST_REPO" config user.email "test@test.com"
-    git -C "$TEST_REPO" config user.name "Test"
-    touch "$TEST_REPO/file.txt"
-    git -C "$TEST_REPO" add .
-    git -C "$TEST_REPO" commit -q -m "Init"
-
-    local WORKTREE_PATH="${CLAUDE_TOWER_WORKTREE_DIR}/${SESSION_ID#tower_}"
-    git -C "$TEST_REPO" worktree add -b "tower/${SESSION_ID#tower_}" "$WORKTREE_PATH"
-
-    save_metadata "$SESSION_ID" "workspace" "$TEST_REPO" "abc123"
+    save_metadata "$SESSION_ID" "cleanup-test"
 
     # Verify setup
-    [ -d "$WORKTREE_PATH" ]
     [ -f "${CLAUDE_TOWER_METADATA_DIR}/${SESSION_ID}.meta" ]
 
-    # No tmux session - should be orphan
-    local TMUX_SOCKET="cleanup-test-$$"
-    tmux() { command tmux -L "$TMUX_SOCKET" "$@"; }
-    export -f tmux
-
     # Cleanup
-    remove_orphaned_worktree "$SESSION_ID"
+    delete_metadata "$SESSION_ID"
 
     # Verify cleanup
     [ ! -f "${CLAUDE_TOWER_METADATA_DIR}/${SESSION_ID}.meta" ]
-    [ ! -d "$WORKTREE_PATH" ]
-
-    rm -rf "$TEST_REPO"
 }
 
 # ============================================================================

@@ -13,7 +13,23 @@ source "$SCRIPT_DIR/../lib/common.sh"
 arg="${1:-}"
 
 if [[ "$arg" == "--all" || "$arg" == "-a" ]]; then
-    restore_all_dormant
+    restored=0
+    failed=0
+    for meta_file in "${TOWER_METADATA_DIR}"/*.meta; do
+        [[ -f "$meta_file" ]] || continue
+        sid=$(basename "$meta_file" .meta)
+        state=$(get_session_state "$sid")
+        if [[ "$state" == "$STATE_DORMANT" ]]; then
+            if restore_session "$sid" 2>/dev/null; then
+                ((restored++)) || true
+            else
+                ((failed++)) || true
+            fi
+        fi
+    done
+    if [[ $restored -gt 0 || $failed -gt 0 ]]; then
+        handle_info "Restored $restored session(s), $failed failed"
+    fi
 elif [[ -n "$arg" ]]; then
     # Validate and ensure session_id has tower_ prefix (security: prevent injection)
     session_id=$(ensure_tower_prefix "$arg") || {

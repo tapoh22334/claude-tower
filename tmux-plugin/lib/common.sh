@@ -111,7 +111,6 @@ readonly ICON_GIT="⎇"
 # ============================================================================
 # Configuration
 # ============================================================================
-readonly TOWER_WORKTREE_DIR="${CLAUDE_TOWER_WORKTREE_DIR:-$HOME/.claude-tower/worktrees}"
 readonly TOWER_PROGRAM="${CLAUDE_TOWER_PROGRAM:-claude}"
 readonly TOWER_METADATA_DIR="${CLAUDE_TOWER_METADATA_DIR:-$HOME/.claude-tower/metadata}"
 readonly PREVIEW_LINES=30
@@ -621,81 +620,6 @@ has_metadata() {
 }
 
 # ============================================================================
-# Orphaned Worktree Detection and Cleanup
-# ============================================================================
-# Orphaned worktrees are worktrees that exist but have no corresponding
-# active tmux session. These can occur when sessions are terminated
-# unexpectedly or when cleanup fails.
-
-# Get list of active tmux sessions from session server
-get_active_sessions() {
-    session_tmux list-sessions -F '#{session_name}' 2>/dev/null || true
-}
-
-# Find orphaned worktrees (worktrees without active sessions)
-# Returns:
-#   List of orphaned session IDs
-find_orphaned_worktrees() {
-    local active_sessions
-    active_sessions=$(get_active_sessions)
-
-    for meta_file in "${TOWER_METADATA_DIR}"/*.meta; do
-        if [[ -f "$meta_file" ]]; then
-            local session_id
-            session_id=$(basename "$meta_file" .meta)
-
-            # Check if session is active
-            if ! echo "$active_sessions" | grep -q "^${session_id}$"; then
-                echo "$session_id"
-            fi
-        fi
-    done
-}
-
-# Remove orphaned worktree and its metadata
-# Arguments:
-#   $1 - Session ID
-# Returns:
-#   0 on success, 1 on failure
-remove_orphaned_worktree() {
-    local session_id="$1"
-
-    if ! load_metadata "$session_id"; then
-        return 1
-    fi
-
-    if [[ "$META_SESSION_TYPE" != "workspace" ]]; then
-        # Simple session type - just delete metadata
-        delete_metadata "$session_id"
-        return 0
-    fi
-
-    local worktree_path="$META_WORKTREE_PATH"
-    local repository_path="$META_REPOSITORY_PATH"
-
-    if [[ -d "$worktree_path" ]]; then
-        # Validate path before removal
-        if validate_path_within "$worktree_path" "$TOWER_WORKTREE_DIR"; then
-            if [[ -n "$repository_path" ]] && [[ -d "$repository_path" ]]; then
-                git -C "$repository_path" worktree remove "$worktree_path" 2>/dev/null ||
-                    git -C "$repository_path" worktree remove --force "$worktree_path" 2>/dev/null || true
-            else
-                # Repository not found, remove directory manually
-                rm -rf "$worktree_path"
-            fi
-        fi
-    fi
-
-    delete_metadata "$session_id"
-    return 0
-}
-
-# Alias for backwards compatibility
-cleanup_orphaned_worktree() {
-    remove_orphaned_worktree "$@"
-}
-
-# ============================================================================
 # Safe Command Execution
 # ============================================================================
 # Wrappers for commands that might fail, with proper error handling
@@ -926,12 +850,6 @@ readonly STATE_DORMANT="dormant"
 readonly ICON_STATE_ACTIVE="▶"
 readonly ICON_STATE_DORMANT="○"
 
-readonly TYPE_WORKTREE="worktree"
-readonly TYPE_SIMPLE="simple"
-
-readonly ICON_TYPE_WORKTREE="[W]"
-readonly ICON_TYPE_SIMPLE="[S]"
-
 # Cheap 2-state check (active/dormant), for callers that don't need
 # busy-granularity. See get_display_state (claude-sessions.sh) for the
 # full 5-state (busy/active/dormant/dead/lost) Navigator-facing check.
@@ -973,39 +891,6 @@ get_state_icon() {
     esac
 }
 
-# Get session type
-# Arguments:
-#   $1 - Session ID
-# Returns:
-#   Type string: worktree or simple
-get_session_type() {
-    local session_id="$1"
-
-    if load_metadata "$session_id" 2>/dev/null; then
-        if [[ "$META_SESSION_TYPE" == "workspace" || "$META_SESSION_TYPE" == "worktree" ]]; then
-            echo "$TYPE_WORKTREE"
-        else
-            echo "$TYPE_SIMPLE"
-        fi
-    else
-        echo "$TYPE_SIMPLE"
-    fi
-}
-
-# Get type icon
-# Arguments:
-#   $1 - Type string
-# Returns:
-#   Icon string
-get_type_icon() {
-    local type="$1"
-    case "$type" in
-        "$TYPE_WORKTREE") echo "$ICON_TYPE_WORKTREE" ;;
-        "$TYPE_SIMPLE") echo "$ICON_TYPE_SIMPLE" ;;
-        *) echo "[?]" ;;
-    esac
-}
-
 # ============================================================================
 # Session List (v2.0)
 # ============================================================================
@@ -1035,103 +920,6 @@ list_all_sessions() {
 # ============================================================================
 # Session Operations (v2.0)
 # ============================================================================
-
-# Create a new session
-# Arguments:
-#   $1 - Session name (without tower_ prefix)
-#   $2 - Type: worktree or simple
-#   $3 - Working directory (for simple) or source repo (for worktree)
-# Returns:
-#   0 on success, 1 on failure
-create_session() {
-    local name="$1"
-    local type="$2"
-    local dir="$3"
-
-    # Sanitize and validate name
-    local sanitized_name
-    sanitized_name=$(sanitize_name "$name")
-    if ! validate_session_name "$sanitized_name"; then
-        handle_error "Invalid session name: $name"
-        return 1
-    fi
-
-    local session_id
-    session_id=$(normalize_session_name "$sanitized_name")
-
-    # Check if session already exists
-    if session_exists "$session_id"; then
-        handle_error "Session already exists: $sanitized_name"
-        return 1
-    fi
-
-    if [[ "$type" == "$TYPE_WORKTREE" ]]; then
-        _create_worktree_session "$session_id" "$sanitized_name" "$dir"
-    else
-        _create_simple_session "$session_id" "$sanitized_name" "$dir"
-    fi
-}
-
-# Create worktree session (internal)
-_create_worktree_session() {
-    local session_id="$1"
-    local name="$2"
-    local repo_path="$3"
-
-    # Validate repo path
-    if [[ ! -d "$repo_path" ]] || ! git -C "$repo_path" rev-parse --git-dir &>/dev/null; then
-        handle_error "Not a git repository: $repo_path"
-        return 1
-    fi
-
-    local worktree_path="${TOWER_WORKTREE_DIR}/${name}"
-    local branch_name="tower/${name}"
-    local source_commit
-    source_commit=$(git -C "$repo_path" rev-parse HEAD 2>/dev/null)
-
-    # Create worktree directory
-    mkdir -p "$TOWER_WORKTREE_DIR"
-
-    # Create git worktree with new branch
-    if ! git -C "$repo_path" worktree add -b "$branch_name" "$worktree_path" 2>/dev/null; then
-        # Branch might exist, try without -b
-        if ! git -C "$repo_path" worktree add "$worktree_path" "$branch_name" 2>/dev/null; then
-            handle_error "Failed to create worktree"
-            return 1
-        fi
-    fi
-
-    # Save metadata
-    save_metadata "$session_id" "worktree" "$repo_path" "$source_commit"
-
-    # Update metadata with additional fields
-    local metadata_file="${TOWER_METADATA_DIR}/${session_id}.meta"
-    {
-        echo "session_name=${name}"
-        echo "branch_name=${branch_name}"
-        echo "repository_name=$(basename "$repo_path")"
-    } >>"$metadata_file"
-
-    # Create tmux session and start Claude
-    _start_session_with_claude "$session_id" "$worktree_path"
-}
-
-# Create simple session (internal)
-_create_simple_session() {
-    local session_id="$1"
-    local name="$2"
-    local working_dir="${3:-$(pwd)}"
-
-    # Validate directory
-    if [[ ! -d "$working_dir" ]]; then
-        handle_error "Directory does not exist: $working_dir"
-        return 1
-    fi
-
-    # Simple sessions don't save metadata (volatile)
-    # Just create tmux session and start Claude
-    _start_session_with_claude "$session_id" "$working_dir"
-}
 
 # Wait for shell prompt to be ready in a pane
 # Uses tmux capture-pane to check for prompt characters
@@ -1312,38 +1100,6 @@ send_to_session() {
     fi
 
     session_tmux send-keys -t "$session_id" "$input" C-m
-}
-
-# ============================================================================
-# Auto-restore dormant sessions
-# ============================================================================
-
-# Restore all dormant worktree sessions
-restore_all_dormant() {
-    local restored=0
-    local failed=0
-
-    for meta_file in "${TOWER_METADATA_DIR}"/*.meta; do
-        [[ -f "$meta_file" ]] || continue
-
-        local session_id
-        session_id=$(basename "$meta_file" .meta)
-
-        local state
-        state=$(get_session_state "$session_id")
-
-        if [[ "$state" == "$STATE_DORMANT" ]]; then
-            if restore_session "$session_id" 2>/dev/null; then
-                ((restored++)) || true
-            else
-                ((failed++)) || true
-            fi
-        fi
-    done
-
-    if [[ $restored -gt 0 || $failed -gt 0 ]]; then
-        handle_info "Restored $restored session(s), $failed failed"
-    fi
 }
 
 # ============================================================================

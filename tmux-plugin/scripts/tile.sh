@@ -72,21 +72,19 @@ load_sessions() {
     SESSIONS=()
     SESSION_IDS=()
 
-    while IFS=':' read -r session_id state type display_name branch diff_stats; do
+    while IFS=':' read -r session_id state; do
         [[ -z "$session_id" ]] && continue
 
-        local state_icon type_icon line
+        local state_icon line
         state_icon=$(get_state_icon "$state")
-        type_icon=$(get_type_icon "$type")
 
         local name="${session_id#tower_}"
 
         # Dormant sessions shown with dim color
         if [[ "$state" == "$STATE_DORMANT" ]]; then
-            line="${DIM}${state_icon} ${type_icon} ${name}${NC}"
+            line="${DIM}${state_icon} ${name}${NC}"
         else
-            line="${state_icon} ${type_icon} ${name}"
-            [[ -n "$branch" ]] && line="${line} ${ICON_GIT}${branch}"
+            line="${state_icon} ${name}"
         fi
 
         SESSIONS+=("$line")
@@ -258,7 +256,6 @@ handle_input() {
             ;;
         q) # Quit navigator
             quit_navigator
-            return 1
             ;;
     esac
 

@@ -78,24 +78,24 @@ teardown() {
 }
 
 @test "worktree_exists: returns false for empty directory" {
-    mkdir -p "${CLAUDE_TOWER_WORKTREE_DIR}/empty"
+    mkdir -p "${TEST_DIR}/tmp/pathbase/empty"
 
-    run worktree_exists "${CLAUDE_TOWER_WORKTREE_DIR}/empty"
+    run worktree_exists "${TEST_DIR}/tmp/pathbase/empty"
     [ "$status" -eq 1 ]
 }
 
 @test "worktree_exists: returns true for directory with .git file" {
-    mkdir -p "${CLAUDE_TOWER_WORKTREE_DIR}/with_git_file"
-    echo "gitdir: /some/path" > "${CLAUDE_TOWER_WORKTREE_DIR}/with_git_file/.git"
+    mkdir -p "${TEST_DIR}/tmp/pathbase/with_git_file"
+    echo "gitdir: /some/path" > "${TEST_DIR}/tmp/pathbase/with_git_file/.git"
 
-    run worktree_exists "${CLAUDE_TOWER_WORKTREE_DIR}/with_git_file"
+    run worktree_exists "${TEST_DIR}/tmp/pathbase/with_git_file"
     [ "$status" -eq 0 ]
 }
 
 @test "worktree_exists: returns true for directory with .git directory" {
-    mkdir -p "${CLAUDE_TOWER_WORKTREE_DIR}/with_git_dir/.git"
+    mkdir -p "${TEST_DIR}/tmp/pathbase/with_git_dir/.git"
 
-    run worktree_exists "${CLAUDE_TOWER_WORKTREE_DIR}/with_git_dir"
+    run worktree_exists "${TEST_DIR}/tmp/pathbase/with_git_dir"
     [ "$status" -eq 0 ]
 }
 
@@ -104,7 +104,7 @@ teardown() {
 # ============================================================================
 
 @test "validate_path_within: handles empty path" {
-    run validate_path_within "" "$CLAUDE_TOWER_WORKTREE_DIR"
+    run validate_path_within "" "${TEST_DIR}/tmp/pathbase"
     [ "$status" -eq 1 ]
 }
 
@@ -114,25 +114,25 @@ teardown() {
 }
 
 @test "validate_path_within: handles path with spaces" {
-    mkdir -p "${CLAUDE_TOWER_WORKTREE_DIR}/path with spaces"
+    mkdir -p "${TEST_DIR}/tmp/pathbase/path with spaces"
 
-    run validate_path_within "${CLAUDE_TOWER_WORKTREE_DIR}/path with spaces" "$CLAUDE_TOWER_WORKTREE_DIR"
+    run validate_path_within "${TEST_DIR}/tmp/pathbase/path with spaces" "${TEST_DIR}/tmp/pathbase"
     [ "$status" -eq 0 ]
 }
 
 @test "validate_path_within: handles path with unicode" {
-    mkdir -p "${CLAUDE_TOWER_WORKTREE_DIR}/path_日本語"
+    mkdir -p "${TEST_DIR}/tmp/pathbase/path_日本語"
 
-    run validate_path_within "${CLAUDE_TOWER_WORKTREE_DIR}/path_日本語" "$CLAUDE_TOWER_WORKTREE_DIR"
+    run validate_path_within "${TEST_DIR}/tmp/pathbase/path_日本語" "${TEST_DIR}/tmp/pathbase"
     [ "$status" -eq 0 ]
 }
 
 @test "validate_path_within: rejects double dot in middle of path" {
-    run validate_path_within "${CLAUDE_TOWER_WORKTREE_DIR}/foo/../../../etc/passwd" "$CLAUDE_TOWER_WORKTREE_DIR"
+    run validate_path_within "${TEST_DIR}/tmp/pathbase/foo/../../../etc/passwd" "${TEST_DIR}/tmp/pathbase"
     [ "$status" -eq 1 ]
 }
 
 @test "validate_path_within: accepts same path as base" {
-    run validate_path_within "$CLAUDE_TOWER_WORKTREE_DIR" "$CLAUDE_TOWER_WORKTREE_DIR"
+    run validate_path_within "${TEST_DIR}/tmp/pathbase" "${TEST_DIR}/tmp/pathbase"
     [ "$status" -eq 0 ]
 }

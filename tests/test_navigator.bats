@@ -56,47 +56,6 @@ setup() {
 }
 
 # ============================================================================
-# Session type tests
-# ============================================================================
-
-@test "get_type_icon: returns [W] for worktree" {
-    run get_type_icon "worktree"
-
-    [ "$status" -eq 0 ]
-    [ "$output" = "[W]" ]
-}
-
-@test "get_type_icon: returns [S] for simple" {
-    run get_type_icon "simple"
-
-    [ "$status" -eq 0 ]
-    [ "$output" = "[S]" ]
-}
-
-@test "get_session_type: returns worktree for metadata with workspace type" {
-    setup_test_env
-    create_mock_metadata "tower_test-session" "workspace"
-
-    run get_session_type "tower_test-session"
-
-    [ "$status" -eq 0 ]
-    [ "$output" = "worktree" ]
-
-    teardown_test_env
-}
-
-@test "get_session_type: returns simple for session without metadata" {
-    setup_test_env
-
-    run get_session_type "tower_nonexistent"
-
-    [ "$status" -eq 0 ]
-    [ "$output" = "simple" ]
-
-    teardown_test_env
-}
-
-# ============================================================================
 # list_all_sessions tests
 # ============================================================================
 
@@ -112,7 +71,7 @@ setup() {
     teardown_test_env
 }
 
-@test "list_all_sessions: output format includes session_id:state:type" {
+@test "list_all_sessions: output format includes session_id:state" {
     setup_test_env
     create_mock_metadata "tower_test-session" "workspace"
 
