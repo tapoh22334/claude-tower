@@ -29,21 +29,14 @@ teardown_test_env() {
     rm -rf "${TEST_DIR}/tmp"
 }
 
-# Create a mock metadata file
+# Create a mock metadata file (new minimal format)
 create_mock_metadata() {
     local session_id="$1"
-    local session_type="${2:-workspace}"
-    local repository_path="${3:-/mock/repo}"
-    local source_commit="${4:-abc123}"
-
-    cat > "${CLAUDE_TOWER_METADATA_DIR}/${session_id}.meta" << EOF
-session_id=${session_id}
-session_type=${session_type}
-created_at=$(date -Iseconds)
-repository_path=${repository_path}
-source_commit=${source_commit}
-worktree_path=${CLAUDE_TOWER_WORKTREE_DIR}/${session_id#tower_}
-EOF
+    local session_name="${2:-}"
+    {
+        [[ -n "$session_name" ]] && echo "session_name=${session_name}"
+        echo "created_at=$(date -Iseconds)"
+    } > "${CLAUDE_TOWER_METADATA_DIR}/${session_id}.meta"
 }
 
 # Mock tmux command for testing

@@ -543,56 +543,40 @@ ensure_metadata_dir() {
     fi
 }
 
-# Save session metadata to file
+# Save session metadata (minimal registry: which sessions Tower manages).
+# All session facts (cwd, activity) are derived from Claude's transcripts.
 # Arguments:
 #   $1 - Session ID (with tower_ prefix)
-#   $2 - Session type (workspace|simple)
-#   $3 - Repository path (optional, for workspace session type)
-#   $4 - Source commit (optional, for workspace session type)
+#   $2 - Optional display name
 save_metadata() {
     local session_id="$1"
-    local session_type="$2"
-    local repository_path="${3:-}"
-    local source_commit="${4:-}"
+    local session_name="${2:-}"
 
     ensure_metadata_dir
 
     local metadata_file="${TOWER_METADATA_DIR}/${session_id}.meta"
 
     {
-        echo "session_id=${session_id}"
-        echo "session_type=${session_type}"
+        if [[ -n "$session_name" ]]; then
+            echo "session_name=${session_name}"
+        fi
         echo "created_at=$(date -Iseconds)"
-        echo "repository_path=${repository_path}"
-        echo "source_commit=${source_commit}"
-        echo "worktree_path=${TOWER_WORKTREE_DIR}/${session_id#tower_}"
     } >"$metadata_file"
 }
 
 # Load session metadata from file
-# Arguments:
-#   $1 - Session ID
-# Returns:
-#   Exports variables: META_SESSION_TYPE, META_REPOSITORY_PATH, META_SOURCE_COMMIT, META_WORKTREE_PATH
+# Sets: META_SESSION_NAME, META_CREATED_AT. Unknown keys (old format) ignored.
 load_metadata() {
     local session_id="$1"
     local metadata_file="${TOWER_METADATA_DIR}/${session_id}.meta"
 
-    # Initialize with empty values
-    META_SESSION_TYPE=""
-    META_REPOSITORY_PATH=""
-    META_SOURCE_COMMIT=""
-    META_WORKTREE_PATH=""
+    META_SESSION_NAME=""
     META_CREATED_AT=""
 
     if [[ -f "$metadata_file" ]]; then
         while IFS='=' read -r key value; do
             case "$key" in
-                # Support both old and new key names for backwards compatibility
-                mode | session_type) META_SESSION_TYPE="$value" ;;
-                repo_path | repository_path) META_REPOSITORY_PATH="$value" ;;
-                base_commit | source_commit) META_SOURCE_COMMIT="$value" ;;
-                worktree_path) META_WORKTREE_PATH="$value" ;;
+                session_name) META_SESSION_NAME="$value" ;;
                 created_at) META_CREATED_AT="$value" ;;
             esac
         done <"$metadata_file"
