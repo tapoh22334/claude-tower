@@ -1,3 +1,5 @@
+> ⚠️ **OUTDATED (v3.x)** — this document describes the pre-v4 worktree-based model, which has been removed. See the top-level [README](../README.md) for the current session-registry model.
+
 # Claude Tower Quick Start Guide
 
 Get started with Claude Tower in 5 minutes.
