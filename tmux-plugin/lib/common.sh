@@ -1452,3 +1452,9 @@ restore_all_dormant() {
         handle_info "Restored $restored session(s), $failed failed"
     fi
 }
+
+# ============================================================================
+# Claude session derivation (jsonl parsing)
+# ============================================================================
+# shellcheck source=claude-sessions.sh
+source "${BASH_SOURCE[0]%/*}/claude-sessions.sh"
