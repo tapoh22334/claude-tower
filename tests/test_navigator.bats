@@ -55,6 +55,27 @@ setup() {
     [ "$output" = "○" ]
 }
 
+@test "get_state_icon: returns correct icon for busy" {
+    run get_state_icon "busy"
+
+    [ "$status" -eq 0 ]
+    [ "$output" = "●" ]
+}
+
+@test "get_state_icon: returns correct icon for dead" {
+    run get_state_icon "dead"
+
+    [ "$status" -eq 0 ]
+    [ "$output" = "✗" ]
+}
+
+@test "get_state_icon: returns ? for lost" {
+    run get_state_icon "lost"
+
+    [ "$status" -eq 0 ]
+    [ "$output" = "?" ]
+}
+
 # ============================================================================
 # list_all_sessions tests
 # ============================================================================

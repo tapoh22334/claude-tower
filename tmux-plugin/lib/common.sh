@@ -842,6 +842,9 @@ readonly STATE_DORMANT="dormant"
 
 readonly ICON_STATE_ACTIVE="▶"
 readonly ICON_STATE_DORMANT="○"
+readonly ICON_STATE_BUSY="●"
+readonly ICON_STATE_DEAD="✗"
+readonly ICON_STATE_LOST="?"
 
 # Cheap 2-state check (active/dormant), for callers that don't need
 # busy-granularity. See get_display_state (claude-sessions.sh) for the
@@ -878,8 +881,11 @@ get_session_state() {
 get_state_icon() {
     local state="$1"
     case "$state" in
+        "busy") echo "$ICON_STATE_BUSY" ;;
         "$STATE_ACTIVE") echo "$ICON_STATE_ACTIVE" ;;
         "$STATE_DORMANT") echo "$ICON_STATE_DORMANT" ;;
+        "dead") echo "$ICON_STATE_DEAD" ;;
+        "lost") echo "$ICON_STATE_LOST" ;;
         *) echo "?" ;;
     esac
 }
