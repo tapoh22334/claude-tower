@@ -43,52 +43,68 @@ readonly NAV_C_DORMANT=$'\033[90m'   # Gray - dormant sessions
 # Session arrays
 declare -a SESSION_IDS=()
 declare -a SESSION_DISPLAYS=()
+# Index into SESSION_IDS where broken (dead/lost) sessions start; -1 = none
+BROKEN_START=-1
 
-# Build session list from default tmux server
-# Idempotent: Uses has-session logic (tmux session exists = active)
+# Row label: cwd tail, plus " (name)" when the registry has one.
+_session_label() {
+    local session_id="$1"
+    local claude_id="${session_id#tower_}"
+    local label="" jsonl cwd name=""
+
+    if jsonl=$(find_session_jsonl "$claude_id" 2>/dev/null); then
+        cwd=$(get_session_cwd "$jsonl" 2>/dev/null || true)
+        [[ -n "$cwd" ]] && label=$(basename -- "$cwd")
+    fi
+    [[ -z "$label" ]] && label="${claude_id:0:7}"
+
+    if load_metadata "$session_id" 2>/dev/null && [[ -n "$META_SESSION_NAME" ]]; then
+        name=" (${META_SESSION_NAME})"
+    fi
+    echo "${label}${name}"
+}
+
+# Build session list: normal states first, broken (dead/lost) last.
 build_session_list() {
     SESSION_IDS=()
     SESSION_DISPLAYS=()
+    BROKEN_START=-1
 
-    local -A active_sessions=()
+    local -a broken_ids=() broken_displays=()
+    local session_id state label
 
-    # Get active tower sessions from DEFAULT tmux server (not Navigator server)
-    while IFS= read -r session_id; do
+    while IFS=: read -r session_id state; do
         [[ -z "$session_id" ]] && continue
-        [[ "$session_id" != tower_* ]] && continue
+        label=$(_session_label "$session_id")
+        case "$state" in
+            busy)
+                SESSION_IDS+=("$session_id")
+                SESSION_DISPLAYS+=("${NAV_C_ACCENT}●${NAV_C_NORMAL} ${label}")
+                ;;
+            active)
+                SESSION_IDS+=("$session_id")
+                SESSION_DISPLAYS+=("${NAV_C_ACTIVE}▶${NAV_C_NORMAL} ${label}")
+                ;;
+            dormant)
+                SESSION_IDS+=("$session_id")
+                SESSION_DISPLAYS+=("${NAV_C_DORMANT}○${NAV_C_NORMAL} ${label}")
+                ;;
+            dead)
+                broken_ids+=("$session_id")
+                broken_displays+=("${NAV_C_ERROR}✗${NAV_C_NORMAL} ${label}")
+                ;;
+            lost)
+                broken_ids+=("$session_id")
+                broken_displays+=("${NAV_C_ERROR}?${NAV_C_NORMAL} ${label}")
+                ;;
+        esac
+    done < <(list_all_sessions)
 
-        active_sessions["$session_id"]=1
-
-        local type_icon name
-
-        # Determine type icon (stale placeholder; full rewrite lands in Task 7)
-        if has_metadata "$session_id"; then
-            type_icon="[W]"
-        else
-            type_icon="[S]"
-        fi
-
-        name="${session_id#tower_}"
-
-        SESSION_IDS+=("$session_id")
-        # tmux session exists = active (simplified)
-        SESSION_DISPLAYS+=("${NAV_C_ACTIVE}▶${NAV_C_NORMAL} ${type_icon} ${name}")
-    done < <(session_tmux list-sessions -F '#{session_name}' 2>/dev/null || true)
-
-    # Add dormant sessions (metadata exists but no tmux session)
-    for meta_file in "${TOWER_METADATA_DIR}"/*.meta; do
-        [[ -f "$meta_file" ]] || continue
-
-        local session_id
-        session_id=$(basename "$meta_file" .meta)
-
-        # Skip if already in list (active session)
-        [[ -n "${active_sessions[$session_id]:-}" ]] && continue
-
-        local name="${session_id#tower_}"
-        SESSION_IDS+=("$session_id")
-        SESSION_DISPLAYS+=("${NAV_C_DORMANT}○${NAV_C_NORMAL} [W] ${name}")
-    done
+    if [[ ${#broken_ids[@]} -gt 0 ]]; then
+        BROKEN_START=${#SESSION_IDS[@]}
+        SESSION_IDS+=("${broken_ids[@]}")
+        SESSION_DISPLAYS+=("${broken_displays[@]}")
+    fi
 }
 
 # Get current selection index from state
@@ -155,6 +171,10 @@ render_list() {
                 break
             fi
 
+            if [[ $BROKEN_START -ge 0 && $i -eq $BROKEN_START ]]; then
+                output+="${NAV_C_DIM}── unrecoverable ──${NAV_C_NORMAL}\n"
+            fi
+
             if [[ $i -eq $selected_index ]]; then
                 # Highlight selected row
                 output+="${NAV_C_SELECTED} ${display} ${NAV_C_NORMAL}\n"
@@ -167,7 +187,7 @@ render_list() {
 
     # Footer with keybindings (compact)
     output+="\n"
-    output+="${NAV_C_DIM}j/k:nav Enter:attach i:input n:new D:del r:restore q:quit${NAV_C_NORMAL}\n"
+    output+="${NAV_C_DIM}j/k:nav Enter:attach i:input n:add D:del r:resume q:quit${NAV_C_NORMAL}\n"
 
     # Clear to end of screen code
     local clear_eos
@@ -191,9 +211,9 @@ show_help() {
     echo "  Actions:"
     echo "    Enter      Full attach to session"
     echo "    i          Focus view pane (input mode)"
-    echo "    n          Create new session"
-    echo "    D          Delete selected session"
-    echo "    r          Restore selected dormant session"
+    echo "    n          Add session (pick existing Claude session or start new)"
+    echo "    D          Delete from Tower (Claude's transcript is kept)"
+    echo "    r          Resume selected dormant session"
     echo "    Tab        Switch to Tile view"
     echo ""
     echo "  Other:"
@@ -286,10 +306,30 @@ focus_view() {
     nav_tmux select-pane -t "$TOWER_NAV_SESSION:0.1"
 }
 
-# Create new session (inline input in list pane)
-create_session_inline() {
-    echo "  ${NAV_C_DIM}add flow lands in Task 7${NAV_C_NORMAL}"
-    sleep 0.5
+# Unified add/new flow (session-add.sh). Runs interactively in this pane;
+# fzf draws on the tty, the chosen tower_<id> comes back on stdout.
+add_session_inline() {
+    clear
+    local new_id
+    new_id=$(TOWER_ADD_DEFAULT_DIR="$(get_caller_cwd)" "$SCRIPT_DIR/session-add.sh" --print-id) || {
+        return 0  # cancelled or failed; messages already shown
+    }
+    if [[ -n "$new_id" ]]; then
+        set_nav_selected "$new_id"
+        signal_view_update
+    fi
+}
+
+# Working directory of the caller pane (default dir for new sessions)
+get_caller_cwd() {
+    local caller cwd=""
+    caller=$(get_nav_caller)
+    if [[ -n "$caller" ]]; then
+        cwd=$(session_tmux display-message -t "$caller" -p '#{pane_current_path}' 2>/dev/null) ||
+            cwd=$(TMUX= tmux display-message -t "$caller" -p '#{pane_current_path}' 2>/dev/null) ||
+            cwd=""
+    fi
+    echo "${cwd:-$HOME}"
 }
 
 # Delete selected session
@@ -360,7 +400,7 @@ restore_selected() {
     if ! has_metadata "$selected"; then
         # No metadata - can't restore
         echo ""
-        echo "  ${NAV_C_DIM}No metadata to restore${NAV_C_NORMAL}"
+        echo "  ${NAV_C_DIM}Not registered — press n to add${NAV_C_NORMAL}"
         sleep 0.3
         return 0
     fi
@@ -552,13 +592,13 @@ main_loop() {
                     focus_view
                     ;;
                 n)
-                    create_session_inline
+                    add_session_inline
                     # Flush input buffer and restore terminal state
                     read -rsn100 -t 0.01 _ 2>/dev/null || true
                     stty echo 2>/dev/null || true
                     build_session_list
                     selected_index=$(get_selection_index)
-                    clear  # Clear screen after input mode
+                    clear
                     ;;
                 D)
                     delete_selected
