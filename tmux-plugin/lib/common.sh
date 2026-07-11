@@ -347,8 +347,11 @@ validate_path_within() {
         resolved_path="${resolved_path%/}"
     fi
 
-    # Check if path starts with base
-    [[ "$resolved_path" == "$resolved_base"* ]]
+    # Check if path is base itself, or a path under base (require a "/"
+    # boundary so a sibling directory that merely shares base's characters
+    # as a string prefix, e.g. "/foobar" vs base "/foo", isn't misclassified
+    # as being within base).
+    [[ "$resolved_path" == "$resolved_base" || "$resolved_path" == "$resolved_base"/* ]]
 }
 
 # Normalize session name to create session_id

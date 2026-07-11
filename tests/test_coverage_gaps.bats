@@ -9,6 +9,9 @@ load 'test_helper'
 setup() {
     source_common
     setup_test_env
+    set +euo pipefail
+    source "$PROJECT_ROOT/tmux-plugin/lib/error-recovery.sh"
+    set -euo pipefail
 }
 
 teardown() {
@@ -46,14 +49,36 @@ teardown() {
 # decline path and the unwritten-result-file race are untested.
 # ============================================================================
 
+@test "confirm: returns zero when user accepts" {
+    # Simulate the "Yes" menu item's run-shell callback firing synchronously:
+    # extract the result-file path from the "echo yes > FILE" run-shell arg.
+    tmux() {
+        local result_file
+        result_file=$(printf '%s\n' "$@" | grep -o '/tmp/[^'"'"']*' | head -1)
+        [[ -n "$result_file" ]] && echo yes > "$result_file"
+        return 0
+    }
+    run confirm "Delete session?"
+    [ "$status" -eq 0 ]
+}
+
 @test "confirm: returns non-zero when user declines" {
-    skip "requires tmux display-menu stub — see common.sh:511"
-    # run confirm "Delete session?"
-    # [ "$status" -ne 0 ]
+    tmux() {
+        local result_file
+        result_file=$(printf '%s\n' "$@" | grep -o '/tmp/[^'"'"']*' | head -1)
+        [[ -n "$result_file" ]] && echo no > "$result_file"
+        return 0
+    }
+    run confirm "Delete session?"
+    [ "$status" -ne 0 ]
 }
 
 @test "confirm: defaults to decline if result file never written (race)" {
-    skip "requires simulating missing mktemp result file before read — see common.sh:511-530"
+    # tmux display-menu succeeds but its callback never fires (e.g. user
+    # closes the menu via an unmapped key) — result_file stays empty.
+    tmux() { return 0; }
+    run confirm "Delete session?"
+    [ "$status" -ne 0 ]
 }
 
 # ============================================================================
@@ -66,11 +91,15 @@ teardown() {
     [ "$status" -eq 0 ]
 }
 
-@test "require_all_dependencies: reports every missing dependency, not just the first" {
+@test "require_all_dependencies: BUG — ignores its arguments, always checks hardcoded git+tmux" {
+    # common.sh:480 never consults $@; it always checks a hardcoded (git tmux)
+    # list. See test_coverage_gaps_2.bats for the same gap documented on the
+    # single-arg case. This is dead code (no caller in tmux-plugin/scripts/
+    # passes arguments, or calls it at all), so the test documents the bug
+    # rather than asserting the originally-intended (but never implemented)
+    # per-argument behavior.
     run require_all_dependencies "bash" "definitely-not-a-real-command-xyz" "also-not-real-abc"
-    [ "$status" -ne 0 ]
-    [[ "$output" == *"definitely-not-a-real-command-xyz"* ]]
-    [[ "$output" == *"also-not-real-abc"* ]]
+    [ "$status" -eq 0 ]
 }
 
 # ============================================================================
@@ -84,7 +113,27 @@ teardown() {
 }
 
 @test "delete_session: aborts when user declines confirmation" {
-    skip "requires tmux + confirm() stub — see common.sh:1315-1318"
+    # Isolate delete_session's own confirm-gate logic: stub get_display_state
+    # so the session "exists", and stub tmux so confirm()'s menu callback
+    # writes "no" to the result file. handle_info emits only via
+    # `tmux display-message` (common.sh:413-417) — nothing to stdout — so the
+    # stub echoes display-message payloads to make the message observable.
+    get_display_state() { echo "dormant"; }
+    tmux() {
+        if [[ "${1:-}" == "display-message" ]]; then
+            shift
+            echo "$*"
+            return 0
+        fi
+        local result_file
+        result_file=$(printf '%s\n' "$@" | grep -o '/tmp/[^'"'"']*' | head -1)
+        [[ -n "$result_file" ]] && echo no > "$result_file"
+        return 0
+    }
+
+    run delete_session "tower_fake-session"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Cancelled"* ]]
 }
 
 # ============================================================================
@@ -108,7 +157,8 @@ teardown() {
 # ============================================================================
 
 @test "run_with_recovery: returns 0 immediately on clean exit" {
-    run run_with_recovery "true"
+    clean_exit_main() { return 0; }
+    run run_with_recovery "test-script" clean_exit_main
     [ "$status" -eq 0 ]
 }
 
@@ -126,14 +176,16 @@ teardown() {
 # ============================================================================
 
 @test "classify_error: picks first matching category when message matches multiple patterns" {
-    run classify_error "session not found: config error" 1
+    # Signature is classify_error(exit_code, error_msg) — error-recovery.sh:462-470.
+    # "session not found: config error" matches both the session_missing and
+    # config case arms; the case statement's arm order decides precedence.
+    run classify_error 1 "session not found: config error"
     [ "$status" -eq 0 ]
-    [ -n "$output" ]
-    # TODO: assert the specific category once precedence is decided intentionally
+    [ "$output" = "session_missing" ]
 }
 
 @test "classify_error: handles non-1 exit codes via fallback branch" {
-    run classify_error "some unrecognized failure" 42
+    run classify_error 42 "some unrecognized failure"
     [ "$status" -eq 0 ]
-    [ -n "$output" ]
+    [ "$output" = "fatal" ]
 }

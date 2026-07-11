@@ -9,11 +9,33 @@ PROJECT_ROOT="$(dirname "$TEST_DIR")"
 export CLAUDE_TOWER_METADATA_DIR="${TEST_DIR}/tmp/metadata"
 
 # Source the common library (without strict mode for testing)
+#
+# common.sh installs its own `trap ... EXIT` (spinner cleanup) and
+# `trap ... ERR` (error logging) handlers, meant for interactive script
+# usage. Bats relies on its own EXIT trap (bats_teardown_trap) to detect
+# test completion; if common.sh's sourcing clobbers it, bats silently loses
+# track of the test (it never emits `ok`/`not ok` — see BW01). Save and
+# restore both traps around the source so bats' machinery survives.
 source_common() {
+    local saved_exit_trap saved_err_trap
+    saved_exit_trap="$(trap -p EXIT)"
+    saved_err_trap="$(trap -p ERR)"
+
     # Temporarily disable strict mode for sourcing
     set +euo pipefail
     source "$PROJECT_ROOT/tmux-plugin/lib/common.sh"
     set -euo pipefail
+
+    if [[ -n "$saved_exit_trap" ]]; then
+        eval "$saved_exit_trap"
+    else
+        trap - EXIT
+    fi
+    if [[ -n "$saved_err_trap" ]]; then
+        eval "$saved_err_trap"
+    else
+        trap - ERR
+    fi
 }
 
 # Set up test fixtures
