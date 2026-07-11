@@ -67,13 +67,9 @@ teardown() {
 }
 
 # ============================================================================
-# session-restore.sh: --all vs single-id vs interactive-menu branches.
+# session-restore.sh: single-id vs interactive-menu branches (bulk --all
+# restore was removed per spec — mass-launch + trust-prompt-stall risk).
 # ============================================================================
-
-@test "session-restore.sh: --all restores all dormant sessions" {
-    run "$PROJECT_ROOT/tmux-plugin/scripts/session-restore.sh" --all
-    [ "$status" -eq 0 ]
-}
 
 @test "session-restore.sh: rejects a session id that fails ensure_tower_prefix sanitization" {
     run "$PROJECT_ROOT/tmux-plugin/scripts/session-restore.sh" '$(rm -rf /)'
@@ -108,6 +104,37 @@ teardown() {
 }
 
 @test "session-delete.sh: forwards the force flag through to delete_session" {
-    skip "requires a live tower session fixture to assert delete_session receives force=true and skips confirmation — see tmux-plugin/scripts/session-delete.sh:27"
+    # Fix 2 regression test: delete_session tested force against the
+    # literal string "force", but session-delete.sh forwards the CLI flag
+    # "--force" verbatim — the confirm() prompt never actually got skipped.
+    # A fake tmux (PATH-shadowed) answers kill-session/display-message; no
+    # `tmux display-menu` call means confirm() was correctly bypassed.
+    mkdir -p "$BATS_TEST_TMPDIR/fakebin"
+    cat > "$BATS_TEST_TMPDIR/fakebin/tmux" <<'STUB'
+#!/usr/bin/env bash
+sub=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -L) shift 2; continue ;;
+        *) sub="$1"; break ;;
+    esac
+done
+case "$sub" in
+    display-menu) echo "UNEXPECTED_CONFIRM_PROMPT" >&2; exit 1 ;;
+    has-session) exit 1 ;;
+    *) exit 0 ;;
+esac
+STUB
+    chmod +x "$BATS_TEST_TMPDIR/fakebin/tmux"
+    export PATH="$BATS_TEST_TMPDIR/fakebin:$PATH"
+
+    create_mock_metadata "tower_force-test"
+
+    run "$PROJECT_ROOT/tmux-plugin/scripts/session-delete.sh" "tower_force-test" "--force"
+
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"UNEXPECTED_CONFIRM_PROMPT"* ]]
+    [[ "$output" == *"deleted"* ]]
+    [ ! -f "${CLAUDE_TOWER_METADATA_DIR}/tower_force-test.meta" ]
 }
 

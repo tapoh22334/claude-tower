@@ -1028,7 +1028,7 @@ delete_session() {
         return 1
     fi
 
-    if [[ "$force" != "force" ]]; then
+    if [[ "$force" != "force" && "$force" != "--force" ]]; then
         if ! confirm "Delete session '${session_id#tower_}'?"; then
             handle_info "Cancelled"
             return 1
