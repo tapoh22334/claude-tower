@@ -146,7 +146,7 @@ start_new_session() {
     printf 'Name (optional): ' >&2
     read -r name </dev/tty || name=""
     uuid=$(generate_uuid) || return 1
-    start_claude_session "tower_${uuid}" "$dir" "new" || return 1
+    start_claude_session "tower_${uuid}" "$dir" "new" >&2 || return 1
     save_metadata "tower_${uuid}" "$name"
     [[ "$PRINT_ID" -eq 1 ]] && echo "tower_${uuid}"
     return 0
@@ -168,7 +168,7 @@ add_existing_session() {
         handle_error "Directory not found: ${cwd:-unknown}"
         return 1
     fi
-    start_claude_session "tower_${claude_id}" "$cwd" "resume" || return 1
+    start_claude_session "tower_${claude_id}" "$cwd" "resume" >&2 || return 1
     save_metadata "tower_${claude_id}"
     [[ "$PRINT_ID" -eq 1 ]] && echo "tower_${claude_id}"
     return 0
