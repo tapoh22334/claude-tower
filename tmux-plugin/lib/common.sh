@@ -827,16 +827,6 @@ session_exists() {
     session_tmux has-session -t "$session_id" 2>/dev/null
 }
 
-# Check if worktree exists
-# Arguments:
-#   $1 - Worktree path
-# Returns:
-#   0 if exists, 1 if not
-worktree_exists() {
-    local path="$1"
-    [[ -d "$path" ]] && [[ -f "$path/.git" || -d "$path/.git" ]]
-}
-
 # ============================================================================
 # Session State Detection (v3.0 - Idempotent)
 # ============================================================================

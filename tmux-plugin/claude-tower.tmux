@@ -33,11 +33,10 @@ TOWER_PREFIX=$(get_tmux_option "@tower-prefix" "${CLAUDE_TOWER_PREFIX:-t}")
 #   2. detach-client -E runs navigator.sh which reads the caller from state
 # Note: detach-client -E does NOT expand tmux format strings in its command
 #
-# All operations (new session, restore, etc.) are now done within Navigator:
-#   n → New session
-#   r → Restore selected dormant session
-#   R → Restore all dormant sessions
-#   d → Delete session
+# All operations (add, restore, delete, etc.) are now done within Navigator:
+#   n → Add session (existing Claude session or new)
+#   r → Resume dormant session
+#   D → Delete session
 #   ? → Help
 tmux bind-key "$TOWER_PREFIX" run-shell -b "mkdir -p /tmp/claude-tower && echo '#{session_name}' > /tmp/claude-tower/caller && tmux detach-client -E 'exec $CURRENT_DIR/scripts/navigator.sh --direct'"
 

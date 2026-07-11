@@ -69,37 +69,6 @@ teardown() {
 }
 
 # ============================================================================
-# worktree_exists() tests
-# ============================================================================
-
-@test "worktree_exists: returns false for non-existent path" {
-    run worktree_exists "/nonexistent/path"
-    [ "$status" -eq 1 ]
-}
-
-@test "worktree_exists: returns false for empty directory" {
-    mkdir -p "${TEST_DIR}/tmp/pathbase/empty"
-
-    run worktree_exists "${TEST_DIR}/tmp/pathbase/empty"
-    [ "$status" -eq 1 ]
-}
-
-@test "worktree_exists: returns true for directory with .git file" {
-    mkdir -p "${TEST_DIR}/tmp/pathbase/with_git_file"
-    echo "gitdir: /some/path" > "${TEST_DIR}/tmp/pathbase/with_git_file/.git"
-
-    run worktree_exists "${TEST_DIR}/tmp/pathbase/with_git_file"
-    [ "$status" -eq 0 ]
-}
-
-@test "worktree_exists: returns true for directory with .git directory" {
-    mkdir -p "${TEST_DIR}/tmp/pathbase/with_git_dir/.git"
-
-    run worktree_exists "${TEST_DIR}/tmp/pathbase/with_git_dir"
-    [ "$status" -eq 0 ]
-}
-
-# ============================================================================
 # validate_path_within() edge cases
 # ============================================================================
 

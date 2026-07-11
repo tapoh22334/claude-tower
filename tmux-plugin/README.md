@@ -6,24 +6,23 @@ This directory contains the core tmux plugin implementation for Claude Tower.
 
 ```
 tmux-plugin/
-├── claude-tower.tmux      # Plugin entry point (loaded by tpm)
+├── claude-tower.tmux        # Plugin entry point (loaded by tpm)
 ├── conf/
-│   └── view-focus.conf    # tmux configuration for view pane focus mode
+│   └── view-focus.conf      # tmux configuration for view pane focus mode
 ├── lib/
-│   ├── common.sh          # Shared utilities (400+ lines)
-│   └── error-recovery.sh  # Error handling and TUI recovery
+│   ├── common.sh            # Shared utilities: session state, metadata, security
+│   ├── claude-sessions.sh   # Reads ~/.claude/projects/ jsonl transcripts
+│   └── error-recovery.sh    # Error handling and TUI recovery
 └── scripts/
-    ├── navigator.sh       # Navigator entry point
-    ├── navigator-list.sh  # List pane UI (21 KB)
-    ├── navigator-view.sh  # View pane UI (12 KB)
-    ├── tile.sh            # Tile view display
-    ├── session-new.sh     # Create new session
-    ├── session-delete.sh  # Delete session
-    ├── session-restore.sh # Restore dormant sessions
-    ├── session-list.sh    # List sessions
-    ├── cleanup.sh         # Orphan worktree cleanup
-    ├── tower.sh           # Main CLI entry point
-    └── [other utilities]
+    ├── navigator.sh         # Navigator entry point
+    ├── navigator-list.sh    # List pane UI
+    ├── navigator-view.sh    # View pane UI
+    ├── tile.sh              # Tile view display
+    ├── session-add.sh       # Unified add/new flow (fzf or numbered picker)
+    ├── session-delete.sh    # Delete session (registry only)
+    ├── session-restore.sh   # Restore dormant sessions
+    ├── session-list.sh      # List sessions
+    └── tower.sh             # Main CLI entry point
 ```
 
 ## Key Components
@@ -33,11 +32,18 @@ Plugin entry point loaded by TPM (Tmux Plugin Manager). Sets up keybindings and 
 
 ### lib/common.sh
 Shared library providing:
-- Session state management (`get_session_state`, `list_all_sessions`)
-- Metadata operations (`save_metadata`, `load_metadata`)
-- Security functions (`sanitize_name`, `validate_path_within`)
-- Navigator helpers (`get_nav_focus`, `set_nav_focus`)
+- Session state management (`get_session_state`, `get_state_icon`, `list_all_sessions`)
+- Metadata operations (`save_metadata`, `load_metadata`, minimal `.meta` registry)
+- Security functions (`sanitize_name`, `validate_path_within`, `ensure_tower_prefix`)
+- Navigator helpers (`get_nav_focus`, `set_nav_focus`, `get_nav_selected`)
 - Error handling (`handle_error`, `die`)
+
+### lib/claude-sessions.sh
+Derives session state from Claude's own transcripts under
+`~/.claude/projects/<slug>/<sessionId>.jsonl`: busy/idle detection
+(`is_session_busy`, `TOWER_BUSY_WINDOW`), the full 5-state Navigator check
+(`get_display_state`: busy/active/dormant/dead/lost), and candidate discovery
+for the add flow (`list_addable_sessions`).
 
 ### lib/error-recovery.sh
 TUI error recovery patterns:
@@ -51,12 +57,15 @@ TUI error recovery patterns:
 - `navigator-view.sh` - Right pane showing live session preview
 - `tile.sh` - Grid view of all sessions
 
-## Session States (v3.2)
+## Session States
 
 | State | Icon | Description |
 |-------|------|-------------|
-| `active` | `▶` | tmux session exists |
-| `dormant` | `○` | Metadata only, no tmux session |
+| `busy` | `●` | tmux session exists, Claude active within `TOWER_BUSY_WINDOW` |
+| `active` | `▶` | tmux session exists, idle |
+| `dormant` | `○` | Registered, no tmux session — can be resumed |
+| `dead` | `✗` | Registered, but the session's working directory is gone |
+| `lost` | `?` | Registered, but the Claude transcript is gone (unrecoverable) |
 
 ## Architecture
 
