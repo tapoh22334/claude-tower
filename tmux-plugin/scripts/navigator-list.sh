@@ -61,7 +61,7 @@ build_session_list() {
 
         local type_icon name
 
-        # Determine type (worktree vs simple)
+        # Determine type icon (stale placeholder; full rewrite lands in Task 7)
         if has_metadata "$session_id"; then
             type_icon="[W]"
         else
