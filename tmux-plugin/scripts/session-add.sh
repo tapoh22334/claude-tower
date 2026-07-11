@@ -181,7 +181,12 @@ main() {
     picked=$(
         {
             echo "$NEW_SENTINEL"
-            [[ -n "$candidates" ]] && format_candidate_lines <<<"$candidates"
+            # if-form, not `[[ ... ]] &&`: with zero candidates the &&-chain
+            # exits 1 and pipefail fails the whole pipeline even though
+            # run_picker succeeded, aborting a valid [new] pick.
+            if [[ -n "$candidates" ]]; then
+                format_candidate_lines <<<"$candidates"
+            fi
         } | run_picker
     ) || return 1
     [[ -n "$picked" ]] || return 1

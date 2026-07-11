@@ -279,7 +279,40 @@ EOF
 }
 
 @test "main: dispatches to start_new_session when [new] sentinel is picked" {
-    skip "requires stubbing run_picker/start_claude_session end-to-end — see session-add.sh:189-190"
+    # pipefail regression test (first-run experience): with ZERO addable
+    # candidates, main()'s picker pipeline used `[[ -n "$candidates" ]] &&
+    # format_candidate_lines`, whose exit-1 (empty candidates) tripped
+    # `set -o pipefail` and aborted the flow even on a valid [new] pick.
+    # TOWER_FINDER="head -n1" is a non-interactive picker that selects the
+    # first line (the [new] sentinel); CLAUDE_PROJECTS_DIR stays empty so
+    # list_addable_sessions yields nothing.
+    setup_fake_tmux
+
+    local dir="$BATS_TEST_TMPDIR/new-session-dir"
+    mkdir -p "$dir"
+
+    local script_out="$BATS_TEST_TMPDIR/main_out.log"
+    local script_err="$BATS_TEST_TMPDIR/main_err.log"
+    cat > "$BATS_TEST_TMPDIR/main_drive.sh" <<EOF
+#!/usr/bin/env bash
+export PATH="$PATH"
+export CLAUDE_TOWER_METADATA_DIR="$CLAUDE_TOWER_METADATA_DIR"
+export CLAUDE_PROJECTS_DIR="$CLAUDE_PROJECTS_DIR"
+export TOWER_ADD_DEFAULT_DIR="$dir"
+export TOWER_FINDER="head -n1"
+"$SESSION_ADD" --print-id 1>"$script_out" 2>"$script_err"
+echo "EXIT:\$?" >>"$script_err"
+EOF
+    chmod +x "$BATS_TEST_TMPDIR/main_drive.sh"
+
+    # start_new_session's /dev/tty prompts (directory default, blank name)
+    # need a real pty, hence `script`.
+    printf '\n\n' | script -qec "$BATS_TEST_TMPDIR/main_drive.sh" /dev/null >/dev/null
+
+    run cat "$script_out"
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ ^tower_[0-9a-f-]+$ ]]
+    [[ "$(cat "$script_err")" == *"EXIT:0"* ]]
 }
 
 @test "main: handle_error 'Could not resolve selection' when resolve_picked_id fails for a non-[new] pick" {
