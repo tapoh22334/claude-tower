@@ -27,7 +27,7 @@ generate_uuid() {
 
 # stdin: id \t mtime \t cwd  ->  "shortid  ~/dir/tail  (2m ago)"
 format_candidate_lines() {
-    local id mtime cwd short reltime home_re
+    local id mtime cwd short reltime
     while IFS=$'\t' read -r id mtime cwd; do
         short="${id:0:7}"
         reltime=$(format_relative_time "$mtime")
@@ -59,26 +59,41 @@ pick_with_numbers() {
 }
 
 # Run the finder (or fallback). Candidates on stdin, selection on stdout.
+# Silent fallback to the numbered picker is only for our own fzf default;
+# when the user explicitly set TOWER_FINDER and its binary is missing, warn
+# loudly on stderr but still fall back so the flow remains usable.
 run_picker() {
     local finder="${TOWER_FINDER:-fzf --height=80% --reverse --no-multi}"
     local finder_bin="${finder%% *}"
     if command -v "$finder_bin" >/dev/null 2>&1; then
         eval "$finder"
     else
+        if [[ -n "${TOWER_FINDER:-}" ]]; then
+            echo "TOWER_FINDER command not found: $finder_bin (falling back to numbered picker)" >&2
+        fi
         pick_with_numbers
     fi
 }
 
 # Resolve a picked display line back to the full session id by short-id prefix.
+# Fails on multiple matches: two UUIDs sharing a 7-hex prefix must not
+# silently resolve to the wrong session.
 # $1 = picked line; candidate list on stdin (id \t mtime \t cwd)
 resolve_picked_id() {
     local picked="$1"
     local short="${picked%%  *}"
-    local id _rest
+    local id _rest match=""
     while IFS=$'\t' read -r id _rest; do
-        [[ "$id" == "$short"* ]] && { echo "$id"; return 0; }
+        if [[ "$id" == "$short"* ]]; then
+            if [[ -n "$match" ]]; then
+                handle_error "Ambiguous selection"
+                return 1
+            fi
+            match="$id"
+        fi
     done
-    return 1
+    [[ -n "$match" ]] || return 1
+    echo "$match"
 }
 
 # Prompt for the new-session directory. Default: caller pane cwd (or $PWD).
