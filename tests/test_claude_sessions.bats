@@ -78,3 +78,49 @@ teardown() {
     run session_has_messages "$f"
     [ "$status" -eq 1 ]
 }
+
+@test "get_session_activity: returns jsonl mtime" {
+    local f
+    f=$(create_mock_jsonl "-home-user-proj" "$UUID_A" "/home/user/proj")
+    touch -d "2020-01-01 00:00:00" "$f"
+    run get_session_activity "$f"
+    [ "$output" = "$(stat -c %Y -- "$f")" ]
+}
+
+@test "get_session_activity: subagent mtime wins when newer" {
+    local f
+    f=$(create_mock_jsonl "-home-user-proj" "$UUID_A" "/home/user/proj")
+    touch -d "2020-01-01 00:00:00" "$f"
+    local sub="${CLAUDE_PROJECTS_DIR}/-home-user-proj/${UUID_A}/subagents"
+    mkdir -p "$sub"
+    echo '{}' > "${sub}/agent-x.jsonl"
+    run get_session_activity "$f"
+    [ "$output" = "$(stat -c %Y -- "${sub}/agent-x.jsonl")" ]
+}
+
+@test "get_session_activity: background task output mtime wins when newer" {
+    local f
+    f=$(create_mock_jsonl "-home-user-proj" "$UUID_A" "/home/user/proj")
+    touch -d "2020-01-01 00:00:00" "$f"
+    local tasks="${TMPDIR:-/tmp}/claude-$(id -u)/-home-user-proj/${UUID_A}/tasks"
+    mkdir -p "$tasks"
+    echo x > "${tasks}/a.output"
+    run get_session_activity "$f"
+    [ "$output" = "$(stat -c %Y -- "${tasks}/a.output")" ]
+    rm -rf "${TMPDIR:-/tmp}/claude-$(id -u)/-home-user-proj"
+}
+
+@test "is_session_busy: true for freshly touched transcript" {
+    local f
+    f=$(create_mock_jsonl "-home-user-proj" "$UUID_A" "/home/user/proj")
+    run is_session_busy "$f"
+    [ "$status" -eq 0 ]
+}
+
+@test "is_session_busy: false for old transcript" {
+    local f
+    f=$(create_mock_jsonl "-home-user-proj" "$UUID_A" "/home/user/proj")
+    touch -d "2020-01-01 00:00:00" "$f"
+    run is_session_busy "$f"
+    [ "$status" -eq 1 ]
+}

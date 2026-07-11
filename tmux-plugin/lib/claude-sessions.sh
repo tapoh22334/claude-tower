@@ -42,3 +42,42 @@ session_has_messages() {
     local jsonl="$1"
     grep -q -m 1 -E '"type":"(user|assistant)"' -- "$jsonl" 2>/dev/null
 }
+
+# Newest activity epoch across the transcript, its subagents, and its
+# background-task outputs. Background Agent runs write outside the projects
+# dir (under $TMPDIR/claude-<uid>/<slug>/<id>/tasks/) while the parent
+# transcript idles — checking only the jsonl would show a working session
+# as idle.
+get_session_activity() {
+    local jsonl="$1"
+    local latest=0 t f
+    t=$(stat -c %Y -- "$jsonl" 2>/dev/null) && ((t > latest)) && latest=$t
+
+    local session_id dir slug
+    dir=$(dirname -- "$jsonl")
+    session_id=$(basename -- "$jsonl" .jsonl)
+    slug=$(basename -- "$dir")
+
+    for f in "${dir}/${session_id}/subagents"/*.jsonl; do
+        [[ -f "$f" ]] || continue
+        t=$(stat -c %Y -- "$f" 2>/dev/null) && ((t > latest)) && latest=$t
+    done
+
+    for f in "${TMPDIR:-/tmp}/claude-$(id -u)/${slug}/${session_id}/tasks"/*.output; do
+        [[ -f "$f" ]] || continue
+        t=$(stat -c %Y -- "$f" 2>/dev/null) && ((t > latest)) && latest=$t
+    done
+
+    echo "$latest"
+}
+
+# Activity within TOWER_BUSY_WINDOW seconds?
+# Known limits (documented in spec): session start touches the jsonl
+# (45s false-busy), and tool runs longer than the window read as idle.
+is_session_busy() {
+    local jsonl="$1"
+    local activity now
+    activity=$(get_session_activity "$jsonl")
+    now=$(date +%s)
+    ((now - activity <= TOWER_BUSY_WINDOW))
+}
