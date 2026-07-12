@@ -176,8 +176,16 @@ draw_tiles() {
 
         ((idx++)) || true
 
-        # Limit visible tiles
-        [[ $idx -ge 6 ]] && break
+        # Limit visible tiles. Written as `if ... ; then break; fi` rather
+        # than `[[ ... ]] && break`: the latter's exit status is 1 whenever
+        # the condition is false (the common case, tile count < 6), which
+        # under this script's `set -e` was silently killing the whole
+        # process right after the first draw_tiles call in main() -- the
+        # tile view drew one frame and exited before ever reading a
+        # keypress. Caught via real capture-pane testing in Docker.
+        if [[ $idx -ge 6 ]]; then
+            break
+        fi
     done
 }
 

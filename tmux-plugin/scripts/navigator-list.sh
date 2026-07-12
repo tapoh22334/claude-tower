@@ -156,38 +156,47 @@ render_list() {
         focus_indicator="${NAV_C_DIM}[─────]${NAV_C_NORMAL}"
     fi
 
+    # Every line ends with \033[K (clear-to-end-of-line) before the newline.
+    # Without it, a row left over from a longer previous render (e.g. the
+    # multi-line help screen) keeps its old trailing characters when this
+    # frame's line is shorter or blank — writing "\n" alone only moves the
+    # cursor down, it does not erase what was already on that row. The
+    # trailing `tput ed` below only clears rows *after* the last line we
+    # print, so it can't fix a stale row sitting in the middle of the screen.
+    local eol=$'\033[K'
+
     # Header with focus indicator
-    output+="${NAV_C_HEADER}Sessions${NAV_C_NORMAL} ${focus_indicator}\n"
-    output+="\n"
+    output+="${NAV_C_HEADER}Sessions${NAV_C_NORMAL} ${focus_indicator}${eol}\n"
+    output+="${eol}\n"
 
     if [[ ${#SESSION_IDS[@]} -eq 0 ]]; then
-        output+="${NAV_C_DIM}(no sessions)${NAV_C_NORMAL}\n"
+        output+="${NAV_C_DIM}(no sessions)${NAV_C_NORMAL}${eol}\n"
     else
         local i=0
         for display in "${SESSION_DISPLAYS[@]}"; do
             if [[ $i -ge $max_lines ]]; then
                 local remaining=$((${#SESSION_IDS[@]} - max_lines))
-                output+="${NAV_C_DIM}... +${remaining} more${NAV_C_NORMAL}\n"
+                output+="${NAV_C_DIM}... +${remaining} more${NAV_C_NORMAL}${eol}\n"
                 break
             fi
 
             if [[ $BROKEN_START -ge 0 && $i -eq $BROKEN_START ]]; then
-                output+="${NAV_C_DIM}── unrecoverable ──${NAV_C_NORMAL}\n"
+                output+="${NAV_C_DIM}── unrecoverable ──${NAV_C_NORMAL}${eol}\n"
             fi
 
             if [[ $i -eq $selected_index ]]; then
                 # Highlight selected row
-                output+="${NAV_C_SELECTED} ${display} ${NAV_C_NORMAL}\n"
+                output+="${NAV_C_SELECTED} ${display} ${NAV_C_NORMAL}${eol}\n"
             else
-                output+=" ${display}\n"
+                output+=" ${display}${eol}\n"
             fi
             ((i++)) || true
         done
     fi
 
     # Footer with keybindings (compact)
-    output+="\n"
-    output+="${NAV_C_DIM}j/k:nav Enter:attach i:input n:add D:del r:resume q:quit${NAV_C_NORMAL}\n"
+    output+="${eol}\n"
+    output+="${NAV_C_DIM}j/k:nav Enter:attach i:input n:add D:del r:resume q:quit${NAV_C_NORMAL}${eol}\n"
 
     # Clear to end of screen code
     local clear_eos
