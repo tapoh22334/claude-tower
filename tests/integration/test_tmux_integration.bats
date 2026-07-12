@@ -24,6 +24,13 @@ teardown_file() {
 }
 
 setup() {
+    # session_exists() routes through session_tmux(), which hardcodes
+    # `tmux -L "$TOWER_SESSION_SOCKET"`. tmux only honors the LAST -L flag on
+    # its command line, so overriding the `tmux` shell function is silently
+    # defeated by session_tmux's own explicit -L. Point TOWER_SESSION_SOCKET
+    # at our test socket instead (must be set before source_common, since
+    # it's readonly once common.sh is sourced).
+    export CLAUDE_TOWER_SESSION_SOCKET="$TMUX_SOCKET"
     source_common
     setup_test_env
     # Use /tmp for tmux sockets to avoid WSL permission issues
@@ -91,40 +98,40 @@ teardown() {
 }
 
 # ============================================================================
-# tmux option storage tests
+# Registry data model tests (v2026-07-11 redesign)
 # ============================================================================
+# The old per-session tmux @tower_* options (session_type/repository/source)
+# were part of the pre-redesign worktree-tracking data model and were
+# removed along with session_type/repository_path/source_commit/worktree_path
+# /branch_name (see docs/superpowers/specs/2026-07-11-tower-session-registry-design.md
+# section 2 and 7). The registry is now a minimal .meta file
+# (session_name + created_at); unknown legacy keys are ignored on read.
 
-@test "integration: can store and retrieve session options" {
-    # Create session
-    tmux -L "$TMUX_SOCKET" new-session -d -s "tower_options_test"
+@test "integration: metadata file only carries session_name and created_at" {
+    tmux() { command tmux -L "$TMUX_SOCKET" "$@"; }
+    export -f tmux
 
-    # Store option
-    tmux -L "$TMUX_SOCKET" set-option -t "tower_options_test" @tower_session_type "workspace"
+    create_mock_metadata "tower_meta_shape_test" "workspace"
 
-    # Retrieve option
-    result=$(tmux -L "$TMUX_SOCKET" show-option -t "tower_options_test" -v @tower_session_type 2>/dev/null || echo "")
-
-    [ "$result" = "workspace" ]
-
-    tmux -L "$TMUX_SOCKET" kill-session -t "tower_options_test"
+    # load_metadata sets META_SESSION_NAME/META_CREATED_AT as globals in the
+    # current shell; `run` would execute it in a subshell and lose them, so
+    # call it directly.
+    load_metadata "tower_meta_shape_test"
+    [ "$META_SESSION_NAME" = "workspace" ]
 }
 
-@test "integration: session options persist during session lifetime" {
-    tmux -L "$TMUX_SOCKET" new-session -d -s "tower_persist_test"
+@test "integration: legacy metadata keys (session_type/repository_path) are ignored, not fatal" {
+    tmux() { command tmux -L "$TMUX_SOCKET" "$@"; }
+    export -f tmux
 
-    # Store multiple options
-    tmux -L "$TMUX_SOCKET" set-option -t "tower_persist_test" @tower_session_type "workspace"
-    tmux -L "$TMUX_SOCKET" set-option -t "tower_persist_test" @tower_repository "/test/repo"
-    tmux -L "$TMUX_SOCKET" set-option -t "tower_persist_test" @tower_source "abc123"
+    ensure_metadata_dir
+    {
+        echo "session_type=workspace"
+        echo "repository_path=/old/repo"
+        echo "session_name=kept"
+        echo "created_at=2026-01-01T00:00:00"
+    } > "${TOWER_METADATA_DIR}/tower_legacy_meta_test.meta"
 
-    # Verify all options
-    type_val=$(tmux -L "$TMUX_SOCKET" show-option -t "tower_persist_test" -v @tower_session_type)
-    repo_val=$(tmux -L "$TMUX_SOCKET" show-option -t "tower_persist_test" -v @tower_repository)
-    source_val=$(tmux -L "$TMUX_SOCKET" show-option -t "tower_persist_test" -v @tower_source)
-
-    [ "$type_val" = "workspace" ]
-    [ "$repo_val" = "/test/repo" ]
-    [ "$source_val" = "abc123" ]
-
-    tmux -L "$TMUX_SOCKET" kill-session -t "tower_persist_test"
+    load_metadata "tower_legacy_meta_test"
+    [ "$META_SESSION_NAME" = "kept" ]
 }

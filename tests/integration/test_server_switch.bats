@@ -144,8 +144,11 @@ teardown() {
 @test "server-switch: navigator.sh close_navigator uses exec tmux attach" {
     local script="$PROJECT_ROOT/tmux-plugin/scripts/navigator.sh"
 
-    # Check for the exec pattern in close_navigator (search full function)
-    run grep -A30 "close_navigator()" "$script"
+    # Check for the exec pattern in close_navigator (search full function).
+    # Window widened to 55 lines: close_navigator now has session/socket
+    # fallback logic (session server -> default server) that pushes the
+    # exec past a narrower window.
+    run grep -A55 "close_navigator()" "$script"
     [[ "$output" == *"exec tmux attach-session"* ]] || [[ "$output" == *"TMUX= exec tmux"* ]]
 }
 
@@ -159,7 +162,9 @@ teardown() {
 @test "server-switch: navigator-list.sh quit_navigator uses detach-client -E" {
     local script="$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
 
-    run grep -A25 "quit_navigator()" "$script"
+    # Window widened to 45 lines: quit_navigator's session/socket fallback
+    # logic pushes the detach-client -E call past a narrower window.
+    run grep -A45 "quit_navigator()" "$script"
     [[ "$output" == *"detach-client -E"* ]]
 }
 
