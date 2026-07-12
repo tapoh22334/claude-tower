@@ -169,8 +169,14 @@ make status
 # Reset (kill servers, clear state)
 make reset
 
-# Run tests
+# Run unit tests locally
 make test
+
+# Run unit + integration tests in Docker against a real tmux server
+# (the integration suite drives the actual Navigator UI with tmux
+# capture-pane and can't run reliably outside a real tmux install;
+# this is the visual/integration gate before merging UI changes)
+make test-docker
 
 # Lint scripts
 make lint

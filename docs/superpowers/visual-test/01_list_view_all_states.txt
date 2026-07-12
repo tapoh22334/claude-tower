@@ -1,0 +1,30 @@
+Sessions [ACTIVE]
+
+ ● webapp (webapp)
+ ▶ api-server (api-server)
+ ○ docs-site (docs-site)
+── unrecoverable ──
+ ✗ deleted-repo (deleted-repo)
+ ? eeeeeee (old-experiment)
+
+j/k:nav Enter:attach i:input n:add D:del r:resume q:quit
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
