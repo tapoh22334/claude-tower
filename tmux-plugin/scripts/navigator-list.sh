@@ -648,4 +648,8 @@ main_loop() {
 # Main
 # ============================================================================
 
-main_loop
+# Only start the render loop when executed directly, so tests can source
+# this file to reach its functions.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main_loop
+fi

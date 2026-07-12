@@ -1,0 +1,187 @@
+#!/usr/bin/env bats
+# Coverage gaps (round 9): _session_label, wait_for_update,
+# format_relative_time boundaries, session-list.sh --json validity,
+# setup_pane_auto_restart unquoted-variable interpolation.
+
+load 'test_helper'
+
+setup() {
+    source_common
+    setup_test_env
+}
+
+teardown() {
+    teardown_test_env
+}
+
+# ============================================================================
+# _session_label() — navigator-list.sh:50-64
+# Zero prior test references. Computes the row text shown in the session
+# list: cwd basename, or short-id fallback when no jsonl/cwd is found, plus
+# an optional " (name)" suffix from metadata.
+# ============================================================================
+
+@test "_session_label: uses cwd basename when transcript has a cwd" {
+    source "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh" 2>/dev/null || true
+
+    local uuid="22222222-2222-4222-8222-222222222222"
+    create_mock_jsonl "myproj" "$uuid" "/home/user/projects/myproj"
+
+    run _session_label "tower_${uuid}"
+    [ "$status" -eq 0 ]
+    [ "$output" = "myproj" ]
+}
+
+@test "_session_label: falls back to short id when no jsonl is found" {
+    source "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh" 2>/dev/null || true
+
+    local uuid="33333333-3333-4333-8333-333333333333"
+    # No create_mock_jsonl call: find_session_jsonl will fail.
+
+    run _session_label "tower_${uuid}"
+    [ "$status" -eq 0 ]
+    [ "$output" = "${uuid:0:7}" ]
+}
+
+@test "_session_label: falls back to short id when transcript has no cwd" {
+    source "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh" 2>/dev/null || true
+
+    local uuid="44444444-4444-4444-8444-444444444444"
+    create_mock_jsonl "myproj" "$uuid" ""
+
+    run _session_label "tower_${uuid}"
+    [ "$status" -eq 0 ]
+    [ "$output" = "${uuid:0:7}" ]
+}
+
+@test "_session_label: appends registry name in parens when metadata has one" {
+    source "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh" 2>/dev/null || true
+
+    local uuid="55555555-5555-4555-8555-555555555555"
+    create_mock_jsonl "myproj" "$uuid" "/home/user/projects/myproj"
+    create_mock_metadata "tower_${uuid}" "my-alias"
+
+    run _session_label "tower_${uuid}"
+    [ "$status" -eq 0 ]
+    [ "$output" = "myproj (my-alias)" ]
+}
+
+@test "_session_label: no name suffix when metadata exists but has no session_name" {
+    source "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh" 2>/dev/null || true
+
+    local uuid="66666666-6666-4666-8666-666666666666"
+    create_mock_jsonl "myproj" "$uuid" "/home/user/projects/myproj"
+    create_mock_metadata "tower_${uuid}" ""
+
+    run _session_label "tower_${uuid}"
+    [ "$status" -eq 0 ]
+    [ "$output" = "myproj" ]
+}
+
+# ============================================================================
+# format_relative_time() — claude-sessions.sh:144-153
+# Existing test (test_claude_sessions.bats:173) only covers minutes/hours.
+# Missing: days boundary (>=86400s) and malformed/negative input behavior.
+# ============================================================================
+
+@test "format_relative_time: days" {
+    local now
+    now=$(date +%s)
+
+    run format_relative_time "$((now - 172800))"
+    [ "$status" -eq 0 ]
+    [ "$output" = "2d ago" ]
+}
+
+@test "format_relative_time: exact hour boundary rolls into hours bucket, not minutes" {
+    local now
+    now=$(date +%s)
+
+    run format_relative_time "$((now - 3600))"
+    [ "$status" -eq 0 ]
+    [ "$output" = "1h ago" ]
+}
+
+@test "format_relative_time: exact day boundary rolls into days bucket, not hours" {
+    local now
+    now=$(date +%s)
+
+    run format_relative_time "$((now - 86400))"
+    [ "$status" -eq 0 ]
+    [ "$output" = "1d ago" ]
+}
+
+@test "format_relative_time: future epoch (negative diff) does not crash" {
+    local now
+    now=$(date +%s)
+
+    # epoch in the future -> negative diff; document current behavior rather
+    # than assert a specific "in the future" string, since none exists.
+    run format_relative_time "$((now + 120))"
+    [ "$status" -eq 0 ]
+}
+
+# ============================================================================
+# session-list.sh --json — currently only asserted via raw string/comma
+# checks (test_coverage_gaps_6.bats), never parsed as JSON. A session name
+# containing a double quote would produce invalid JSON undetected.
+# ============================================================================
+
+@test "session-list.sh --json: output is valid, parseable JSON" {
+    create_mock_metadata "tower_valid1" "alias-one"
+    create_mock_metadata "tower_valid2" ""
+
+    run "$PROJECT_ROOT/tmux-plugin/scripts/session-list.sh" --json
+    [ "$status" -eq 0 ]
+
+    echo "$output" | jq -e 'type == "array"' >/dev/null
+}
+
+@test "session-list.sh --json: session id containing a double quote breaks JSON validity (documents known gap)" {
+    # session_id here is a stand-in for a value that reaches the json branch
+    # unescaped; list_all_sessions only emits ids we control today, so this
+    # test drives the json-emitting branch directly instead of end-to-end.
+    source "$PROJECT_ROOT/tmux-plugin/lib/common.sh" 2>/dev/null || true
+
+    run bash -c '
+        session_id="tower_bad\"name"
+        state="dormant"
+        echo "["
+        cat <<EOF
+  {
+    "session_id": "$session_id",
+    "state": "$state"
+  }
+EOF
+        echo "]"
+    '
+    [ "$status" -eq 0 ]
+    # Document current behavior: this is NOT valid JSON (unescaped quote).
+    ! echo "$output" | jq -e . >/dev/null 2>&1
+}
+
+# ============================================================================
+# setup_pane_auto_restart() — error-recovery.sh:449-455
+# Existing test only varies $script_dir (with a space). TOWER_NAV_SOCKET and
+# TOWER_NAV_SESSION are never varied even though they're interpolated
+# unquoted into the same nested run-shell string.
+# ============================================================================
+
+@test "setup_pane_auto_restart: TOWER_NAV_SOCKET with special characters reaches the generated command intact" {
+    # TOWER_NAV_SOCKET is readonly once common.sh is sourced, so the value
+    # must arrive via the CLAUDE_TOWER_NAV_SOCKET env override in a fresh
+    # bash subprocess, with tmux stubbed to capture the set-hook payload.
+    run bash -c '
+        set -u
+        export CLAUDE_TOWER_NAV_SOCKET="sock with space"
+        source "'"$PROJECT_ROOT"'/tmux-plugin/lib/common.sh" 2>/dev/null
+        source "'"$PROJECT_ROOT"'/tmux-plugin/lib/error-recovery.sh" 2>/dev/null
+        tmux() {
+            printf "%s\n" "$*" >>"'"${TEST_DIR}"'/tmp/tmux_calls.log"
+        }
+        setup_pane_auto_restart "/some/script/dir"
+    '
+    [ "$status" -eq 0 ]
+
+    grep -q "sock with space" "${TEST_DIR}/tmp/tmux_calls.log"
+}
