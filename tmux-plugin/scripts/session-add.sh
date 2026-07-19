@@ -81,21 +81,32 @@ run_picker() {
     fi
 }
 
-# Resolve a picked display line back to the full session id by short-id prefix.
-# Fails on multiple matches: two UUIDs sharing a 4-hex prefix must not
-# silently resolve to the wrong session.
-# $1 = picked line; candidate list on stdin (id \t mtime \t cwd)
+# Resolve a picked display line back to the full session id.
+# Candidates and their rendered lines are index-aligned, and the SAME
+# rendered text shown to the picker is passed back in — never re-rendered,
+# so the short id stays display-only (its length never affects resolution)
+# and a relative time ticking over while the user browses cannot break the
+# match. Two candidates only clash if their entire rendered lines are
+# identical; refuse rather than guess in that case.
+# $1 = picked line; $2 = rendered lines (as shown); candidates on stdin
 resolve_picked_id() {
-    local picked="$1"
-    local short="${picked%%  *}"
-    local id _rest match=""
+    local picked="$1" rendered="$2"
+    local -a ids=() lines=()
+    local line id _rest
     while IFS=$'\t' read -r id _rest; do
-        if [[ "$id" == "$short"* ]]; then
+        ids+=("$id")
+    done
+    while IFS= read -r line; do
+        lines+=("$line")
+    done <<<"$rendered"
+    local i match=""
+    for i in "${!lines[@]}"; do
+        if [[ "${lines[$i]}" == "$picked" ]]; then
             if [[ -n "$match" ]]; then
                 handle_error "Ambiguous selection"
                 return 1
             fi
-            match="$id"
+            match="${ids[$i]}"
         fi
     done
     [[ -n "$match" ]] || return 1
@@ -181,8 +192,13 @@ add_existing_session() {
 }
 
 main() {
-    local candidates picked
+    local candidates rendered="" picked
     candidates=$(list_addable_sessions)
+    # Render exactly once; the picker shows these lines and resolution
+    # matches against these same lines.
+    if [[ -n "$candidates" ]]; then
+        rendered=$(format_candidate_lines <<<"$candidates")
+    fi
 
     picked=$(
         {
@@ -190,8 +206,8 @@ main() {
             # if-form, not `[[ ... ]] &&`: with zero candidates the &&-chain
             # exits 1 and pipefail fails the whole pipeline even though
             # run_picker succeeded, aborting a valid [new] pick.
-            if [[ -n "$candidates" ]]; then
-                format_candidate_lines <<<"$candidates"
+            if [[ -n "$rendered" ]]; then
+                printf '%s\n' "$rendered"
             fi
         } | run_picker
     ) || return 1
@@ -201,7 +217,7 @@ main() {
         start_new_session
     else
         local claude_id
-        claude_id=$(resolve_picked_id "$picked" <<<"$candidates") || {
+        claude_id=$(resolve_picked_id "$picked" "$rendered" <<<"$candidates") || {
             handle_error "Could not resolve selection"
             return 1
         }

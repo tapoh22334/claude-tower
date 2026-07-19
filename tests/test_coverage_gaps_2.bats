@@ -67,21 +67,39 @@ teardown() {
 # common.sh:210-280 — zero coverage.
 # ============================================================================
 
+# TOWER_NAV_SOCKET is resolved (readonly) when common.sh is sourced, so
+# exporting CLAUDE_TOWER_NAV_SOCKET after setup()'s source_common has no
+# effect — the override must reach a fresh bash that sources common.sh
+# itself. Otherwise these tests silently target the REAL nav socket and
+# fail whenever the developer has claude-tower running.
+
 @test "is_nav_server_running: returns nonzero when nav socket does not exist" {
-    export CLAUDE_TOWER_NAV_SOCKET="nonexistent-test-socket-$$"
-    run is_nav_server_running
+    run bash -c '
+        export CLAUDE_TOWER_NAV_SOCKET="nonexistent-test-socket-$$"
+        source "'"$PROJECT_ROOT"'/tmux-plugin/lib/common.sh" 2>/dev/null
+        is_nav_server_running
+    '
     [ "$status" -ne 0 ]
 }
 
 @test "is_nav_session_exists: returns nonzero when nav server is not running" {
-    export CLAUDE_TOWER_NAV_SOCKET="nonexistent-test-socket-$$"
-    run is_nav_session_exists
+    run bash -c '
+        export CLAUDE_TOWER_NAV_SOCKET="nonexistent-test-socket-$$"
+        source "'"$PROJECT_ROOT"'/tmux-plugin/lib/common.sh" 2>/dev/null
+        is_nav_session_exists
+    '
     [ "$status" -ne 0 ]
 }
 
 @test "kill_nav_server: succeeds (no-op) when nav server is not running" {
-    export CLAUDE_TOWER_NAV_SOCKET="nonexistent-test-socket-$$"
-    run kill_nav_server
+    # Same fresh-subprocess requirement as above — and more than flakiness:
+    # without the override taking effect this would kill the developer's
+    # live navigator server.
+    run bash -c '
+        export CLAUDE_TOWER_NAV_SOCKET="nonexistent-test-socket-$$"
+        source "'"$PROJECT_ROOT"'/tmux-plugin/lib/common.sh" 2>/dev/null
+        kill_nav_server
+    '
     [ "$status" -eq 0 ]
 }
 

@@ -226,16 +226,50 @@ _run_format_candidate_lines() {
 # resolve_picked_id(): session-add.sh:82 — short-id prefix resolution
 # ============================================================================
 
-@test "resolve_picked_id: resolves a unique short-id prefix to the full id" {
-    skip "call resolve_picked_id directly by sourcing session-add.sh functions in isolation (extract lines 82-97) — see session-add.sh:82-97"
+# Resolution matches the picked line against the rendered lines by index —
+# the short id is display-only, so even identical 4-char prefixes resolve
+# correctly as long as the rendered lines differ.
+# common.sh is already loaded by setup()'s source_common (handle_error).
+_source_resolver() {
+    eval "$(sed -n '/^resolve_picked_id()/,/^}/p' "$SESSION_ADD")"
 }
 
-@test "resolve_picked_id: returns 1 and calls handle_error on ambiguous short-id prefix match" {
-    skip "two candidate ids sharing the same 7-char prefix — see session-add.sh:87-91"
+@test "resolve_picked_id: resolves the picked rendered line to the id at the same index" {
+    _source_resolver
+    local candidates rendered
+    candidates=$'aaaa1111-1111-4111-8111-111111111111\t100\t/tmp/a\naaaa2222-2222-4222-8222-222222222222\t200\t/tmp/b'
+    rendered=$'aaaa  dir-a  first prompt  (2m ago)\naaaa  dir-b  other prompt  (5m ago)'
+    run resolve_picked_id 'aaaa  dir-b  other prompt  (5m ago)' "$rendered" <<<"$candidates"
+    [ "$status" -eq 0 ]
+    [ "$output" = "aaaa2222-2222-4222-8222-222222222222" ]
 }
 
-@test "resolve_picked_id: returns 1 when no candidate matches the picked short id" {
-    skip "see session-add.sh:95"
+@test "resolve_picked_id: identical short ids are fine when the rest of the line differs" {
+    _source_resolver
+    local candidates rendered
+    candidates=$'aaaa1111-1111-4111-8111-111111111111\t100\t/tmp/a\naaaa1111-9999-4999-8999-999999999999\t200\t/tmp/a'
+    rendered=$'aaaa  proj  fix login  (2m ago)\naaaa  proj  add tests  (5m ago)'
+    run resolve_picked_id 'aaaa  proj  fix login  (2m ago)' "$rendered" <<<"$candidates"
+    [ "$status" -eq 0 ]
+    [ "$output" = "aaaa1111-1111-4111-8111-111111111111" ]
+}
+
+@test "resolve_picked_id: returns 1 on fully identical rendered lines instead of guessing" {
+    _source_resolver
+    local candidates rendered
+    candidates=$'aaaa1111-1111-4111-8111-111111111111\t100\t/tmp/a\naaaa2222-2222-4222-8222-222222222222\t100\t/tmp/a'
+    rendered=$'aaaa  proj  same  (2m ago)\naaaa  proj  same  (2m ago)'
+    run resolve_picked_id 'aaaa  proj  same  (2m ago)' "$rendered" <<<"$candidates"
+    [ "$status" -ne 0 ]
+}
+
+@test "resolve_picked_id: returns 1 when the picked line matches no rendered line" {
+    _source_resolver
+    local candidates rendered
+    candidates=$'aaaa1111-1111-4111-8111-111111111111\t100\t/tmp/a'
+    rendered=$'aaaa  proj  hello  (2m ago)'
+    run resolve_picked_id 'bbbb  gone  stale line  (9m ago)' "$rendered" <<<"$candidates"
+    [ "$status" -ne 0 ]
 }
 
 # ============================================================================
