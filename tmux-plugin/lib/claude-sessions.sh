@@ -10,6 +10,7 @@
 # grep -o / -m are GNU extensions; keep flags separated (no -om1).
 
 CLAUDE_PROJECTS_DIR="${CLAUDE_PROJECTS_DIR:-$HOME/.claude/projects}"
+CLAUDE_HISTORY_FILE="${CLAUDE_HISTORY_FILE:-$HOME/.claude/history.jsonl}"
 TOWER_BUSY_WINDOW="${TOWER_BUSY_WINDOW:-45}"
 
 # Find the transcript for a Claude session ID (without tower_ prefix)
@@ -138,6 +139,38 @@ list_addable_sessions() {
         mtime=$(stat -c %Y -- "$f" 2>/dev/null) || continue
         printf '%s\t%s\t%s\n' "$session_id" "$mtime" "$cwd"
     done | sort -t "$(printf '\t')" -k2,2nr
+}
+
+# First user prompt of a session, from Claude's own history file
+# (~/.claude/history.jsonl: one {"display":...,"sessionId":...} line per
+# prompt, oldest first — the same source Claude's resume picker shows).
+# Distinguishes sessions that share a cwd. Returns 1 if unknown.
+get_session_title() {
+    local session_id="$1"
+    local line title
+    if [[ -f "$CLAUDE_HISTORY_FILE" ]]; then
+        line=$(grep -m 1 -F "\"sessionId\":\"${session_id}\"" -- "$CLAUDE_HISTORY_FILE" 2>/dev/null) || line=""
+        if [[ -n "$line" ]]; then
+            if title=$(printf '%s\n' "$line" | grep -o '"display":"[^"]*"'); then
+                title="${title#\"display\":\"}"
+                printf '%s\n' "${title%\"}"
+                return 0
+            fi
+        fi
+    fi
+    # Fallback: first user message in the transcript. Sessions started
+    # non-interactively (-p, SDK, subagent relaunch) never reach history.
+    local jsonl
+    jsonl=$(find_session_jsonl "$session_id") || return 1
+    line=$(grep -m 1 '"type":"user"' -- "$jsonl" 2>/dev/null) || return 1
+    # content is either a plain string or an array of blocks with "text".
+    title=$(printf '%s\n' "$line" | grep -o '"content":"[^"]*"') \
+        || title=$(printf '%s\n' "$line" | grep -o '"text":"[^"]*"') \
+        || return 1
+    title="${title#*:\"}"
+    title="${title%\"}"
+    [[ -n "$title" ]] || return 1
+    printf '%s\n' "$title"
 }
 
 # "2m ago" / "3h ago" / "5d ago"

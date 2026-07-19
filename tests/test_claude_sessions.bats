@@ -170,6 +170,54 @@ teardown() {
     [ -z "$output" ]
 }
 
+@test "get_session_title: returns the session's first (oldest) prompt from history.jsonl" {
+    CLAUDE_HISTORY_FILE="${BATS_TEST_TMPDIR}/history.jsonl"
+    {
+        echo '{"display":"first prompt","pastedContents":{},"sessionId":"11111111-1111-4111-8111-111111111111"}'
+        echo '{"display":"second prompt","pastedContents":{},"sessionId":"11111111-1111-4111-8111-111111111111"}'
+    } > "$CLAUDE_HISTORY_FILE"
+    run get_session_title "11111111-1111-4111-8111-111111111111"
+    [ "$status" -eq 0 ]
+    [ "$output" = "first prompt" ]
+}
+
+@test "get_session_title: returns 1 when the session has no history entry" {
+    CLAUDE_HISTORY_FILE="${BATS_TEST_TMPDIR}/history.jsonl"
+    echo '{"display":"someone else","sessionId":"99999999-9999-4999-8999-999999999999"}' > "$CLAUDE_HISTORY_FILE"
+    run get_session_title "11111111-1111-4111-8111-111111111111"
+    [ "$status" -ne 0 ]
+}
+
+@test "get_session_title: falls back to the transcript's first user message when absent from history" {
+    CLAUDE_HISTORY_FILE="${BATS_TEST_TMPDIR}/no-such-history.jsonl"
+    local uuid="22222222-2222-4222-8222-222222222222"
+    local dir="${CLAUDE_PROJECTS_DIR}/-home-user-proj"
+    mkdir -p "$dir"
+    printf '%s\n' '{"type":"user","cwd":"/home/user/proj","message":{"role":"user","content":"headless prompt here"}}' \
+        > "${dir}/${uuid}.jsonl"
+    run get_session_title "$uuid"
+    [ "$status" -eq 0 ]
+    [ "$output" = "headless prompt here" ]
+}
+
+@test "get_session_title: fallback handles array-form content blocks via their text field" {
+    CLAUDE_HISTORY_FILE="${BATS_TEST_TMPDIR}/no-such-history.jsonl"
+    local uuid="33333333-3333-4333-8333-333333333333"
+    local dir="${CLAUDE_PROJECTS_DIR}/-home-user-proj"
+    mkdir -p "$dir"
+    printf '%s\n' '{"type":"user","cwd":"/home/user/proj","message":{"role":"user","content":[{"type":"text","text":"block form prompt"}]}}' \
+        > "${dir}/${uuid}.jsonl"
+    run get_session_title "$uuid"
+    [ "$status" -eq 0 ]
+    [ "$output" = "block form prompt" ]
+}
+
+@test "get_session_title: returns 1 when neither history nor a transcript exists" {
+    CLAUDE_HISTORY_FILE="${BATS_TEST_TMPDIR}/no-such-history.jsonl"
+    run get_session_title "11111111-1111-4111-8111-111111111111"
+    [ "$status" -ne 0 ]
+}
+
 @test "format_relative_time: minutes and hours" {
     local now
     now=$(date +%s)

@@ -62,33 +62,127 @@ STUB
 # ============================================================================
 
 @test "generate_uuid: uses uuidgen when available and lowercases output" {
-    skip "requires PATH shadowing to force/omit uuidgen — see session-add.sh:18-19"
+    mkdir -p "$BATS_TEST_TMPDIR/fakebin"
+    cat > "$BATS_TEST_TMPDIR/fakebin/uuidgen" <<'STUB'
+#!/usr/bin/env bash
+echo "ABCDEF01-2345-6789-ABCD-EF0123456789"
+STUB
+    chmod +x "$BATS_TEST_TMPDIR/fakebin/uuidgen"
+
+    run bash -c "
+        export PATH='$BATS_TEST_TMPDIR/fakebin:$PATH'
+        source '$PROJECT_ROOT/tmux-plugin/lib/common.sh'
+        source <(sed -n '17,26p' '$SESSION_ADD')
+        generate_uuid
+    "
+    [ "$status" -eq 0 ]
+    [ "$output" = "abcdef01-2345-6789-abcd-ef0123456789" ]
+}
+
+# Build a PATH containing symlinks to every tool needed to source common.sh
+# and run generate_uuid, EXCEPT uuidgen (which is deliberately omitted so
+# `command -v uuidgen` fails and the /proc fallback branch is exercised).
+setup_path_without_uuidgen() {
+    local dir="$BATS_TEST_TMPDIR/fakebin_no_uuidgen"
+    mkdir -p "$dir"
+    local tool
+    for tool in bash cat sed grep mkdir date tr basename dirname mktemp \
+                sleep tput printf true false env; do
+        local resolved
+        resolved="$(command -v "$tool" 2>/dev/null)" || continue
+        ln -sf "$resolved" "$dir/$tool"
+    done
+    echo "$dir"
 }
 
 @test "generate_uuid: falls back to /proc/sys/kernel/random/uuid when uuidgen is missing" {
-    skip "requires PATH shadowing to hide uuidgen while keeping /proc readable — see session-add.sh:20-21"
+    [[ -r /proc/sys/kernel/random/uuid ]] || skip "/proc/sys/kernel/random/uuid not available on this platform"
+
+    local dir
+    dir="$(setup_path_without_uuidgen)"
+    run bash -c "
+        export PATH='$dir'
+        source '$PROJECT_ROOT/tmux-plugin/lib/common.sh'
+        source <(sed -n '17,26p' '$SESSION_ADD')
+        generate_uuid
+    "
+    [ "$status" -eq 0 ]
+    [[ "$output" =~ ^[0-9a-f-]{36}$ ]]
 }
 
 @test "generate_uuid: calls handle_error and returns 1 when neither uuidgen nor /proc source is available" {
-    skip "requires PATH shadowing plus /proc/sys/kernel/random/uuid unreadable — see session-add.sh:22-24"
+    if [[ -r /proc/sys/kernel/random/uuid ]]; then
+        skip "cannot simulate missing /proc/sys/kernel/random/uuid on this platform without root"
+    fi
+    local dir
+    dir="$(setup_path_without_uuidgen)"
+    run bash -c "
+        export PATH='$dir'
+        source '$PROJECT_ROOT/tmux-plugin/lib/common.sh'
+        source <(sed -n '17,26p' '$SESSION_ADD')
+        generate_uuid
+    "
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Cannot generate a UUID"* ]]
 }
 
 # ============================================================================
 # format_candidate_lines(): session-add.sh:29 — id\tmtime\tcwd -> display line
 # ============================================================================
 
-@test "format_candidate_lines: abbreviates HOME-prefixed cwd to ~" {
-    run bash -c "source '$PROJECT_ROOT/tmux-plugin/lib/common.sh' 2>/dev/null; source <(sed -n '17,40p' '$SESSION_ADD'); printf '1234567-uuid\t$(date +%s)\t$HOME/foo\n' | format_candidate_lines"
+# Extracts the function by name (not by line range) so edits elsewhere in
+# session-add.sh don't silently break the extraction.
+_run_format_candidate_lines() {
+    local input="$1"
+    run bash -c "
+        export CLAUDE_HISTORY_FILE='$BATS_TEST_TMPDIR/history.jsonl'
+        source '$PROJECT_ROOT/tmux-plugin/lib/common.sh' 2>/dev/null
+        eval \"\$(sed -n '/^format_candidate_lines()/,/^}/p' '$SESSION_ADD')\"
+        printf '%b\n' '$input' | format_candidate_lines
+    "
+}
+
+@test "format_candidate_lines: 4-char short id, cwd basename, title from history" {
+    printf '%s\n' '{"display":"fix the login bug","pastedContents":{},"sessionId":"abcdefab-1111-4111-8111-111111111111"}' \
+        > "$BATS_TEST_TMPDIR/history.jsonl"
+    _run_format_candidate_lines "abcdefab-1111-4111-8111-111111111111\t$(date +%s)\t$HOME/projects/myproj"
     [ "$status" -eq 0 ]
-    [[ "$output" == *"~/foo"* ]]
+    [[ "$output" == "abcd  "* ]]
+    [[ "$output" == *"myproj"* ]]
+    [[ "$output" == *"fix the login bug"* ]]
+    # basename only — no full path, no ~ abbreviation
+    [[ "$output" != *"projects/myproj"* ]]
 }
 
-@test "format_candidate_lines: leaves non-HOME cwd unabbreviated" {
-    skip "see session-add.sh:35-37 — assert /tmp/foo passes through unchanged"
+@test "format_candidate_lines: session missing from history gets an empty title, line still renders" {
+    : > "$BATS_TEST_TMPDIR/history.jsonl"
+    _run_format_candidate_lines "abcdefab-2222-4222-8222-222222222222\t$(date +%s)\t/tmp/dir-b"
+    [ "$status" -eq 0 ]
+    [[ "$output" == "abcd  "* ]]
+    [[ "$output" == *"dir-b"* ]]
+    [[ "$output" == *"ago)"* ]]
 }
 
-@test "format_candidate_lines: truncates id to 7 chars for the short id column" {
-    skip "see session-add.sh:32 — assert 40-char id is truncated to 7"
+@test "format_candidate_lines: long titles are truncated" {
+    local long_title
+    long_title=$(printf 'x%.0s' $(seq 1 80))
+    printf '%s\n' "{\"display\":\"${long_title}\",\"sessionId\":\"abcdefab-3333-4333-8333-333333333333\"}" \
+        > "$BATS_TEST_TMPDIR/history.jsonl"
+    _run_format_candidate_lines "abcdefab-3333-4333-8333-333333333333\t$(date +%s)\t/tmp/dir-c"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"$long_title"* ]]
+    [[ "$output" == *"xxxxx…"* ]]
+}
+
+@test "format_candidate_lines: history matches the exact session id, not another session's prompt" {
+    {
+        printf '%s\n' '{"display":"other session prompt","sessionId":"ffffffff-9999-4999-8999-999999999999"}'
+        printf '%s\n' '{"display":"second prompt of mine","sessionId":"abcdefab-4444-4444-8444-444444444444"}'
+    } > "$BATS_TEST_TMPDIR/history.jsonl"
+    _run_format_candidate_lines "abcdefab-4444-4444-8444-444444444444\t$(date +%s)\t/tmp/dir-d"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"second prompt of mine"* ]]
+    [[ "$output" != *"other session prompt"* ]]
 }
 
 # ============================================================================
@@ -214,7 +308,9 @@ export CLAUDE_TOWER_METADATA_DIR="$CLAUDE_TOWER_METADATA_DIR"
 export CLAUDE_PROJECTS_DIR="$CLAUDE_PROJECTS_DIR"
 export TOWER_ADD_DEFAULT_DIR="$dir"
 source "$PROJECT_ROOT/tmux-plugin/lib/common.sh"
-source <(sed -n '17,153p' "$SESSION_ADD")
+# Anchor on function boundaries, not line numbers: everything from the
+# sentinel down to (excluding) main(), so edits above don't shift the range.
+source <(sed -n '/^NEW_SENTINEL=/,\$p' "$SESSION_ADD" | sed '/^main() {/,\$d')
 PRINT_ID=1
 start_new_session 1>"$script_out" 2>"$script_err"
 EOF
@@ -235,7 +331,7 @@ EOF
 # ============================================================================
 
 @test "add_existing_session: rejects a claude_id that is not a well-formed UUID" {
-    run bash -c "source '$PROJECT_ROOT/tmux-plugin/lib/common.sh' 2>/dev/null; source <(sed -n '155,175p' '$SESSION_ADD'); add_existing_session 'not-a-uuid'"
+    run bash -c "source '$PROJECT_ROOT/tmux-plugin/lib/common.sh' 2>/dev/null; source <(sed -n '/^NEW_SENTINEL=/,\$p' '$SESSION_ADD' | sed '/^main() {/,\$d'); add_existing_session 'not-a-uuid'"
     [ "$status" -eq 1 ]
 }
 
@@ -259,7 +355,7 @@ EOF
 
     run --separate-stderr bash -c "
         source '$PROJECT_ROOT/tmux-plugin/lib/common.sh'
-        source <(sed -n '17,175p' '$SESSION_ADD')
+        source <(sed -n '/^NEW_SENTINEL=/,\$p' '$SESSION_ADD' | sed '/^main() {/,\$d')
         PRINT_ID=1
         add_existing_session '$uuid'
     "

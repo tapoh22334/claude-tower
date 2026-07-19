@@ -25,17 +25,23 @@ generate_uuid() {
     fi
 }
 
-# stdin: id \t mtime \t cwd  ->  "shortid  ~/dir/tail  (2m ago)"
+# stdin: id \t mtime \t cwd  ->  "abcd  dirname  first prompt…  (2m ago)"
+# The title (first user prompt, via get_session_title) is what tells apart
+# sessions sharing a directory; the short id is only for resolution.
 format_candidate_lines() {
-    local id mtime cwd short reltime
+    local id mtime cwd short reltime dir title
     while IFS=$'\t' read -r id mtime cwd; do
-        short="${id:0:7}"
+        short="${id:0:4}"
         reltime=$(format_relative_time "$mtime")
-        # Abbreviate $HOME as ~
-        case "$cwd" in
-            "$HOME"*) cwd="~${cwd#"$HOME"}" ;;
-        esac
-        printf '%s  %s  (%s)\n' "$short" "$cwd" "$reltime"
+        dir=$(basename -- "$cwd")
+        title=$(get_session_title "$id" 2>/dev/null) || title=""
+        # Keep the line single-line and short; tabs would break resolution.
+        # JSON strings carry newlines/tabs as literal \n / \t escapes.
+        title="${title//\\n/ }"
+        title="${title//\\t/ }"
+        title="${title//$'\t'/ }"
+        [[ ${#title} -gt 48 ]] && title="${title:0:47}…"
+        printf '%s  %-18s %s  (%s)\n' "$short" "$dir" "$title" "$reltime"
     done
 }
 
@@ -76,7 +82,7 @@ run_picker() {
 }
 
 # Resolve a picked display line back to the full session id by short-id prefix.
-# Fails on multiple matches: two UUIDs sharing a 7-hex prefix must not
+# Fails on multiple matches: two UUIDs sharing a 4-hex prefix must not
 # silently resolve to the wrong session.
 # $1 = picked line; candidate list on stdin (id \t mtime \t cwd)
 resolve_picked_id() {
