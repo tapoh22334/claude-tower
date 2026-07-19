@@ -79,7 +79,59 @@ teardown() {
 }
 
 # ============================================================================
-# format_relative_time() — claude-sessions.sh:144-153
+# render_list() — frame height must never exceed the terminal height.
+# If it does, every redraw scrolls the screen and the 2s refresh loop turns
+# into an endless upward crawl (list appears to shrink continuously).
+# ============================================================================
+
+@test "render_list: frame with separator and truncation fits terminal height" {
+    source "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh" 2>/dev/null || true
+
+    # Stub terminal: 12 lines tall; fail other capability queries so
+    # render_list takes its printf fallbacks.
+    tput() {
+        if [[ "$1" == "lines" ]]; then echo 12; else return 1; fi
+    }
+
+    SESSION_IDS=()
+    SESSION_DISPLAYS=()
+    local i
+    for i in $(seq 1 30); do
+        SESSION_IDS+=("tower_session_$i")
+        SESSION_DISPLAYS+=("● session-$i")
+    done
+    BROKEN_START=3
+
+    run render_list 0
+    [ "$status" -eq 0 ]
+
+    # The frame is one atomic printf; lines = newline count + 1 (the footer
+    # intentionally has no trailing newline). Must fit in 12 rows.
+    local nl_count
+    nl_count=$(printf '%s' "$output" | wc -l)
+    [ "$((nl_count + 1))" -le 12 ]
+}
+
+@test "render_list: frame emits no trailing newline after the footer" {
+    source "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh" 2>/dev/null || true
+
+    tput() {
+        if [[ "$1" == "lines" ]]; then echo 24; else return 1; fi
+    }
+
+    SESSION_IDS=("tower_only")
+    SESSION_DISPLAYS=("○ only")
+    BROKEN_START=-1
+
+    local raw last_line
+    raw=$(render_list 0; printf 'SENTINEL')
+    # A newline after the footer would scroll a full-height frame on every
+    # redraw. The text after the frame's last newline must still contain the
+    # footer, i.e. nothing but escape codes and the sentinel follow it.
+    last_line="${raw##*$'\n'}"
+    [[ "$last_line" == *"q:quit"* ]]
+    [[ "$last_line" == *"SENTINEL" ]]
+}
 # Existing test (test_claude_sessions.bats:173) only covers minutes/hours.
 # Missing: days boundary (>=86400s) and malformed/negative input behavior.
 # ============================================================================

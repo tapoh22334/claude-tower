@@ -139,7 +139,17 @@ render_list() {
     local selected_index="$1"
     local term_height
     term_height=$(tput lines 2>/dev/null || echo 24)
-    local max_lines=$((term_height - 4)) # Reserve space for footer
+    # Row budget for session lines. Reserve: header (2) + footer (2), plus
+    # one row for the "── unrecoverable ──" separator when it will be shown
+    # and one for the "... +N more" line when the list is truncated. If the
+    # frame is even one line taller than the terminal, every redraw scrolls
+    # the screen and the refresh loop turns into an endless upward crawl.
+    local max_lines=$((term_height - 4))
+    [[ $BROKEN_START -ge 0 ]] && max_lines=$((max_lines - 1))
+    if [[ ${#SESSION_IDS[@]} -gt $max_lines ]]; then
+        max_lines=$((max_lines - 1))
+    fi
+    [[ $max_lines -lt 1 ]] && max_lines=1
 
     # Build output in variable first (double buffering)
     local output=""
@@ -194,9 +204,11 @@ render_list() {
         done
     fi
 
-    # Footer with keybindings (compact)
+    # Footer with keybindings (compact). No trailing \n on the last line:
+    # if the frame fills the terminal exactly, a final newline would still
+    # scroll the screen by one row on every redraw.
     output+="${eol}\n"
-    output+="${NAV_C_DIM}j/k:nav Enter:attach i:input n:add D:del r:resume q:quit${NAV_C_NORMAL}${eol}\n"
+    output+="${NAV_C_DIM}j/k:nav Enter:attach i:input n:add D:del r:resume q:quit${NAV_C_NORMAL}${eol}"
 
     # Clear to end of screen code
     local clear_eos
