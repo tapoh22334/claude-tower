@@ -71,18 +71,34 @@ _session_label() {
     local claude_id="${session_id#tower_}"
     local label="" name=""
 
+    # A registry name is the user's own words for this session — when one
+    # exists it IS the label, no title needed.
+    if load_metadata "$session_id" 2>/dev/null && [[ -n "$META_SESSION_NAME" ]]; then
+        name="$META_SESSION_NAME"
+    fi
     label=$(get_session_title "$claude_id" 2>/dev/null) || label=""
-    # JSON strings carry newlines/tabs as literal \n / \t escapes.
-    label="${label//\\n/ }"
-    label="${label//\\t/ }"
-    label="${label//$'\t'/ }"
-    if [[ ${#label} -gt 40 ]]; then label="${label:0:39}…"; fi
     [[ -z "$label" ]] && label="${claude_id:0:7}"
 
-    if load_metadata "$session_id" 2>/dev/null && [[ -n "$META_SESSION_NAME" ]]; then
-        name=" (${META_SESSION_NAME})"
+    # Budget: terminal width minus the icon, indent and unread mark. Cut by
+    # display cells — a Japanese title counted in characters overflows the
+    # row and wraps onto a second line.
+    local width budget
+    width=$(tput cols 2>/dev/null || echo 80)
+    budget=$((width - 8))
+    ((budget < 20)) && budget=20
+
+    if [[ -n "$name" ]]; then
+        # "name — title", with the name never sacrificed to the title.
+        local name_w
+        name_w=$(str_display_width "$name")
+        if ((name_w + 6 >= budget)); then
+            truncate_display "$name" "$budget"
+            return 0
+        fi
+        printf '%s — %s\n' "$name" "$(truncate_display "$label" $((budget - name_w - 3)))"
+        return 0
     fi
-    echo "${label}${name}"
+    truncate_display "$label" "$budget"
 }
 
 # Project dir of a session ("" when unknown)
@@ -176,12 +192,24 @@ build_session_list() {
         if [[ $found -eq 1 ]]; then continue; fi
         dirs_seen+=("$d")
 
-        header="${NAV_C_DIM}▍$(basename -- "${d:-unknown}")${NAV_C_NORMAL}"
+        # The project name is the one thing that must be findable at a
+        # glance, so it gets the strongest treatment on screen: bold cyan
+        # against dim rows, with a rule running out to the right margin.
+        local dname rule_w
+        dname=$(basename -- "${d:-unknown}")
+        header="${NAV_C_HEADER}${dname}${NAV_C_NORMAL}"
         extern=$(count_unregistered_processes_in_dir "$d")
         if [[ "$extern" -gt 0 ]]; then
             # Live claude processes here that Tower doesn't manage
             # (forks / sessions started in plain terminals).
             header+=" ${NAV_C_EXTERNAL}⚡${extern}${NAV_C_NORMAL}"
+        fi
+        rule_w=$(( $(tput cols 2>/dev/null || echo 80) - $(str_display_width "$dname") - 4 ))
+        if ((extern > 0)); then rule_w=$((rule_w - 3)); fi
+        if ((rule_w > 0)); then
+            local rule=""
+            while ((${#rule} < rule_w)); do rule+="─"; done
+            header+=" ${NAV_C_DIM}${rule}${NAV_C_NORMAL}"
         fi
 
         for ((j = i; j < ${#raw_ids[@]}; j++)); do
@@ -295,9 +323,9 @@ render_list() {
             fi
             display="${SESSION_DISPLAYS[$i]//$SPIN_PLACEHOLDER/$spin_frame}"
             if [[ $i -eq $selected_index ]]; then
-                body_lines+=("${NAV_C_SELECTED} ${display} ${NAV_C_NORMAL}")
+                body_lines+=("${NAV_C_SELECTED}  ${display} ${NAV_C_NORMAL}")
             else
-                body_lines+=(" ${display}")
+                body_lines+=("  ${display}")
             fi
             body_idx+=("$i")
         done
