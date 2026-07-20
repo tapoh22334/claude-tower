@@ -54,19 +54,29 @@ readonly NAV_C_DORMANT=$'\033[90m'   # Gray - dormant sessions
 # Session arrays
 declare -a SESSION_IDS=()
 declare -a SESSION_DISPLAYS=()
+# Project dir per row ("" for broken rows) and the group-header text to
+# print before a row ("" = row continues the previous group).
+declare -a SESSION_DIRS=()
+declare -a SESSION_HEADERS=()
 # Index into SESSION_IDS where broken (dead/lost) sessions start; -1 = none
 BROKEN_START=-1
 
-# Row label: cwd tail, plus " (name)" when the registry has one.
+readonly NAV_C_EXTERNAL=$'\033[36m'  # Cyan - running outside Tower
+
+# Row label inside a project group: the group header already names the
+# directory, so the row shows the conversation title (what distinguishes
+# sessions sharing a project), plus " (name)" when the registry has one.
 _session_label() {
     local session_id="$1"
     local claude_id="${session_id#tower_}"
-    local label="" jsonl cwd name=""
+    local label="" name=""
 
-    if jsonl=$(find_session_jsonl "$claude_id" 2>/dev/null); then
-        cwd=$(get_session_cwd "$jsonl" 2>/dev/null || true)
-        [[ -n "$cwd" ]] && label=$(basename -- "$cwd")
-    fi
+    label=$(get_session_title "$claude_id" 2>/dev/null) || label=""
+    # JSON strings carry newlines/tabs as literal \n / \t escapes.
+    label="${label//\\n/ }"
+    label="${label//\\t/ }"
+    label="${label//$'\t'/ }"
+    if [[ ${#label} -gt 40 ]]; then label="${label:0:39}…"; fi
     [[ -z "$label" ]] && label="${claude_id:0:7}"
 
     if load_metadata "$session_id" 2>/dev/null && [[ -n "$META_SESSION_NAME" ]]; then
@@ -75,14 +85,24 @@ _session_label() {
     echo "${label}${name}"
 }
 
+# Project dir of a session ("" when unknown)
+_session_dir() {
+    local claude_id="${1#tower_}" jsonl
+    jsonl=$(find_session_jsonl "$claude_id" 2>/dev/null) || { echo ""; return 0; }
+    get_session_cwd "$jsonl" 2>/dev/null || echo ""
+}
+
 # Build session list: normal states first, broken (dead/lost) last.
 build_session_list() {
     SESSION_IDS=()
     SESSION_DISPLAYS=()
+    SESSION_DIRS=()
+    SESSION_HEADERS=()
     BROKEN_START=-1
 
+    local -a raw_ids=() raw_displays=() raw_dirs=()
     local -a broken_ids=() broken_displays=()
-    local session_id state label selected unread
+    local session_id state label selected unread dir jsonl agents badge
 
     # The selected session is on screen in the view pane: whatever it has
     # produced counts as seen. Everything else gets a baseline mark so a
@@ -97,23 +117,39 @@ build_session_list() {
             init_session_seen "$session_id"
         fi
         unread=""
-        if [[ "$state" == "active" || "$state" == "dormant" ]] &&
+        if [[ "$state" == "active" || "$state" == "dormant" || "$state" == "external" ]] &&
             is_session_unread "$session_id"; then
             unread=" ${NAV_C_ACCENT}${ICON_UNREAD}${NAV_C_NORMAL}"
         fi
         label=$(_session_label "$session_id")
+        dir=$(_session_dir "$session_id")
         case "$state" in
             busy)
-                SESSION_IDS+=("$session_id")
-                SESSION_DISPLAYS+=("${NAV_C_ACCENT}${SPIN_PLACEHOLDER}${NAV_C_NORMAL} ${label}")
+                badge=""
+                if jsonl=$(find_session_jsonl "${session_id#tower_}" 2>/dev/null); then
+                    agents=$(count_active_subagents "$jsonl")
+                    if [[ "$agents" -gt 0 ]]; then
+                        badge=" ${NAV_C_DIM}⚙${agents}${NAV_C_NORMAL}"
+                    fi
+                fi
+                raw_ids+=("$session_id")
+                raw_dirs+=("$dir")
+                raw_displays+=("${NAV_C_ACCENT}${SPIN_PLACEHOLDER}${NAV_C_NORMAL} ${label}${badge}")
                 ;;
             active)
-                SESSION_IDS+=("$session_id")
-                SESSION_DISPLAYS+=("${NAV_C_ACTIVE}▶${NAV_C_NORMAL} ${label}${unread}")
+                raw_ids+=("$session_id")
+                raw_dirs+=("$dir")
+                raw_displays+=("${NAV_C_ACTIVE}▶${NAV_C_NORMAL} ${label}${unread}")
+                ;;
+            external)
+                raw_ids+=("$session_id")
+                raw_dirs+=("$dir")
+                raw_displays+=("${NAV_C_EXTERNAL}◇${NAV_C_NORMAL} ${label}${unread}")
                 ;;
             dormant)
-                SESSION_IDS+=("$session_id")
-                SESSION_DISPLAYS+=("${NAV_C_DORMANT}○${NAV_C_NORMAL} ${label}${unread}")
+                raw_ids+=("$session_id")
+                raw_dirs+=("$dir")
+                raw_displays+=("${NAV_C_DORMANT}○${NAV_C_NORMAL} ${label}${unread}")
                 ;;
             dead)
                 broken_ids+=("$session_id")
@@ -126,10 +162,48 @@ build_session_list() {
         esac
     done < <(list_all_sessions)
 
+    # Regroup by project dir: groups in first-appearance order, original
+    # order kept within a group. Headers are precomputed here so spinner
+    # ticks can re-render without touching the process table.
+    local -a dirs_seen=()
+    local d seen_d found i j header extern
+    for ((i = 0; i < ${#raw_ids[@]}; i++)); do
+        d="${raw_dirs[$i]}"
+        found=0
+        for seen_d in "${dirs_seen[@]:-}"; do
+            if [[ "$seen_d" == "$d" ]]; then found=1; fi
+        done
+        if [[ $found -eq 1 ]]; then continue; fi
+        dirs_seen+=("$d")
+
+        header="${NAV_C_DIM}▍$(basename -- "${d:-unknown}")${NAV_C_NORMAL}"
+        extern=$(count_unregistered_processes_in_dir "$d")
+        if [[ "$extern" -gt 0 ]]; then
+            # Live claude processes here that Tower doesn't manage
+            # (forks / sessions started in plain terminals).
+            header+=" ${NAV_C_EXTERNAL}⚡${extern}${NAV_C_NORMAL}"
+        fi
+
+        for ((j = i; j < ${#raw_ids[@]}; j++)); do
+            if [[ "${raw_dirs[$j]}" == "$d" ]]; then
+                SESSION_IDS+=("${raw_ids[$j]}")
+                SESSION_DISPLAYS+=("${raw_displays[$j]}")
+                SESSION_DIRS+=("$d")
+                SESSION_HEADERS+=("$header")
+                header=""
+            fi
+        done
+    done
+
     if [[ ${#broken_ids[@]} -gt 0 ]]; then
         BROKEN_START=${#SESSION_IDS[@]}
-        SESSION_IDS+=("${broken_ids[@]}")
-        SESSION_DISPLAYS+=("${broken_displays[@]}")
+        local k
+        for ((k = 0; k < ${#broken_ids[@]}; k++)); do
+            SESSION_IDS+=("${broken_ids[$k]}")
+            SESSION_DISPLAYS+=("${broken_displays[$k]}")
+            SESSION_DIRS+=("")
+            SESSION_HEADERS+=("")
+        done
     fi
 }
 
@@ -165,16 +239,11 @@ render_list() {
     local selected_index="$1"
     local term_height
     term_height=$(tput lines 2>/dev/null || echo 24)
-    # Row budget for session lines. Reserve: header (2) + footer (2), plus
-    # one row for the "── unrecoverable ──" separator when it will be shown
-    # and one for the "... +N more" line when the list is truncated. If the
-    # frame is even one line taller than the terminal, every redraw scrolls
-    # the screen and the refresh loop turns into an endless upward crawl.
+    # Row budget for the body (session rows + group headers + separator).
+    # Reserve: header (2) + footer (2). If the frame is even one line
+    # taller than the terminal, every redraw scrolls the screen and the
+    # refresh loop turns into an endless upward crawl.
     local max_lines=$((term_height - 4))
-    [[ $BROKEN_START -ge 0 ]] && max_lines=$((max_lines - 1))
-    if [[ ${#SESSION_IDS[@]} -gt $max_lines ]]; then
-        max_lines=$((max_lines - 1))
-    fi
     [[ $max_lines -lt 1 ]] && max_lines=1
 
     # Build output in variable first (double buffering)
@@ -208,35 +277,56 @@ render_list() {
     if [[ ${#SESSION_IDS[@]} -eq 0 ]]; then
         output+="${NAV_C_DIM}(no sessions)${NAV_C_NORMAL}${eol}\n"
     else
+        # Compose body lines first (group headers, separator, session rows)
+        # so the height budget and "+N more" stay exact with headers in
+        # the mix. body_idx maps each line to its session index (-1 = not
+        # a session row).
         local spin_frame="${SPINNER_FRAMES[$((SPIN_TICK % ${#SPINNER_FRAMES[@]}))]}"
-        local i=0
-        for display in "${SESSION_DISPLAYS[@]}"; do
-            display="${display//$SPIN_PLACEHOLDER/$spin_frame}"
-            if [[ $i -ge $max_lines ]]; then
-                local remaining=$((${#SESSION_IDS[@]} - max_lines))
-                output+="${NAV_C_DIM}... +${remaining} more${NAV_C_NORMAL}${eol}\n"
-                break
-            fi
-
+        local -a body_lines=() body_idx=()
+        local i display
+        for ((i = 0; i < ${#SESSION_IDS[@]}; i++)); do
             if [[ $BROKEN_START -ge 0 && $i -eq $BROKEN_START ]]; then
-                output+="${NAV_C_DIM}── unrecoverable ──${NAV_C_NORMAL}${eol}\n"
+                body_lines+=("${NAV_C_DIM}── unrecoverable ──${NAV_C_NORMAL}")
+                body_idx+=(-1)
             fi
-
+            if [[ -n "${SESSION_HEADERS[$i]:-}" ]]; then
+                body_lines+=("${SESSION_HEADERS[$i]}")
+                body_idx+=(-1)
+            fi
+            display="${SESSION_DISPLAYS[$i]//$SPIN_PLACEHOLDER/$spin_frame}"
             if [[ $i -eq $selected_index ]]; then
-                # Highlight selected row
-                output+="${NAV_C_SELECTED} ${display} ${NAV_C_NORMAL}${eol}\n"
+                body_lines+=("${NAV_C_SELECTED} ${display} ${NAV_C_NORMAL}")
             else
-                output+=" ${display}${eol}\n"
+                body_lines+=(" ${display}")
             fi
-            ((i++)) || true
+            body_idx+=("$i")
         done
+
+        local total=${#body_lines[@]}
+        local shown=$total
+        if [[ $total -gt $max_lines ]]; then
+            shown=$((max_lines - 1))   # keep one row for "+N more"
+            [[ $shown -lt 1 ]] && shown=1
+        fi
+        local n
+        for ((n = 0; n < shown; n++)); do
+            output+="${body_lines[$n]}${eol}\n"
+        done
+        if [[ $shown -lt $total ]]; then
+            # Count hidden *sessions*, not hidden lines
+            local hidden=0
+            for ((n = shown; n < total; n++)); do
+                if [[ "${body_idx[$n]}" -ge 0 ]]; then hidden=$((hidden + 1)); fi
+            done
+            output+="${NAV_C_DIM}... +${hidden} more${NAV_C_NORMAL}${eol}\n"
+        fi
     fi
 
     # Footer with keybindings (compact). No trailing \n on the last line:
     # if the frame fills the terminal exactly, a final newline would still
     # scroll the screen by one row on every redraw.
     output+="${eol}\n"
-    output+="${NAV_C_DIM}j/k:nav Enter/i:input n:add D:del r:resume t:tail q:quit${NAV_C_NORMAL}${eol}"
+    output+="${NAV_C_DIM}j/k:nav Enter/i:input n:add f:fork N:new-dir D:del r:resume t:tail q:quit${NAV_C_NORMAL}${eol}"
 
     # Clear to end of screen code
     local clear_eos
@@ -260,18 +350,18 @@ show_help() {
     echo "  Actions:"
     echo "    Enter / i  Focus view pane (input mode)"
     echo "    n          Add session (pick existing Claude session or start new)"
+    echo "    f          Fork: new session in the selected session's directory"
+    echo "    N          New session in a picked project directory"
     echo "    D          Delete from Tower (Claude's transcript is kept)"
     echo "    r          Resume selected dormant session"
     echo "    Tab        Switch to Tile view"
     echo "    t          Switch to Tail view (live output follow)"
-    echo ""
-    # Keep the help within 24 rows: one line taller and the title scrolls
-    # off on a default-size terminal.
-    echo "  Marks:     ${SPINNER_FRAMES[0]} working   ${ICON_UNREAD} unread (output since last viewed)"
-    echo ""
-    echo "  Other:"
     echo "    ?          Show this help"
     echo "    q          Quit Navigator"
+    echo ""
+    # Keep the help under 24 rows total: at 24 printed lines the final
+    # newline scrolls the title off a default-size terminal.
+    echo "  Marks:     ${SPINNER_FRAMES[0]} working  ${ICON_UNREAD} unread  ◇ external  ⚙N subagents  ⚡N unmanaged"
     echo ""
     echo -e "${NAV_C_DIM}Press any key to continue...${NAV_C_NORMAL}"
     read -rsn1
@@ -373,6 +463,40 @@ add_session_inline() {
     fi
 }
 
+# Fork here: start a brand-new session in the selected session's project
+# dir, no prompts. The new session is registered and selected.
+fork_session_here() {
+    local selected dir new_id
+    selected=$(get_nav_selected)
+    if [[ -z "$selected" ]]; then
+        return 0
+    fi
+    dir=$(_session_dir "$selected")
+    if [[ -z "$dir" || ! -d "$dir" ]]; then
+        echo ""
+        echo "  ${NAV_C_DIM}No directory known for this session${NAV_C_NORMAL}"
+        sleep 0.5
+        return 0
+    fi
+    clear
+    new_id=$("$SCRIPT_DIR/session-add.sh" --fork-dir "$dir" --print-id) || return 0
+    if [[ -n "$new_id" ]]; then
+        set_nav_selected "$new_id"
+        signal_view_update
+    fi
+}
+
+# Pick a known project directory and start a new session there.
+new_session_pick_dir() {
+    clear
+    local new_id
+    new_id=$("$SCRIPT_DIR/session-add.sh" --new-in-dir --print-id) || return 0
+    if [[ -n "$new_id" ]]; then
+        set_nav_selected "$new_id"
+        signal_view_update
+    fi
+}
+
 # Working directory of the caller pane (default dir for new sessions)
 get_caller_cwd() {
     local caller cwd=""
@@ -455,6 +579,15 @@ restore_selected() {
         echo ""
         echo "  ${NAV_C_DIM}Not registered — press n to add${NAV_C_NORMAL}"
         sleep 0.3
+        return 0
+    fi
+
+    # Already running outside Tower's tmux: resuming would open a second
+    # copy of a live session.
+    if [[ "$(get_display_state "$selected")" == "external" ]]; then
+        echo ""
+        echo "  ${NAV_C_DIM}Running outside Tower (◇) — use its own terminal${NAV_C_NORMAL}"
+        sleep 0.5
         return 0
     fi
 
@@ -626,6 +759,22 @@ main_loop() {
                 n)
                     add_session_inline
                     # Flush input buffer and restore terminal state
+                    read -rsn100 -t 0.01 _ 2>/dev/null || true
+                    stty echo 2>/dev/null || true
+                    build_session_list
+                    selected_index=$(get_selection_index)
+                    clear
+                    ;;
+                f)
+                    fork_session_here
+                    read -rsn100 -t 0.01 _ 2>/dev/null || true
+                    stty echo 2>/dev/null || true
+                    build_session_list
+                    selected_index=$(get_selection_index)
+                    clear
+                    ;;
+                N)
+                    new_session_pick_dir
                     read -rsn100 -t 0.01 _ 2>/dev/null || true
                     stty echo 2>/dev/null || true
                     build_session_list

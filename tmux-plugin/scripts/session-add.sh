@@ -10,7 +10,20 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/common.sh"
 
 PRINT_ID=0
-[[ "${1:-}" == "--print-id" ]] && PRINT_ID=1
+MODE="pick"      # pick (default) | fork-dir | new-in-dir
+FORK_DIR=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --print-id) PRINT_ID=1 ;;
+        --fork-dir)
+            MODE="fork-dir"
+            FORK_DIR="${2:-}"
+            shift
+            ;;
+        --new-in-dir) MODE="new-in-dir" ;;
+    esac
+    shift
+done
 
 NEW_SENTINEL="[new]    Start a new session"
 
@@ -152,6 +165,22 @@ prompt_new_directory() {
     echo "$dir"
 }
 
+# Start a brand-new session in an explicit directory, no prompts.
+# Backs both --fork-dir (dir from the caller) and --new-in-dir (dir from
+# the project picker).
+start_session_in_dir() {
+    local dir="$1" uuid
+    if [[ -z "$dir" || ! -d "$dir" ]]; then
+        handle_error "Directory not found: ${dir:-<empty>}"
+        return 1
+    fi
+    uuid=$(generate_uuid) || return 1
+    start_claude_session "tower_${uuid}" "$dir" "new" >&2 || return 1
+    save_metadata "tower_${uuid}"
+    [[ "$PRINT_ID" -eq 1 ]] && echo "tower_${uuid}"
+    return 0
+}
+
 start_new_session() {
     local default_dir="${TOWER_ADD_DEFAULT_DIR:-$PWD}"
     local dir uuid name
@@ -192,6 +221,18 @@ add_existing_session() {
 }
 
 main() {
+    if [[ "$MODE" == "fork-dir" ]]; then
+        start_session_in_dir "$FORK_DIR"
+        return $?
+    fi
+    if [[ "$MODE" == "new-in-dir" ]]; then
+        local dir
+        dir=$(list_project_dirs | run_picker) || return 1
+        [[ -n "$dir" ]] || return 1
+        start_session_in_dir "$dir"
+        return $?
+    fi
+
     local candidates rendered="" picked
     candidates=$(list_addable_sessions)
     # Render exactly once; the picker shows these lines and resolution

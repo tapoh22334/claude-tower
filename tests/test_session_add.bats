@@ -72,7 +72,7 @@ STUB
     run bash -c "
         export PATH='$BATS_TEST_TMPDIR/fakebin:$PATH'
         source '$PROJECT_ROOT/tmux-plugin/lib/common.sh'
-        source <(sed -n '17,26p' '$SESSION_ADD')
+        source <(sed -n '/^generate_uuid()/,/^}/p' '$SESSION_ADD')
         generate_uuid
     "
     [ "$status" -eq 0 ]
@@ -103,7 +103,7 @@ setup_path_without_uuidgen() {
     run bash -c "
         export PATH='$dir'
         source '$PROJECT_ROOT/tmux-plugin/lib/common.sh'
-        source <(sed -n '17,26p' '$SESSION_ADD')
+        source <(sed -n '/^generate_uuid()/,/^}/p' '$SESSION_ADD')
         generate_uuid
     "
     [ "$status" -eq 0 ]
@@ -119,7 +119,7 @@ setup_path_without_uuidgen() {
     run bash -c "
         export PATH='$dir'
         source '$PROJECT_ROOT/tmux-plugin/lib/common.sh'
-        source <(sed -n '17,26p' '$SESSION_ADD')
+        source <(sed -n '/^generate_uuid()/,/^}/p' '$SESSION_ADD')
         generate_uuid
     "
     [ "$status" -eq 1 ]
