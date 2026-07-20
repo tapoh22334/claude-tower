@@ -168,13 +168,6 @@ teardown() {
     [[ "$output" == *"detach-client -E"* ]]
 }
 
-@test "server-switch: navigator-list.sh full_attach uses detach-client -E" {
-    local script="$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
-
-    run grep -A35 "^full_attach()" "$script"
-    [[ "$output" == *"detach-client -E"* ]]
-}
-
 # ============================================================================
 # Session Existence Checks Use Correct Server
 # ============================================================================

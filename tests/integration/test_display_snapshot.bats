@@ -195,8 +195,7 @@ render_navigator_list() {
     # Footer reflects the current 5-state-era keybindings (n:add, D:del,
     # r:resume - not the removed R:restore-all)
     [[ "$output" == *"j/k:nav"* ]]
-    [[ "$output" == *"Enter:attach"* ]]
-    [[ "$output" == *"i:input"* ]]
+    [[ "$output" == *"Enter/i:input"* ]]
     [[ "$output" == *"n:add"* ]]
     [[ "$output" == *"D:del"* ]]
     [[ "$output" == *"r:resume"* ]]

@@ -208,7 +208,7 @@ render_list() {
     # if the frame fills the terminal exactly, a final newline would still
     # scroll the screen by one row on every redraw.
     output+="${eol}\n"
-    output+="${NAV_C_DIM}j/k:nav Enter:attach i:input n:add D:del r:resume q:quit${NAV_C_NORMAL}${eol}"
+    output+="${NAV_C_DIM}j/k:nav Enter/i:input n:add D:del r:resume q:quit${NAV_C_NORMAL}${eol}"
 
     # Clear to end of screen code
     local clear_eos
@@ -230,8 +230,7 @@ show_help() {
     echo "    G          Go to last session"
     echo ""
     echo "  Actions:"
-    echo "    Enter      Full attach to session"
-    echo "    i          Focus view pane (input mode)"
+    echo "    Enter / i  Focus view pane (input mode)"
     echo "    n          Add session (pick existing Claude session or start new)"
     echo "    D          Delete from Tower (Claude's transcript is kept)"
     echo "    r          Resume selected dormant session"
@@ -456,42 +455,6 @@ switch_to_tile() {
     fi
 }
 
-# Full attach to selected session
-# Uses detach-client -E to seamlessly switch from Navigator to the target session
-full_attach() {
-    local selected
-    selected=$(get_nav_selected)
-
-    if [[ -z "$selected" ]]; then
-        return
-    fi
-
-    # Check if dormant and restore first
-    local state
-    state=$(get_session_state "$selected")
-
-    if [[ "$state" == "$STATE_DORMANT" ]]; then
-        echo "Restoring session..."
-        "$SCRIPT_DIR/session-restore.sh" "$selected" 2>/dev/null || true
-        sleep 0.5
-        # Re-check state after restore
-        state=$(get_session_state "$selected")
-    fi
-
-    # Verify session exists on session server
-    if ! session_tmux has-session -t "$selected" 2>/dev/null; then
-        handle_error "Session not found: ${selected#tower_}"
-        return 1
-    fi
-
-    info_log "Full attach to session: $selected"
-
-    # Use detach-client -E to seamlessly switch from Navigator server to session server
-    # This detaches the client from Navigator and immediately attaches to the target session
-    # The Navigator session remains alive in the background for fast re-entry
-    nav_tmux detach-client -E "TMUX= tmux -L '$TOWER_SESSION_SOCKET' attach-session -t '$selected'"
-}
-
 # Quit Navigator
 # Returns to the caller session or any available session on default server
 quit_navigator() {
@@ -606,8 +569,8 @@ main_loop() {
                 G)
                     selected_index=$(go_last)
                     ;;
-                '') # Enter key
-                    full_attach
+                '') # Enter key - same as i
+                    focus_view
                     ;;
                 i)
                     focus_view
