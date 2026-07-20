@@ -839,6 +839,9 @@ session_exists() {
 
 readonly STATE_ACTIVE="active"
 readonly STATE_DORMANT="dormant"
+readonly STATE_BUSY="busy"
+readonly STATE_DEAD="dead"
+readonly STATE_LOST="lost"
 
 readonly ICON_STATE_ACTIVE="▶"
 readonly ICON_STATE_DORMANT="○"
