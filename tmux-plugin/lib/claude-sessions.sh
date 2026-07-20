@@ -218,6 +218,41 @@ list_project_dirs() {
     done | sort -k1,1nr | awk -F'\t' '!seen[$2]++ { print $2 }'
 }
 
+# Reduce a raw prompt to the one line worth showing in a list: the first
+# sentence, with the JSON escapes Claude stores flattened. Returns 1 for
+# prompts that identify nothing — bare slash commands, pastes, and stock
+# nudges — so callers can walk to the next prompt instead.
+_first_meaningful_sentence() {
+    local s="$1"
+    # JSON strings carry newlines/tabs as literal \n / \t escapes.
+    s="${s//\\n/ }"
+    s="${s//\\t/ }"
+    s="${s//$'\t'/ }"
+    s="${s//\\\"/\"}"
+    # Leading whitespace, then a bare slash command (with or without args
+    # on the same line) is a command invocation, not a description.
+    while [[ "$s" == " "* ]]; do s="${s# }"; done
+    [[ "$s" == /* ]] && return 1
+    [[ "$s" == "["*"]"* ]] && return 1   # [Image #1], [Pasted text ...]
+
+    # First sentence: split on the first Japanese or ASCII terminator.
+    local first="$s"
+    local marker
+    for marker in '。' '？' '！' '. ' '? ' '! '; do
+        if [[ "$first" == *"$marker"* ]]; then
+            first="${first%%"$marker"*}"
+        fi
+    done
+    while [[ "$first" == *" " ]]; do first="${first% }"; done
+
+    # Stock nudges carry no information about what the session is for.
+    case "$first" in
+        continue | Continue | つづき | 続き | 続けて | go | Go | y | yes | ok | OK) return 1 ;;
+    esac
+    [[ ${#first} -ge 2 ]] || return 1
+    printf '%s\n' "$first"
+}
+
 # First user prompt of a session, from Claude's own history file
 # (~/.claude/history.jsonl: one {"display":...,"sessionId":...} line per
 # prompt, oldest first — the same source Claude's resume picker shows).
@@ -226,14 +261,17 @@ get_session_title() {
     local session_id="$1"
     local line title
     if [[ -f "$CLAUDE_HISTORY_FILE" ]]; then
-        line=$(grep -m 1 -F "\"sessionId\":\"${session_id}\"" -- "$CLAUDE_HISTORY_FILE" 2>/dev/null) || line=""
-        if [[ -n "$line" ]]; then
-            if title=$(printf '%s\n' "$line" | grep -o '"display":"[^"]*"'); then
-                title="${title#\"display\":\"}"
-                printf '%s\n' "${title%\"}"
-                return 0
-            fi
-        fi
+        # First few prompts of this session, oldest first. The very first
+        # one is often a bare slash command or a one-word nudge that says
+        # nothing about the work — walk forward until something does.
+        while IFS= read -r line; do
+            title=$(printf '%s\n' "$line" | grep -o '"display":"[^"]*"') || continue
+            title="${title#\"display\":\"}"
+            title="${title%\"}"
+            title=$(_first_meaningful_sentence "$title") || continue
+            printf '%s\n' "$title"
+            return 0
+        done < <(grep -m 5 -F "\"sessionId\":\"${session_id}\"" -- "$CLAUDE_HISTORY_FILE" 2>/dev/null)
     fi
     # Fallback: first user message in the transcript. Sessions started
     # non-interactively (-p, SDK, subagent relaunch) never reach history.
@@ -247,7 +285,65 @@ get_session_title() {
     title="${title#*:\"}"
     title="${title%\"}"
     [[ -n "$title" ]] || return 1
-    printf '%s\n' "$title"
+    _first_meaningful_sentence "$title" || printf '%s\n' "$title"
+}
+
+# Display width in terminal cells, and truncation to a cell budget. CJK,
+# kana and fullwidth punctuation take two cells each; counting characters
+# instead makes a Japanese title overflow the row and wrap onto a second
+# line.
+#
+# Both walk raw UTF-8 bytes rather than using ${#s} / ${s:i:1}: those are
+# character-based only under a UTF-8 locale, and Tower runs under whatever
+# the terminal has (the test container is ASCII, where bash would see one
+# Japanese character as three). Lead byte decides the width: 1- and 2-byte
+# sequences are one cell, 3- and 4-byte ones are two. The narrow 3-byte
+# exceptions are rare enough in prompts to not warrant a range table.
+# $2 < 0 measures; $2 >= 0 truncates to that many cells.
+_utf8_walk() {
+    local s="$1" max="$2"
+    local i=0 n=${#s} lead nbytes cw acc=0 out=""
+    local budget=$((max - 1))
+    while ((i < n)); do
+        printf -v lead '%d' "'${s:$i:1}"
+        ((lead < 0)) && lead=$((lead + 256))
+        if ((lead < 0x80)); then
+            nbytes=1 cw=1
+        elif ((lead < 0xE0)); then
+            nbytes=2 cw=1
+        elif ((lead < 0xF0)); then
+            nbytes=3 cw=2
+        else
+            nbytes=4 cw=2
+        fi
+        if ((max >= 0 && acc + cw > budget)); then
+            printf '%s…\n' "$out"
+            return 0
+        fi
+        ((max >= 0)) && out+="${s:$i:$nbytes}"
+        acc=$((acc + cw))
+        i=$((i + nbytes))
+    done
+    if ((max >= 0)); then
+        printf '%s\n' "$out"
+    else
+        echo "$acc"
+    fi
+}
+
+str_display_width() {
+    LC_ALL=C _utf8_walk "$1" -1
+}
+
+# Truncate to at most $2 display cells, appending an ellipsis when cut.
+truncate_display() {
+    local s="$1" max="$2" w
+    w=$(str_display_width "$s")
+    if ((w <= max)); then
+        printf '%s\n' "$s"
+        return 0
+    fi
+    LC_ALL=C _utf8_walk "$s" "$max"
 }
 
 # --- Unread tracking -------------------------------------------------------
