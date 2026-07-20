@@ -15,21 +15,24 @@ teardown() {
 }
 
 # ============================================================================
-# _session_label() — navigator-list.sh:50-64
-# Zero prior test references. Computes the row text shown in the session
-# list: cwd basename, or short-id fallback when no jsonl/cwd is found, plus
-# an optional " (name)" suffix from metadata.
+# _session_label() — navigator-list.sh
+# Computes the row text shown in the session list. Since project grouping,
+# the group header carries the directory name, so the row label is the
+# conversation title (get_session_title), falling back to the short id,
+# plus an optional " (name)" suffix from metadata.
 # ============================================================================
 
-@test "_session_label: uses cwd basename when transcript has a cwd" {
+@test "_session_label: uses the conversation title when history has one" {
     source "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh" 2>/dev/null || true
 
     local uuid="22222222-2222-4222-8222-222222222222"
     create_mock_jsonl "myproj" "$uuid" "/home/user/projects/myproj"
+    CLAUDE_HISTORY_FILE="${BATS_TEST_TMPDIR}/history.jsonl"
+    echo '{"display":"fix the login bug","sessionId":"'"$uuid"'"}' > "$CLAUDE_HISTORY_FILE"
 
     run _session_label "tower_${uuid}"
     [ "$status" -eq 0 ]
-    [ "$output" = "myproj" ]
+    [ "$output" = "fix the login bug" ]
 }
 
 @test "_session_label: falls back to short id when no jsonl is found" {
@@ -54,6 +57,10 @@ teardown() {
     [ "$output" = "${uuid:0:7}" ]
 }
 
+# The mock transcript's user line carries no content and the test history
+# has no entry, so the title falls back to the short id in the two tests
+# below — the point is the " (name)" suffix behavior.
+
 @test "_session_label: appends registry name in parens when metadata has one" {
     source "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh" 2>/dev/null || true
 
@@ -63,7 +70,7 @@ teardown() {
 
     run _session_label "tower_${uuid}"
     [ "$status" -eq 0 ]
-    [ "$output" = "myproj (my-alias)" ]
+    [ "$output" = "${uuid:0:7} (my-alias)" ]
 }
 
 @test "_session_label: no name suffix when metadata exists but has no session_name" {
@@ -75,7 +82,7 @@ teardown() {
 
     run _session_label "tower_${uuid}"
     [ "$status" -eq 0 ]
-    [ "$output" = "myproj" ]
+    [ "$output" = "${uuid:0:7}" ]
 }
 
 # ============================================================================

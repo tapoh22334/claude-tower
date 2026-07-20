@@ -11,6 +11,7 @@
 
 CLAUDE_PROJECTS_DIR="${CLAUDE_PROJECTS_DIR:-$HOME/.claude/projects}"
 CLAUDE_HISTORY_FILE="${CLAUDE_HISTORY_FILE:-$HOME/.claude/history.jsonl}"
+CLAUDE_LIVE_SESSIONS_DIR="${CLAUDE_LIVE_SESSIONS_DIR:-$HOME/.claude/sessions}"
 TOWER_BUSY_WINDOW="${TOWER_BUSY_WINDOW:-45}"
 
 # Find the transcript for a Claude session ID (without tower_ prefix)
@@ -115,6 +116,10 @@ get_display_state() {
     cwd=$(get_session_cwd "$jsonl" || true)
     if [[ -z "$cwd" || ! -d "$cwd" ]]; then
         echo "dead"
+    elif is_claude_process_alive "$claude_id"; then
+        # Running outside Tower's tmux (fork/plain terminal). Resuming
+        # would open a second copy of a live session.
+        echo "external"
     else
         echo "dormant"
     fi
@@ -139,6 +144,78 @@ list_addable_sessions() {
         mtime=$(stat -c %Y -- "$f" 2>/dev/null) || continue
         printf '%s\t%s\t%s\n' "$session_id" "$mtime" "$cwd"
     done | sort -t "$(printf '\t')" -k2,2nr
+}
+
+# Live claude processes, from Claude's own per-process files
+# (~/.claude/sessions/<pid>.json, written by every running claude).
+# Output: <sessionId>\t<pid>\t<cwd>   one line per process that is alive.
+list_live_claude_processes() {
+    local f pid line sid cwd
+    for f in "$CLAUDE_LIVE_SESSIONS_DIR"/*.json; do
+        [[ -f "$f" ]] || continue
+        pid=$(basename -- "$f" .json)
+        [[ "$pid" =~ ^[0-9]+$ ]] || continue
+        kill -0 "$pid" 2>/dev/null || continue
+        line=$(head -c 2000 -- "$f" 2>/dev/null) || continue
+        sid=$(grep -o '"sessionId":"[^"]*"' <<<"$line") || continue
+        sid="${sid#\"sessionId\":\"}"
+        sid="${sid%\"}"
+        cwd=$(grep -o '"cwd":"[^"]*"' <<<"$line") || cwd=""
+        cwd="${cwd#\"cwd\":\"}"
+        cwd="${cwd%\"}"
+        printf '%s\t%s\t%s\n' "$sid" "$pid" "$cwd"
+    done
+    return 0
+}
+
+# Is a live claude process running this session id (without tower_ prefix)?
+is_claude_process_alive() {
+    local session_id="$1"
+    list_live_claude_processes | grep -q -m 1 "^${session_id}$(printf '\t')"
+}
+
+# Count of live claude processes in a directory whose session is NOT
+# registered in Tower — forks/sessions started outside Tower's tmux.
+count_unregistered_processes_in_dir() {
+    local dir="$1"
+    local sid _pid cwd n=0
+    while IFS=$'\t' read -r sid _pid cwd; do
+        [[ "$cwd" == "$dir" ]] || continue
+        has_metadata "tower_${sid}" && continue
+        n=$((n + 1))
+    done < <(list_live_claude_processes)
+    echo "$n"
+}
+
+# Count of a session's subagents active within TOWER_BUSY_WINDOW.
+count_active_subagents() {
+    local jsonl="$1"
+    local dir session_id now t f n=0
+    dir=$(dirname -- "$jsonl")
+    session_id=$(basename -- "$jsonl" .jsonl)
+    now=$(date +%s)
+    for f in "${dir}/${session_id}/subagents"/*.jsonl; do
+        [[ -f "$f" ]] || continue
+        t=$(stat -c %Y -- "$f" 2>/dev/null) || continue
+        if ((now - t <= TOWER_BUSY_WINDOW)); then n=$((n + 1)); fi
+    done
+    echo "$n"
+}
+
+# Known project directories: every distinct transcript cwd that still
+# exists, newest transcript activity first. Feeds the new-in-dir picker.
+list_project_dirs() {
+    local f cwd mtime
+    for f in "$CLAUDE_PROJECTS_DIR"/*/*.jsonl; do
+        [[ -f "$f" ]] || continue
+        cwd=$(get_session_cwd "$f") || continue
+        [[ -d "$cwd" ]] || continue
+        case "$cwd" in
+            "${TMPDIR:-/tmp}"/*) continue ;;
+        esac
+        mtime=$(stat -c %Y -- "$f" 2>/dev/null) || continue
+        printf '%s\t%s\n' "$mtime" "$cwd"
+    done | sort -k1,1nr | awk -F'\t' '!seen[$2]++ { print $2 }'
 }
 
 # First user prompt of a session, from Claude's own history file
