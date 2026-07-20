@@ -6,25 +6,23 @@ This directory contains the core tmux plugin implementation for Claude Tower.
 
 ```
 tmux-plugin/
-├── claude-tower.tmux      # Plugin entry point (loaded by tpm)
+├── claude-tower.tmux        # Plugin entry point (loaded by tpm)
 ├── conf/
-│   └── view-focus.conf    # tmux configuration for view pane focus mode
+│   └── view-focus.conf      # tmux configuration for view pane focus mode
 ├── lib/
-│   ├── common.sh          # Shared utilities (v2 metadata, session ops)
-│   └── error-recovery.sh  # Error handling and TUI recovery
+│   ├── common.sh            # Shared utilities: session state, metadata, security
+│   ├── claude-sessions.sh   # Reads ~/.claude/projects/ jsonl transcripts
+│   └── error-recovery.sh    # Error handling and TUI recovery
 └── scripts/
-    ├── tower              # CLI entry point (tower add/rm)
-    ├── session-add.sh     # tower add implementation
-    ├── session-delete.sh  # tower rm implementation
-    ├── navigator.sh       # Navigator entry point
-    ├── navigator-list.sh  # List pane UI
-    ├── navigator-view.sh  # View pane UI
-    ├── tile.sh            # Tile view display
-    ├── session-new.sh     # [DEPRECATED] Use tower add
-    ├── session-restore.sh # Restore dormant sessions
-    ├── session-list.sh    # List sessions
-    ├── cleanup.sh         # Dormant session cleanup
-    └── [other utilities]
+    ├── navigator.sh         # Navigator entry point
+    ├── navigator-list.sh    # List pane UI
+    ├── navigator-view.sh    # View pane UI
+    ├── tile.sh              # Tile view display
+    ├── session-add.sh       # Unified add/new flow (fzf or numbered picker)
+    ├── session-delete.sh    # Delete session (registry only)
+    ├── session-restore.sh   # Restore dormant sessions
+    ├── session-list.sh      # List sessions
+    └── tower.sh             # Main CLI entry point
 ```
 
 ## Key Components
@@ -32,20 +30,20 @@ tmux-plugin/
 ### claude-tower.tmux
 Plugin entry point loaded by TPM (Tmux Plugin Manager). Sets up keybindings and initializes the tower environment.
 
-### scripts/tower
-CLI entry point for session management:
-- `tower add <path> [-n name]` - Add session for directory
-- `tower rm <name> [-f]` - Remove session (keeps directory)
-
 ### lib/common.sh
 Shared library providing:
-- Session state management (`get_session_state`, `list_all_sessions`)
-- Metadata operations (`save_metadata`, `load_metadata`) - v2 format
-- Session operations (`create_session`, `delete_session`, `restore_session`)
-- Security functions (`sanitize_name`, `validate_path_within`)
-- Navigator helpers (`get_nav_focus`, `set_nav_focus`)
+- Session state management (`get_session_state`, `get_state_icon`, `list_all_sessions`)
+- Metadata operations (`save_metadata`, `load_metadata`, minimal `.meta` registry)
+- Security functions (`sanitize_name`, `validate_path_within`, `ensure_tower_prefix`)
+- Navigator helpers (`get_nav_focus`, `set_nav_focus`, `get_nav_selected`)
 - Error handling (`handle_error`, `die`)
-- Path helpers (`shorten_path` - replaces $HOME with ~)
+
+### lib/claude-sessions.sh
+Derives session state from Claude's own transcripts under
+`~/.claude/projects/<slug>/<sessionId>.jsonl`: busy/idle detection
+(`is_session_busy`, `TOWER_BUSY_WINDOW`), the full 5-state Navigator check
+(`get_display_state`: busy/active/dormant/dead/lost), and candidate discovery
+for the add flow (`list_addable_sessions`).
 
 ### lib/error-recovery.sh
 TUI error recovery patterns:
@@ -55,7 +53,7 @@ TUI error recovery patterns:
 
 ### Navigator Scripts
 - `navigator.sh` - Entry point, launched via `prefix + t`
-- `navigator-list.sh` - Left pane showing session list with paths
+- `navigator-list.sh` - Left pane showing session list
 - `navigator-view.sh` - Right pane showing live session preview
 - `tile.sh` - Grid view of all sessions
 
@@ -63,26 +61,17 @@ TUI error recovery patterns:
 
 | State | Icon | Description |
 |-------|------|-------------|
-| `active` | `▶` | tmux session exists |
-| `dormant` | `○` | Metadata only, no tmux session |
-
-## Metadata Format (v2)
-
-```ini
-session_id=tower_my-project
-session_name=my-project
-directory_path=/home/user/projects/my-project
-created_at=2026-02-08T10:30:00+09:00
-```
-
-v1 metadata (with `worktree_path`, `repository_path`) is still readable for backward compatibility.
+| `busy` | `●` | tmux session exists, Claude active within `TOWER_BUSY_WINDOW` |
+| `active` | `▶` | tmux session exists, idle |
+| `dormant` | `○` | Registered, no tmux session — can be resumed |
+| `dead` | `✗` | Registered, but the session's working directory is gone |
+| `lost` | `?` | Registered, but the Claude transcript is gone (unrecoverable) |
 
 ## Architecture
 
 The plugin uses a **socket separation** architecture:
 - **default server**: User's regular tmux sessions
 - **navigator server** (`-L claude-tower`): Navigator UI runs here
-- **session server** (`-L claude-tower-sessions`): Claude Code sessions run here
 
 This ensures Navigator operations don't interfere with user sessions.
 

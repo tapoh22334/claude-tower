@@ -6,18 +6,23 @@ This directory contains the comprehensive test suite for Claude Tower.
 
 ```
 tests/
-├── Unit Tests (8 files, ~174 tests)
-│   ├── test_validation.bats      # Input validation functions
-│   ├── test_sanitize.bats        # Sanitization and XSS prevention
-│   ├── test_error_handling.bats  # Error handlers
-│   ├── test_metadata.bats        # Metadata operations
-│   ├── test_orphan.bats          # Orphan worktree detection
-│   ├── test_safe_wrappers.bats   # Safe command wrappers
-│   ├── test_navigator.bats       # Navigator state management
-│   ├── test_dependencies.bats    # Dependency checking
-│   └── test_server_separation.bats # TMUX= prefix validation
+├── Unit Tests (top-level *.bats)
+│   ├── test_validation.bats        # Input validation functions
+│   ├── test_sanitize.bats          # Sanitization and XSS prevention
+│   ├── test_error_handling.bats    # Error handlers
+│   ├── test_error_recovery.bats    # TUI error recovery
+│   ├── test_metadata.bats          # Metadata (.meta registry) operations
+│   ├── test_safe_wrappers.bats     # Safe command wrappers
+│   ├── test_navigator.bats         # Navigator state management
+│   ├── test_dependencies.bats      # Dependency checking
+│   ├── test_server_separation.bats # TMUX= prefix validation
+│   ├── test_ensure_tower_prefix.bats # tower_ id prefixing/validation
+│   ├── test_claude_sessions.bats   # jsonl transcript parsing, busy detection
+│   ├── test_display_state.bats     # 5-state (busy/active/dormant/dead/lost)
+│   ├── test_session_add.bats       # session-add.sh add/new flow
+│   └── test_coverage_gaps*.bats    # Incremental coverage additions
 │
-├── Integration Tests (4 files, ~58 tests)
+├── Integration Tests (requires tmux)
 │   └── integration/
 │       ├── test_tmux_integration.bats    # Real tmux interactions
 │       ├── test_idempotent.bats          # Idempotent operations
@@ -25,11 +30,7 @@ tests/
 │       ├── test_display_snapshot.bats    # Display verification
 │       └── test_server_switch.bats       # Server switching
 │
-├── E2E Tests (1 file, ~5 tests)
-│   └── e2e/
-│       └── test_workspace_workflow.bats  # Full workspace lifecycle
-│
-├── Scenario Tests (1 file + 2 scenarios, ~13 tests)
+├── Scenario Tests
 │   └── scenarios/
 │       ├── 01_basic_session.md           # Basic session scenario
 │       ├── 02_workspace_session.md       # Workspace scenario
@@ -59,20 +60,10 @@ bats tests/test_navigator.bats
 bats tests/integration/
 ```
 
-### E2E Tests (requires full tmux environment)
+### Scenario Tests
 ```bash
-bats tests/e2e/
+bats tests/scenarios/
 ```
-
-## Test Coverage Summary
-
-| Layer | Estimated Coverage |
-|-------|-------------------|
-| Unit (common.sh functions) | ~75% |
-| Integration (tmux interaction) | ~60% |
-| E2E (full workflows) | ~40% |
-| Scenario (user flows) | ~50% |
-| **Overall Estimate** | **~55-60%** |
 
 ## Writing Tests
 
@@ -85,7 +76,7 @@ Tests use the [Bats](https://github.com/bats-core/bats-core) testing framework.
 }
 ```
 
-Categories: `integration:`, `idempotent:`, `contract:`, `e2e:`, `scenario-*:`
+Categories: `integration:`, `idempotent:`, `contract:`, `scenario-*:`
 
 ### Using test_helper.bash
 ```bash
@@ -102,9 +93,11 @@ teardown() {
 
 ## Known Gaps
 
-Scripts without dedicated tests:
-- `tile.sh`, `cleanup.sh`, `diff.sh`, `help.sh`
-- `session-delete.sh`, `session-restore.sh`
-- `sidebar.sh`, `statusline.sh`, `tree-view.sh`
+Scripts without dedicated unit test files (exercised indirectly via
+`common.sh`/`claude-sessions.sh` function tests and the scenario tests):
+- `tile.sh`
+- `session-delete.sh`, `session-restore.sh`, `session-list.sh`
+- `navigator.sh`, `navigator-view.sh`
 
-See `/docs/development/GAP_ANALYSIS.md` for full coverage analysis.
+See `/docs/development/GAP_ANALYSIS.md` for further coverage analysis
+(may not fully reflect the current session-registry model).

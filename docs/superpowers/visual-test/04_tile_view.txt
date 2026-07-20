@@ -1,0 +1,24 @@
+━━━ Tile View ━━━  j/k:nav g/G:first/last 1-9:select Tab:list q:quit
+
+
+[1] ● aaaaaaaa-aaaa-aaaa-aaaa-aaaaa     [2] ▶ bbbbbbbb-bbbb-bbbb-bbbb-bbbbb
+
+
+
+
+
+
+
+
+
+[3] ○ cccccccc-cccc-cccc-cccc-c         [4] ✗ dddddddd-dddd-dddd-dddd-ddddd
+Dormant - Press 'r' to restore          Dormant - Press 'r' to restore
+
+
+
+
+
+
+
+
+Dormant - Press 'r' to restoreeeeeeee

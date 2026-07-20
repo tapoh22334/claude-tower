@@ -72,21 +72,19 @@ load_sessions() {
     SESSIONS=()
     SESSION_IDS=()
 
-    while IFS=':' read -r session_id state type display_name branch diff_stats; do
+    while IFS=':' read -r session_id state; do
         [[ -z "$session_id" ]] && continue
 
-        local state_icon type_icon line
+        local state_icon line
         state_icon=$(get_state_icon "$state")
-        type_icon=$(get_type_icon "$type")
 
         local name="${session_id#tower_}"
 
         # Dormant sessions shown with dim color
         if [[ "$state" == "$STATE_DORMANT" ]]; then
-            line="${DIM}${state_icon} ${type_icon} ${name}${NC}"
+            line="${DIM}${state_icon} ${name}${NC}"
         else
-            line="${state_icon} ${type_icon} ${name}"
-            [[ -n "$branch" ]] && line="${line} ${ICON_GIT}${branch}"
+            line="${state_icon} ${name}"
         fi
 
         SESSIONS+=("$line")
@@ -178,8 +176,16 @@ draw_tiles() {
 
         ((idx++)) || true
 
-        # Limit visible tiles
-        [[ $idx -ge 6 ]] && break
+        # Limit visible tiles. Written as `if ... ; then break; fi` rather
+        # than `[[ ... ]] && break`: the latter's exit status is 1 whenever
+        # the condition is false (the common case, tile count < 6), which
+        # under this script's `set -e` was silently killing the whole
+        # process right after the first draw_tiles call in main() -- the
+        # tile view drew one frame and exited before ever reading a
+        # keypress. Caught via real capture-pane testing in Docker.
+        if [[ $idx -ge 6 ]]; then
+            break
+        fi
     done
 }
 
@@ -258,7 +264,6 @@ handle_input() {
             ;;
         q) # Quit navigator
             quit_navigator
-            return 1
             ;;
     esac
 

@@ -10,23 +10,6 @@ setup() {
 }
 
 # ============================================================================
-# get_active_sessions tests
-# ============================================================================
-
-@test "get_active_sessions: function exists" {
-    run type get_active_sessions
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"function"* ]]
-}
-
-@test "get_active_sessions: uses session_tmux helper" {
-    local func_def
-    func_def=$(declare -f get_active_sessions)
-
-    [[ "$func_def" == *"session_tmux"* ]]
-}
-
-# ============================================================================
 # session_exists tests
 # ============================================================================
 
@@ -64,25 +47,25 @@ setup() {
 # Note: get_session_state no longer uses capture-pane or display-message
 
 # ============================================================================
-# _start_session_with_claude tests
+# start_claude_session tests
 # ============================================================================
 
-@test "_start_session_with_claude: function exists" {
-    run type _start_session_with_claude
+@test "start_claude_session: function exists" {
+    run type start_claude_session
     [ "$status" -eq 0 ]
     [[ "$output" == *"function"* ]]
 }
 
-@test "_start_session_with_claude: uses session_tmux for new-session" {
+@test "start_claude_session: uses session_tmux for new-session" {
     local func_def
-    func_def=$(declare -f _start_session_with_claude)
+    func_def=$(declare -f start_claude_session)
 
     [[ "$func_def" == *"session_tmux new-session"* ]]
 }
 
-@test "_start_session_with_claude: uses session_tmux for send-keys" {
+@test "start_claude_session: uses session_tmux for send-keys" {
     local func_def
-    func_def=$(declare -f _start_session_with_claude)
+    func_def=$(declare -f start_claude_session)
 
     [[ "$func_def" == *"session_tmux send-keys"* ]]
 }
@@ -193,13 +176,6 @@ setup() {
 
     # The script uses session_tmux list-sessions in build_session_list
     run grep "session_tmux list-sessions" "$script"
-    [ "$status" -eq 0 ]
-}
-
-@test "session-new.sh: uses session_tmux for switch-client" {
-    local script="$PROJECT_ROOT/tmux-plugin/scripts/session-new.sh"
-
-    run grep "session_tmux switch-client" "$script"
     [ "$status" -eq 0 ]
 }
 

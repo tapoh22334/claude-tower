@@ -33,11 +33,10 @@ TOWER_PREFIX=$(get_tmux_option "@tower-prefix" "${CLAUDE_TOWER_PREFIX:-t}")
 #   2. detach-client -E runs navigator.sh which reads the caller from state
 # Note: detach-client -E does NOT expand tmux format strings in its command
 #
-# All operations (new session, restore, etc.) are now done within Navigator:
-#   n → New session
-#   r → Restore selected dormant session
-#   R → Restore all dormant sessions
-#   d → Delete session
+# All operations (add, restore, delete, etc.) are now done within Navigator:
+#   n → Add session (existing Claude session or new)
+#   r → Resume dormant session
+#   D → Delete session
 #   ? → Help
 tmux bind-key "$TOWER_PREFIX" run-shell -b "mkdir -p /tmp/claude-tower && echo '#{session_name}' > /tmp/claude-tower/caller && tmux detach-client -E 'exec $CURRENT_DIR/scripts/navigator.sh --direct'"
 
@@ -46,12 +45,6 @@ tmux set-environment -g CLAUDE_TOWER_DIR "$CURRENT_DIR"
 
 # Ensure directories exist
 mkdir -p "${CLAUDE_TOWER_METADATA_DIR:-$HOME/.claude-tower/metadata}" 2>/dev/null || true
-mkdir -p "${CLAUDE_TOWER_WORKTREE_DIR:-$HOME/.claude-tower/worktrees}" 2>/dev/null || true
-
-# Auto-restore dormant sessions on plugin load (optional)
-if [[ "$(get_tmux_option "@tower-auto-restore" "0")" == "1" ]]; then
-    "$CURRENT_DIR/scripts/session-restore.sh" --all 2>/dev/null || true
-fi
 
 # Display initialization message
 tmux display-message "claude-tower loaded. Press prefix + $TOWER_PREFIX to open Navigator" 2>/dev/null || true

@@ -1,23 +1,30 @@
 # Test environment for claude-tower
-# Includes tmux, git, fzf, and bats for comprehensive testing
+# Includes tmux, git, fzf, and bats-core (>= 1.11, built from source since
+# ubuntu 22.04's apt package is ~1.2 and predates the bats-core version
+# (1.13) the host unit gate ran on) for comprehensive testing.
 
 FROM ubuntu:22.04
 
 # Avoid interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install dependencies
+# Install dependencies (no apt bats package - bats-core installed from git below)
+# jq: required by tests/test_coverage_gaps_9.bats (session-list.sh --json validation)
 RUN apt-get update && apt-get install -y \
     bash \
     tmux \
     git \
     fzf \
+    jq \
     coreutils \
     procps \
     curl \
-    # For bats
-    bats \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# Install bats-core from a pinned release tag (>= 1.11)
+RUN git clone --depth 1 --branch v1.11.0 https://github.com/bats-core/bats-core.git /opt/bats-core && \
+    /opt/bats-core/install.sh /usr/local
 
 # Install bats helper libraries
 RUN mkdir -p /opt/bats-libs && \
@@ -28,6 +35,12 @@ RUN mkdir -p /opt/bats-libs && \
 RUN useradd -m -s /bin/bash testuser && \
     mkdir -p /home/testuser/.claude-tower && \
     chown -R testuser:testuser /home/testuser
+
+# Stub `claude` binary: tests launch it via tmux send-keys but the real CLI
+# isn't installed in this image. A stub keeps sessions alive without erroring
+# so state-detection tests (busy/active/dormant) have something to observe.
+RUN printf '#!/usr/bin/env bash\nexec sleep infinity\n' > /usr/local/bin/claude && \
+    chmod +x /usr/local/bin/claude
 
 # Copy project files
 WORKDIR /app
@@ -42,8 +55,8 @@ USER testuser
 
 # Environment variables for tests
 ENV CLAUDE_TOWER_METADATA_DIR=/home/testuser/.claude-tower/metadata
-ENV CLAUDE_TOWER_WORKTREE_DIR=/home/testuser/.claude-tower/worktrees
 ENV BATS_LIB_PATH=/opt/bats-libs
 
-# Default command: run all tests
-CMD ["./tests/run_tests.sh"]
+# Default command: run unit + integration suites (see Makefile test-docker
+# target for the exact non-interactive invocation used in CI)
+CMD ["bats", "tests/", "tests/integration/"]

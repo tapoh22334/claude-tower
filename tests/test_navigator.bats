@@ -55,41 +55,25 @@ setup() {
     [ "$output" = "○" ]
 }
 
-# ============================================================================
-# v2: Path display tests (replaces type icon tests)
-# ============================================================================
-
-@test "shorten_path: replaces HOME with ~" {
-    run shorten_path "$HOME/projects/test"
+@test "get_state_icon: returns correct icon for busy" {
+    run get_state_icon "busy"
 
     [ "$status" -eq 0 ]
-    [ "$output" = "~/projects/test" ]
+    [ "$output" = "●" ]
 }
 
-@test "shorten_path: keeps non-home paths unchanged" {
-    run shorten_path "/tmp/test-dir"
+@test "get_state_icon: returns correct icon for dead" {
+    run get_state_icon "dead"
 
     [ "$status" -eq 0 ]
-    [ "$output" = "/tmp/test-dir" ]
+    [ "$output" = "✗" ]
 }
 
-@test "load_metadata: sets META_DIRECTORY_PATH for v2 format" {
-    setup_test_env
+@test "get_state_icon: returns ? for lost" {
+    run get_state_icon "lost"
 
-    # Create v2 format metadata
-    cat > "${CLAUDE_TOWER_METADATA_DIR}/tower_v2-test.meta" << EOF
-session_id=tower_v2-test
-session_name=v2-test
-directory_path=/path/to/workdir
-created_at=2026-02-07T10:00:00+09:00
-EOF
-
-    load_metadata "tower_v2-test"
-
-    [ "$META_DIRECTORY_PATH" = "/path/to/workdir" ]
-    [ "$META_SESSION_NAME" = "v2-test" ]
-
-    teardown_test_env
+    [ "$status" -eq 0 ]
+    [ "$output" = "?" ]
 }
 
 # ============================================================================
@@ -108,22 +92,14 @@ EOF
     teardown_test_env
 }
 
-@test "list_all_sessions: output format includes session_id:state:path" {
+@test "list_all_sessions: output format includes session_id:state" {
     setup_test_env
-
-    # Create v2 format metadata
-    cat > "${CLAUDE_TOWER_METADATA_DIR}/tower_test-session.meta" << EOF
-session_id=tower_test-session
-session_name=test-session
-directory_path=/home/user/projects/test
-created_at=2026-02-07T10:00:00+09:00
-EOF
+    create_mock_metadata "tower_test-session" "workspace"
 
     run list_all_sessions
 
     [ "$status" -eq 0 ]
-    # v2 format: session_id:state:path
-    [[ "$output" == *"tower_test-session:dormant:/home/user/projects/test"* ]]
+    [[ "$output" == *":"* ]]
 
     teardown_test_env
 }

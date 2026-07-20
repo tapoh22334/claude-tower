@@ -19,8 +19,8 @@ help:
 	@echo "    make format-fix - Format scripts with shfmt (in-place)"
 	@echo ""
 	@echo "  Testing:"
-	@echo "    make test       - Run all tests locally"
-	@echo "    make test-docker- Run tests in Docker container"
+	@echo "    make test       - Run unit tests locally (tests/*.bats)"
+	@echo "    make test-docker- Run unit + integration tests in Docker (real tmux)"
 	@echo ""
 	@echo "  Docker:"
 	@echo "    make docker-lint  - Build lint Docker image"
@@ -87,9 +87,13 @@ test:
 	@echo "Running tests..."
 	@bats tests/
 
-# Run tests in Docker
+# Run tests (unit + integration) in Docker. This is the visual/integration
+# gate: it exercises tests/integration/*.bats against a real tmux server,
+# which the host sandbox cannot do reliably. CI-safe: only allocates a tty
+# (-t) when stdout is actually a terminal, so it runs non-interactively in
+# CI/non-tty contexts without erroring on `the input device is not a TTY`.
 test-docker: docker-test
-	docker run --rm -it claude-tower-test
+	docker run --rm $$( [ -t 1 ] && echo -it ) claude-tower-test bats tests/ tests/integration/
 
 # ============================================================================
 # Docker Build

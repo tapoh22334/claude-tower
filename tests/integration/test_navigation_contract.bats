@@ -7,7 +7,7 @@ load '../test_helper'
 
 # Test tmux sockets - use BATS_TEST_FILENAME hash for uniqueness
 NAV_SOCKET="ct-nav-test"
-DEFAULT_SOCKET="ct-default-test"
+DEFAULT_SOCKET="ct-default-test" # holds tower_* sessions - really the session server
 
 setup_file() {
     export TMUX_TMPDIR="/tmp/claude-tower-nav-test"
@@ -27,10 +27,14 @@ teardown_file() {
 }
 
 setup() {
-    # Set env vars BEFORE sourcing (sockets are readonly)
+    # Set env vars BEFORE sourcing (TOWER_NAV_SOCKET/TOWER_SESSION_SOCKET are
+    # readonly once common.sh is sourced). list_all_sessions/get_session_state
+    # route tmux calls through session_tmux(), which hardcodes
+    # `tmux -L "$TOWER_SESSION_SOCKET"` — since tmux only honors the LAST -L
+    # flag on its command line, an overridden `tmux` shell function alone
+    # cannot redirect those calls to our test socket.
     export CLAUDE_TOWER_NAV_SOCKET="$NAV_SOCKET"
     export CLAUDE_TOWER_SESSION_SOCKET="$DEFAULT_SOCKET"
-    export TMUX_TMPDIR="/tmp/claude-tower-nav-test"
     source_common
     setup_test_env
     ensure_nav_state_dir

@@ -24,13 +24,19 @@ teardown_file() {
 }
 
 setup() {
-    # Set session socket and TMUX_TMPDIR BEFORE sourcing common.sh
+    # session_exists() routes through session_tmux(), which hardcodes
+    # `tmux -L "$TOWER_SESSION_SOCKET"`. tmux only honors the LAST -L flag on
+    # its command line, so overriding the `tmux` shell function is silently
+    # defeated by session_tmux's own explicit -L. Point TOWER_SESSION_SOCKET
+    # at our test socket instead (must be set before source_common, since
+    # it's readonly once common.sh is sourced).
     export CLAUDE_TOWER_SESSION_SOCKET="$TMUX_SOCKET"
-    export TMUX_TMPDIR="/tmp/claude-tower-test-$$"
-    mkdir -p "$TMUX_TMPDIR" 2>/dev/null || true
-    chmod 700 "$TMUX_TMPDIR" 2>/dev/null || true
     source_common
     setup_test_env
+    # Use /tmp for tmux sockets to avoid WSL permission issues
+    export TMUX_TMPDIR="/tmp/claude-tower-test-$$"
+    mkdir -p "$TMUX_TMPDIR"
+    chmod 700 "$TMUX_TMPDIR"
 }
 
 teardown() {
@@ -44,36 +50,25 @@ teardown() {
 # ============================================================================
 
 @test "integration: session_exists returns true for existing session" {
-    # Create a test session (session_tmux uses TOWER_SESSION_SOCKET set in setup)
-    session_tmux new-session -d -s "tower_exists_test"
+    # Create a test session
+    tmux -L "$TMUX_SOCKET" new-session -d -s "tower_exists_test"
+
+    # Override tmux to use our socket
+    tmux() { command tmux -L "$TMUX_SOCKET" "$@"; }
+    export -f tmux
 
     run session_exists "tower_exists_test"
     [ "$status" -eq 0 ]
 
-    session_tmux kill-session -t "tower_exists_test"
+    tmux -L "$TMUX_SOCKET" kill-session -t "tower_exists_test"
 }
 
 @test "integration: session_exists returns false for non-existing session" {
+    tmux() { command tmux -L "$TMUX_SOCKET" "$@"; }
+    export -f tmux
+
     run session_exists "tower_nonexistent_xyz"
     [ "$status" -eq 1 ]
-}
-
-# ============================================================================
-# get_active_sessions() tests with real tmux
-# ============================================================================
-
-@test "integration: get_active_sessions lists sessions" {
-    # Create test sessions
-    session_tmux new-session -d -s "tower_list1"
-    session_tmux new-session -d -s "tower_list2"
-
-    result=$(get_active_sessions)
-
-    [[ "$result" == *"tower_list1"* ]]
-    [[ "$result" == *"tower_list2"* ]]
-
-    session_tmux kill-session -t "tower_list1"
-    session_tmux kill-session -t "tower_list2"
 }
 
 # ============================================================================
@@ -81,7 +76,6 @@ teardown() {
 # ============================================================================
 
 @test "integration: safe_tmux creates session" {
-    # safe_tmux uses plain tmux, so override to route to test socket
     tmux() { command tmux -L "$TMUX_SOCKET" "$@"; }
     export -f tmux
 
@@ -89,73 +83,55 @@ teardown() {
     [ "$status" -eq 0 ]
 
     # Verify session exists
-    run session_tmux has-session -t "tower_safe_test"
+    run tmux -L "$TMUX_SOCKET" has-session -t "tower_safe_test"
     [ "$status" -eq 0 ]
 
-    session_tmux kill-session -t "tower_safe_test"
+    tmux -L "$TMUX_SOCKET" kill-session -t "tower_safe_test"
 }
 
 @test "integration: safe_tmux fails gracefully for invalid command" {
+    tmux() { command tmux -L "$TMUX_SOCKET" "$@"; }
+    export -f tmux
+
     run safe_tmux invalid-command-xyz
     [ "$status" -eq 1 ]
 }
 
 # ============================================================================
-# tmux option storage tests
+# Registry data model tests (v2026-07-11 redesign)
 # ============================================================================
+# The old per-session tmux @tower_* options (session_type/repository/source)
+# were part of the pre-redesign worktree-tracking data model and were
+# removed along with session_type/repository_path/source_commit/worktree_path
+# /branch_name (see docs/superpowers/specs/2026-07-11-tower-session-registry-design.md
+# section 2 and 7). The registry is now a minimal .meta file
+# (session_name + created_at); unknown legacy keys are ignored on read.
 
-@test "integration: can store and retrieve session options" {
-    # Create session
-    session_tmux new-session -d -s "tower_options_test"
+@test "integration: metadata file only carries session_name and created_at" {
+    tmux() { command tmux -L "$TMUX_SOCKET" "$@"; }
+    export -f tmux
 
-    # Store option
-    session_tmux set-option -t "tower_options_test" @tower_session_type "workspace"
+    create_mock_metadata "tower_meta_shape_test" "workspace"
 
-    # Retrieve option
-    result=$(session_tmux show-option -t "tower_options_test" -v @tower_session_type 2>/dev/null || echo "")
-
-    [ "$result" = "workspace" ]
-
-    session_tmux kill-session -t "tower_options_test"
+    # load_metadata sets META_SESSION_NAME/META_CREATED_AT as globals in the
+    # current shell; `run` would execute it in a subshell and lose them, so
+    # call it directly.
+    load_metadata "tower_meta_shape_test"
+    [ "$META_SESSION_NAME" = "workspace" ]
 }
 
-@test "integration: session options persist during session lifetime" {
-    session_tmux new-session -d -s "tower_persist_test"
+@test "integration: legacy metadata keys (session_type/repository_path) are ignored, not fatal" {
+    tmux() { command tmux -L "$TMUX_SOCKET" "$@"; }
+    export -f tmux
 
-    # Store multiple options
-    session_tmux set-option -t "tower_persist_test" @tower_session_type "workspace"
-    session_tmux set-option -t "tower_persist_test" @tower_repository "/test/repo"
-    session_tmux set-option -t "tower_persist_test" @tower_source "abc123"
+    ensure_metadata_dir
+    {
+        echo "session_type=workspace"
+        echo "repository_path=/old/repo"
+        echo "session_name=kept"
+        echo "created_at=2026-01-01T00:00:00"
+    } > "${TOWER_METADATA_DIR}/tower_legacy_meta_test.meta"
 
-    # Verify all options
-    type_val=$(session_tmux show-option -t "tower_persist_test" -v @tower_session_type)
-    repo_val=$(session_tmux show-option -t "tower_persist_test" -v @tower_repository)
-    source_val=$(session_tmux show-option -t "tower_persist_test" -v @tower_source)
-
-    [ "$type_val" = "workspace" ]
-    [ "$repo_val" = "/test/repo" ]
-    [ "$source_val" = "abc123" ]
-
-    session_tmux kill-session -t "tower_persist_test"
-}
-
-# ============================================================================
-# Orphan detection with real tmux
-# ============================================================================
-
-@test "integration: find_orphaned_metadata detects sessions not in tmux" {
-    # Create metadata for sessions
-    create_mock_metadata "tower_active_int"
-    create_mock_metadata "tower_orphan_int"
-
-    # Only create tmux session for "active"
-    session_tmux new-session -d -s "tower_active_int"
-
-    # Find orphaned metadata
-    orphans=$(find_orphaned_metadata)
-
-    [[ "$orphans" == *"tower_orphan_int"* ]]
-    [[ "$orphans" != *"tower_active_int"* ]]
-
-    session_tmux kill-session -t "tower_active_int"
+    load_metadata "tower_legacy_meta_test"
+    [ "$META_SESSION_NAME" = "kept" ]
 }

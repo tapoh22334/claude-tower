@@ -7,7 +7,7 @@
 # Commands:
 #   (none)      Launch Navigator UI
 #   list        List all sessions
-#   new         Create new session
+#   add         Add or create a session
 #   delete      Delete session
 #   restore     Restore dormant session(s)
 #   tile        Launch Tile mode
@@ -15,7 +15,6 @@
 #
 # Environment:
 #   CLAUDE_TOWER_PROGRAM      Program to run (default: claude)
-#   CLAUDE_TOWER_WORKTREE_DIR Worktree directory
 #   CLAUDE_TOWER_METADATA_DIR Metadata directory
 #   CLAUDE_TOWER_DEBUG        Enable debug logging (1)
 
@@ -32,25 +31,24 @@ show_help() {
     cat <<'EOF'
 claude-tower - Parallel Claude Code Orchestrator
 
-Usage: tower.sh [command] [args...]
+Usage: tower.sh list|add|delete|restore|tile|help
 
 Commands:
   (default)     Launch Navigator UI
   list          List all sessions
-  add           Add directory as session
-    PATH          Directory path
-    -n NAME       Custom session name (default: dir basename)
-  rm            Remove session
+  add           Add an existing session or start a new one
+  delete        Delete session
     SESSION_ID    Session to delete
-    -f, --force   Skip confirmation
-  restore       Restore dormant sessions
+    --force       Skip confirmation
+  restore       Restore a dormant session
     SESSION_ID    Specific session to restore
-    --all         Restore all dormant sessions
   tile          Launch Tile mode
   help          Show this help
 
 Session States:
-  ▶ Active      Session is running
+  ◉ Running     Claude is actively working
+  ▶ Idle        Claude is waiting for input
+  ! Exited      Claude process has exited
   ○ Dormant     Session needs restoration
 
 Key Bindings (in Navigator):
@@ -58,17 +56,17 @@ Key Bindings (in Navigator):
   Enter         Attach to session
   i             Input mode (send command)
   t             Tile mode (view all)
+  n             New session
+  d             Delete session
   r             Restart Claude
   ?             Help
   Esc/q         Exit
 
 Examples:
   tower.sh                           # Launch Navigator
-  tower.sh add ~/projects/myapp      # Add directory as session
-  tower.sh add . -n custom-name      # Add current dir with custom name
   tower.sh list                      # List all sessions
-  tower.sh restore --all             # Restore dormant sessions
-  tower.sh rm feat-login             # Delete session
+  tower.sh restore feat-login        # Restore a dormant session
+  tower.sh delete feat-login         # Delete session
 
 EOF
 }
@@ -88,9 +86,9 @@ main() {
             ;;
         add)
             shift
-            "$SCRIPT_DIR/session-add.sh" "$@"
+            exec "$SCRIPT_DIR/session-add.sh" "$@"
             ;;
-        rm)
+        delete)
             shift
             "$SCRIPT_DIR/session-delete.sh" "$@"
             ;;
@@ -111,10 +109,5 @@ main() {
             ;;
     esac
 }
-
-# Auto-restore dormant sessions on startup (if enabled)
-if [[ "${CLAUDE_TOWER_AUTO_RESTORE:-0}" == "1" ]]; then
-    restore_all_dormant
-fi
 
 main "$@"

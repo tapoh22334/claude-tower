@@ -1,0 +1,30 @@
+Navigator Help
+
+  Navigation:
+    j / ↓      Move down
+    k / ↑      Move up
+    g          Go to first session
+    G          Go to last session
+
+  Actions:
+    Enter      Full attach to session
+    i          Focus view pane (input mode)
+    n          Add session (pick existing Claude session or start new)
+    D          Delete from Tower (Claude's transcript is kept)
+    r          Resume selected dormant session
+    Tab        Switch to Tile view
+
+  Other:
+    ?          Show this help
+    q          Quit Navigator
+
+Press any key to continue...
+
+
+
+
+
+
+
+
+

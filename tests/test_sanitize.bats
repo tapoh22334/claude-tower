@@ -110,9 +110,10 @@ setup() {
 
 @test "validate_path_within: accepts path within base directory" {
     setup_test_env
-    mkdir -p "${CLAUDE_TOWER_WORKTREE_DIR}/myproject"
+    local base="${TEST_DIR}/tmp/pathbase"
+    mkdir -p "${base}/myproject"
 
-    run validate_path_within "${CLAUDE_TOWER_WORKTREE_DIR}/myproject" "$CLAUDE_TOWER_WORKTREE_DIR"
+    run validate_path_within "${base}/myproject" "$base"
     [ "$status" -eq 0 ]
 
     teardown_test_env
@@ -120,8 +121,10 @@ setup() {
 
 @test "validate_path_within: rejects path outside base directory" {
     setup_test_env
+    local base="${TEST_DIR}/tmp/pathbase"
+    mkdir -p "$base"
 
-    run validate_path_within "/etc/passwd" "$CLAUDE_TOWER_WORKTREE_DIR"
+    run validate_path_within "/etc/passwd" "$base"
     [ "$status" -eq 1 ]
 
     teardown_test_env
@@ -129,8 +132,10 @@ setup() {
 
 @test "validate_path_within: rejects path traversal with .." {
     setup_test_env
+    local base="${TEST_DIR}/tmp/pathbase"
+    mkdir -p "$base"
 
-    run validate_path_within "${CLAUDE_TOWER_WORKTREE_DIR}/../../../etc/passwd" "$CLAUDE_TOWER_WORKTREE_DIR"
+    run validate_path_within "${base}/../../../etc/passwd" "$base"
     [ "$status" -eq 1 ]
 
     teardown_test_env
@@ -138,9 +143,10 @@ setup() {
 
 @test "validate_path_within: accepts nested path within base" {
     setup_test_env
-    mkdir -p "${CLAUDE_TOWER_WORKTREE_DIR}/deep/nested/path"
+    local base="${TEST_DIR}/tmp/pathbase"
+    mkdir -p "${base}/deep/nested/path"
 
-    run validate_path_within "${CLAUDE_TOWER_WORKTREE_DIR}/deep/nested/path" "$CLAUDE_TOWER_WORKTREE_DIR"
+    run validate_path_within "${base}/deep/nested/path" "$base"
     [ "$status" -eq 0 ]
 
     teardown_test_env
@@ -151,11 +157,13 @@ setup() {
     realpath -m /tmp >/dev/null 2>&1 || skip "realpath -m not available (macOS)"
 
     setup_test_env
+    local base="${TEST_DIR}/tmp/pathbase"
+    mkdir -p "$base"
 
     # Create a symlink that points outside the base directory
-    ln -sf /tmp "${CLAUDE_TOWER_WORKTREE_DIR}/escape_link" 2>/dev/null || skip "Cannot create symlinks"
+    ln -sf /tmp "${base}/escape_link" 2>/dev/null || skip "Cannot create symlinks"
 
-    run validate_path_within "${CLAUDE_TOWER_WORKTREE_DIR}/escape_link" "$CLAUDE_TOWER_WORKTREE_DIR"
+    run validate_path_within "${base}/escape_link" "$base"
     # Should fail because resolved path is outside base
     [ "$status" -eq 1 ]
 

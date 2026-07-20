@@ -1,141 +1,228 @@
 #!/usr/bin/env bash
-# session-add.sh - Add a new claude-tower session (v2)
-# Usage: session-add.sh <path> [-n|--name <name>]
-#
-# Creates a session for the specified directory and starts Claude Code.
-# The directory is referenced, not managed - tower never creates or deletes directories.
+# session-add.sh - Unified add/new flow.
+# Pick an existing Claude session (or [new]) via $TOWER_FINDER (fzf default,
+# numbered fallback), register it, and start it in tmux.
+# --print-id: print the tower_<uuid> id on stdout on success (for Navigator).
 
-set -euo pipefail
+set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TOWER_SCRIPT_NAME="session-add.sh"
-
-# shellcheck source=../lib/common.sh
 source "$SCRIPT_DIR/../lib/common.sh"
 
-show_help() {
-    cat <<'EOF'
-Add a new claude-tower session
+PRINT_ID=0
+[[ "${1:-}" == "--print-id" ]] && PRINT_ID=1
 
-Usage: session-add.sh <path> [-n|--name <name>]
+NEW_SENTINEL="[new]    Start a new session"
 
-Arguments:
-  path                  Working directory path (required)
-
-Options:
-  -n, --name <name>     Session name (default: directory name)
-  --no-attach           Don't attach to new session after creation
-  -h, --help            Show this help
-
-Examples:
-  session-add.sh .                        # Add session for current directory
-  session-add.sh /path/to/project         # Add session for specified path
-  session-add.sh . -n my-project          # Add with custom session name
-
-EOF
+generate_uuid() {
+    if command -v uuidgen >/dev/null 2>&1; then
+        uuidgen | tr '[:upper:]' '[:lower:]'
+    elif [[ -r /proc/sys/kernel/random/uuid ]]; then
+        cat /proc/sys/kernel/random/uuid
+    else
+        handle_error "Cannot generate a UUID (need uuidgen or /proc/sys/kernel/random/uuid)"
+        return 1
+    fi
 }
 
-# Parse arguments
-path=""
-name=""
-no_attach=false
+# stdin: id \t mtime \t cwd  ->  "abcd  dirname  first prompt…  (2m ago)"
+# The title (first user prompt, via get_session_title) is what tells apart
+# sessions sharing a directory; the short id is only for resolution.
+format_candidate_lines() {
+    local id mtime cwd short reltime dir title
+    while IFS=$'\t' read -r id mtime cwd; do
+        short="${id:0:4}"
+        reltime=$(format_relative_time "$mtime")
+        dir=$(basename -- "$cwd")
+        title=$(get_session_title "$id" 2>/dev/null) || title=""
+        # Keep the line single-line and short; tabs would break resolution.
+        # JSON strings carry newlines/tabs as literal \n / \t escapes.
+        title="${title//\\n/ }"
+        title="${title//\\t/ }"
+        title="${title//$'\t'/ }"
+        [[ ${#title} -gt 48 ]] && title="${title:0:47}…"
+        printf '%s  %-18s %s  (%s)\n' "$short" "$dir" "$title" "$reltime"
+    done
+}
 
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        -n | --name)
-            if [[ $# -lt 2 ]]; then
-                echo "Error: --name requires a value" >&2
-                exit 1
-            fi
-            name="$2"
-            shift 2
-            ;;
-        --no-attach)
-            no_attach=true
-            shift
-            ;;
-        -h | --help)
-            show_help
-            exit 0
-            ;;
-        -*)
-            echo "Error: Unknown option: $1" >&2
-            echo "Run 'session-add.sh --help' for usage." >&2
-            exit 1
-            ;;
-        *)
-            if [[ -z "$path" ]]; then
-                path="$1"
-            else
-                echo "Error: Unexpected argument: $1" >&2
-                exit 1
-            fi
-            shift
-            ;;
-    esac
-done
+# Numbered fallback picker: candidates on stdin, chosen line on stdout.
+pick_with_numbers() {
+    local -a lines=()
+    local line
+    while IFS= read -r line; do
+        lines+=("$line")
+    done
+    local i
+    for i in "${!lines[@]}"; do
+        printf '%2d) %s\n' "$((i + 1))" "${lines[$i]}" >&2
+    done
+    printf 'Select [1-%d], empty to cancel (install fzf for fuzzy search): ' "${#lines[@]}" >&2
+    local choice
+    read -r choice </dev/tty || return 1
+    [[ "$choice" =~ ^[0-9]+$ ]] || return 1
+    ((choice >= 1 && choice <= ${#lines[@]})) || return 1
+    echo "${lines[$((choice - 1))]}"
+}
 
-# Validate path argument
-if [[ -z "$path" ]]; then
-    echo "Error: Path is required" >&2
-    echo "Usage: session-add.sh <path> [-n|--name <name>]" >&2
-    exit 1
-fi
-
-# Resolve to absolute path
-if [[ "$path" == "." ]]; then
-    path="$(pwd)"
-elif [[ "$path" != /* ]]; then
-    path="$(cd "$path" 2>/dev/null && pwd)" || {
-        echo "Error: Directory does not exist: $path" >&2
-        exit 1
-    }
-fi
-
-# Validate path exists
-if [[ ! -e "$path" ]]; then
-    echo "Error: Directory does not exist: $path" >&2
-    exit 1
-fi
-
-# Validate path is a directory
-if [[ ! -d "$path" ]]; then
-    echo "Error: Not a directory: $path" >&2
-    exit 1
-fi
-
-# Derive session name from directory if not specified
-if [[ -z "$name" ]]; then
-    name="$(basename "$path")"
-fi
-
-# Sanitize and validate name
-sanitized_name=$(sanitize_name "$name")
-if [[ -z "$sanitized_name" ]]; then
-    echo "Error: Invalid session name: $name" >&2
-    exit 1
-fi
-
-# Check for existing session
-session_id=$(normalize_session_name "$sanitized_name")
-if session_exists "$session_id" || has_metadata "$session_id"; then
-    echo "Error: Session already exists: $sanitized_name" >&2
-    exit 1
-fi
-
-# Create session
-debug_log "Creating session: name=$sanitized_name, path=$path"
-
-if create_session "$sanitized_name" "$path"; then
-    # Output success message per CLI contract
-    echo "Session created: $sanitized_name"
-    echo "  Path: $path"
-
-    # Attach to new session (unless --no-attach)
-    if [[ "$no_attach" != "true" ]]; then
-        session_tmux switch-client -t "$session_id" 2>/dev/null ||
-            session_tmux attach-session -t "$session_id" 2>/dev/null || true
+# Run the finder (or fallback). Candidates on stdin, selection on stdout.
+# Silent fallback to the numbered picker is only for our own fzf default;
+# when the user explicitly set TOWER_FINDER and its binary is missing, warn
+# loudly on stderr but still fall back so the flow remains usable.
+run_picker() {
+    local finder="${TOWER_FINDER:-fzf --height=80% --reverse --no-multi}"
+    local finder_bin="${finder%% *}"
+    if command -v "$finder_bin" >/dev/null 2>&1; then
+        eval "$finder"
+    else
+        if [[ -n "${TOWER_FINDER:-}" ]]; then
+            echo "TOWER_FINDER command not found: $finder_bin (falling back to numbered picker)" >&2
+        fi
+        pick_with_numbers
     fi
-else
-    exit 1
-fi
+}
+
+# Resolve a picked display line back to the full session id.
+# Candidates and their rendered lines are index-aligned, and the SAME
+# rendered text shown to the picker is passed back in — never re-rendered,
+# so the short id stays display-only (its length never affects resolution)
+# and a relative time ticking over while the user browses cannot break the
+# match. Two candidates only clash if their entire rendered lines are
+# identical; refuse rather than guess in that case.
+# $1 = picked line; $2 = rendered lines (as shown); candidates on stdin
+resolve_picked_id() {
+    local picked="$1" rendered="$2"
+    local -a ids=() lines=()
+    local line id _rest
+    while IFS=$'\t' read -r id _rest; do
+        ids+=("$id")
+    done
+    while IFS= read -r line; do
+        lines+=("$line")
+    done <<<"$rendered"
+    local i match=""
+    for i in "${!lines[@]}"; do
+        if [[ "${lines[$i]}" == "$picked" ]]; then
+            if [[ -n "$match" ]]; then
+                handle_error "Ambiguous selection"
+                return 1
+            fi
+            match="${ids[$i]}"
+        fi
+    done
+    [[ -n "$match" ]] || return 1
+    echo "$match"
+}
+
+# Prompt for the new-session directory. Default: caller pane cwd (or $PWD).
+# "+" enters the worktree helper (a plain `git worktree add` wrapper —
+# Tower does not track or clean up worktrees).
+prompt_new_directory() {
+    local default_dir="${1:-$PWD}"
+    local dir
+    printf 'Directory [%s] ("+" = new git worktree): ' "$default_dir" >&2
+    read -r dir </dev/tty || return 1
+    if [[ -z "$dir" ]]; then
+        echo "$default_dir"
+        return 0
+    fi
+    if [[ "$dir" == "+" ]]; then
+        local repo wt_path branch
+        printf 'Repository [%s]: ' "$default_dir" >&2
+        read -r repo </dev/tty || return 1
+        repo="${repo:-$default_dir}"
+        if ! git -C "$repo" rev-parse --git-dir >/dev/null 2>&1; then
+            echo "Not a git repository: $repo" >&2
+            return 1
+        fi
+        printf 'Worktree path: ' >&2
+        read -r wt_path </dev/tty || return 1
+        [[ -n "$wt_path" ]] || return 1
+        printf 'Branch [tower/%s]: ' "$(basename -- "$wt_path")" >&2
+        read -r branch </dev/tty || return 1
+        branch="${branch:-tower/$(basename -- "$wt_path")}"
+        if ! git -C "$repo" worktree add -b "$branch" "$wt_path" >&2; then
+            echo "git worktree add failed" >&2
+            return 1
+        fi
+        echo "$wt_path"
+        return 0
+    fi
+    # Expand leading ~
+    dir="${dir/#\~/$HOME}"
+    echo "$dir"
+}
+
+start_new_session() {
+    local default_dir="${TOWER_ADD_DEFAULT_DIR:-$PWD}"
+    local dir uuid name
+    dir=$(prompt_new_directory "$default_dir") || return 1
+    if [[ ! -d "$dir" ]]; then
+        handle_error "Directory not found: $dir"
+        return 1
+    fi
+    printf 'Name (optional): ' >&2
+    read -r name </dev/tty || name=""
+    uuid=$(generate_uuid) || return 1
+    start_claude_session "tower_${uuid}" "$dir" "new" >&2 || return 1
+    save_metadata "tower_${uuid}" "$name"
+    [[ "$PRINT_ID" -eq 1 ]] && echo "tower_${uuid}"
+    return 0
+}
+
+add_existing_session() {
+    local claude_id="$1"
+    if ! [[ "$claude_id" =~ ^[0-9a-f-]{36}$ ]]; then
+        handle_error "Invalid session id: $claude_id"
+        return 1
+    fi
+    local jsonl cwd
+    if ! jsonl=$(find_session_jsonl "$claude_id"); then
+        handle_error "Transcript not found for $claude_id"
+        return 1
+    fi
+    cwd=$(get_session_cwd "$jsonl" || true)
+    if [[ -z "$cwd" || ! -d "$cwd" ]]; then
+        handle_error "Directory not found: ${cwd:-unknown}"
+        return 1
+    fi
+    start_claude_session "tower_${claude_id}" "$cwd" "resume" >&2 || return 1
+    save_metadata "tower_${claude_id}"
+    [[ "$PRINT_ID" -eq 1 ]] && echo "tower_${claude_id}"
+    return 0
+}
+
+main() {
+    local candidates rendered="" picked
+    candidates=$(list_addable_sessions)
+    # Render exactly once; the picker shows these lines and resolution
+    # matches against these same lines.
+    if [[ -n "$candidates" ]]; then
+        rendered=$(format_candidate_lines <<<"$candidates")
+    fi
+
+    picked=$(
+        {
+            echo "$NEW_SENTINEL"
+            # if-form, not `[[ ... ]] &&`: with zero candidates the &&-chain
+            # exits 1 and pipefail fails the whole pipeline even though
+            # run_picker succeeded, aborting a valid [new] pick.
+            if [[ -n "$rendered" ]]; then
+                printf '%s\n' "$rendered"
+            fi
+        } | run_picker
+    ) || return 1
+    [[ -n "$picked" ]] || return 1
+
+    if [[ "$picked" == "$NEW_SENTINEL" ]]; then
+        start_new_session
+    else
+        local claude_id
+        claude_id=$(resolve_picked_id "$picked" "$rendered" <<<"$candidates") || {
+            handle_error "Could not resolve selection"
+            return 1
+        }
+        add_existing_session "$claude_id"
+    fi
+}
+
+main "$@"

@@ -25,13 +25,20 @@ teardown_file() {
 }
 
 setup() {
-    # Set session socket and TMUX_TMPDIR BEFORE sourcing common.sh
+    # get_session_state/list_all_sessions/session_exists route tmux calls
+    # through session_tmux(), which hardcodes `tmux -L "$TOWER_SESSION_SOCKET"`.
+    # Since tmux honors only the LAST -L flag on its command line, overriding
+    # the `tmux` shell function to inject our own -L is silently defeated by
+    # session_tmux's own explicit -L. Point TOWER_SESSION_SOCKET at our test
+    # socket instead (must be set before source_common, since it's readonly
+    # once common.sh is sourced).
     export CLAUDE_TOWER_SESSION_SOCKET="$TMUX_SOCKET"
-    export TMUX_TMPDIR="/tmp/claude-tower-test-$$"
-    mkdir -p "$TMUX_TMPDIR" 2>/dev/null || true
-    chmod 700 "$TMUX_TMPDIR" 2>/dev/null || true
     source_common
     setup_test_env
+    # Use /tmp for tmux sockets
+    export TMUX_TMPDIR="/tmp/claude-tower-test-$$"
+    mkdir -p "$TMUX_TMPDIR"
+    chmod 700 "$TMUX_TMPDIR"
 }
 
 teardown() {

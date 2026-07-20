@@ -1,3 +1,5 @@
+> ⚠️ **OUTDATED (v3.x)** — this document describes the pre-v4 worktree-based model, which has been removed. See the top-level [README](../README.md) for the current session-registry model.
+
 # Claude Tower Troubleshooting Guide
 
 Solutions for common issues with Claude Tower.
@@ -181,15 +183,7 @@ tmux -V
 
 **Symptoms**: Worktrees exist without corresponding sessions.
 
-**Solution**:
-
-```bash
-# List orphans
-~/.tmux/plugins/claude-tower/tmux-plugin/scripts/cleanup.sh --list
-
-# Clean up
-~/.tmux/plugins/claude-tower/tmux-plugin/scripts/cleanup.sh
-```
+**Solution**: `cleanup.sh` has been removed. Press `D` in the Navigator to unregister stale sessions (registry entries whose directory or transcript is gone); clean up any leftover git worktrees manually with `git worktree remove`.
 
 ### Worktree creation fails
 

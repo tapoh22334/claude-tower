@@ -1,3 +1,5 @@
+> ⚠️ **OUTDATED (v3.x)** — this document describes the pre-v4 worktree-based model, which has been removed. See the top-level [README](../README.md) for the current session-registry model.
+
 # Claude Tower Configuration Reference
 
 Complete configuration reference for Claude Tower (v3.2).
@@ -9,16 +11,12 @@ Set these in your `~/.tmux.conf`:
 | Option | Default | Description |
 |--------|---------|-------------|
 | `@tower-prefix` | `t` | Key to open Navigator after tmux prefix |
-| `@tower-auto-restore` | `0` | Auto-restore dormant sessions on plugin load |
 
 ### Examples
 
 ```bash
 # Use 's' instead of 't' for Navigator
 set -g @tower-prefix 's'
-
-# Automatically restore dormant sessions when tmux starts
-set -g @tower-auto-restore '1'
 ```
 
 ## Environment Variables

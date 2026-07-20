@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# session-restore.sh - Restore a dormant session or all dormant sessions
-# Usage: session-restore.sh [session_id | --all]
+# session-restore.sh - Restore a dormant session
+# Usage: session-restore.sh [session_id]
 
 set -euo pipefail
 
@@ -12,9 +12,7 @@ source "$SCRIPT_DIR/../lib/common.sh"
 
 arg="${1:-}"
 
-if [[ "$arg" == "--all" || "$arg" == "-a" ]]; then
-    restore_all_dormant
-elif [[ -n "$arg" ]]; then
+if [[ -n "$arg" ]]; then
     # Validate and ensure session_id has tower_ prefix (security: prevent injection)
     session_id=$(ensure_tower_prefix "$arg") || {
         handle_error "Invalid session ID format"
