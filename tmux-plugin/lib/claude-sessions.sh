@@ -173,6 +173,45 @@ get_session_title() {
     printf '%s\n' "$title"
 }
 
+# --- Unread tracking -------------------------------------------------------
+# seen/<tower_id> stores the activity epoch last shown to the user (i.e. the
+# session was selected in the Navigator, whose view pane displays it live).
+# A session whose transcript moved past that epoch has output the user has
+# not looked at yet -> unread mark once it stops working.
+TOWER_SEEN_DIR="${CLAUDE_TOWER_SEEN_DIR:-${TOWER_NAV_STATE_DIR:-/tmp/claude-tower}/seen}"
+
+# Record the session's current activity as seen.
+mark_session_seen() {
+    local session_id="$1"
+    local jsonl
+    jsonl=$(find_session_jsonl "${session_id#tower_}") || return 0
+    mkdir -p "$TOWER_SEEN_DIR" 2>/dev/null || return 0
+    get_session_activity "$jsonl" >"${TOWER_SEEN_DIR}/${session_id}" 2>/dev/null || true
+}
+
+# Baseline a session the Navigator sees for the first time. Without this a
+# never-selected session has no seen mark, so its busy->stop transition
+# could not be detected as unread. No-op if a mark already exists.
+init_session_seen() {
+    local session_id="$1"
+    [[ -f "${TOWER_SEEN_DIR}/${session_id}" ]] && return 0
+    mark_session_seen "$session_id"
+}
+
+# 0 (unread) when activity moved past the seen mark. Busy sessions are the
+# caller's business - it shows a spinner instead of the unread mark.
+is_session_unread() {
+    local session_id="$1"
+    local seen_file="${TOWER_SEEN_DIR}/${session_id}"
+    [[ -f "$seen_file" ]] || return 1
+    local jsonl activity seen
+    jsonl=$(find_session_jsonl "${session_id#tower_}") || return 1
+    activity=$(get_session_activity "$jsonl")
+    seen=$(cat "$seen_file" 2>/dev/null) || return 1
+    [[ "$seen" =~ ^[0-9]+$ ]] || return 1
+    ((activity > seen))
+}
+
 # "2m ago" / "3h ago" / "5d ago"
 format_relative_time() {
     local epoch="$1" now diff

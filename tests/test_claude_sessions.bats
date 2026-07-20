@@ -218,6 +218,53 @@ teardown() {
     [ "$status" -ne 0 ]
 }
 
+@test "unread: activity past the seen mark reads as unread" {
+    TOWER_SEEN_DIR="${BATS_TEST_TMPDIR}/seen"
+    local f
+    f=$(create_mock_jsonl "-home-user-proj" "$UUID_A" "/home/user/proj")
+    touch -d "2020-01-01 00:00:00" "$f"
+    mark_session_seen "tower_${UUID_A}"
+    touch -d "2020-01-02 00:00:00" "$f"
+    run is_session_unread "tower_${UUID_A}"
+    [ "$status" -eq 0 ]
+}
+
+@test "unread: freshly seen session is not unread" {
+    TOWER_SEEN_DIR="${BATS_TEST_TMPDIR}/seen"
+    create_mock_jsonl "-home-user-proj" "$UUID_A" "/home/user/proj" > /dev/null
+    mark_session_seen "tower_${UUID_A}"
+    run is_session_unread "tower_${UUID_A}"
+    [ "$status" -eq 1 ]
+}
+
+@test "unread: session with no seen mark is not unread" {
+    TOWER_SEEN_DIR="${BATS_TEST_TMPDIR}/seen"
+    create_mock_jsonl "-home-user-proj" "$UUID_A" "/home/user/proj" > /dev/null
+    run is_session_unread "tower_${UUID_A}"
+    [ "$status" -eq 1 ]
+}
+
+@test "unread: init_session_seen baselines once and never overwrites" {
+    TOWER_SEEN_DIR="${BATS_TEST_TMPDIR}/seen"
+    local f
+    f=$(create_mock_jsonl "-home-user-proj" "$UUID_A" "/home/user/proj")
+    touch -d "2020-01-01 00:00:00" "$f"
+    init_session_seen "tower_${UUID_A}"
+    # Transcript advances (session working); a second init must NOT re-mark
+    # it seen - the busy->stop transition has to surface as unread.
+    touch -d "2020-01-02 00:00:00" "$f"
+    init_session_seen "tower_${UUID_A}"
+    run is_session_unread "tower_${UUID_A}"
+    [ "$status" -eq 0 ]
+}
+
+@test "unread: mark_session_seen without a transcript is a silent no-op" {
+    TOWER_SEEN_DIR="${BATS_TEST_TMPDIR}/seen"
+    run mark_session_seen "tower_${UUID_B}"
+    [ "$status" -eq 0 ]
+    [ ! -f "${TOWER_SEEN_DIR}/tower_${UUID_B}" ]
+}
+
 @test "format_relative_time: minutes and hours" {
     local now
     now=$(date +%s)

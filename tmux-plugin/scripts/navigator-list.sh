@@ -24,7 +24,18 @@ trap 'handle_script_error $LINENO' ERR
 # Configuration
 # ============================================================================
 
-readonly REFRESH_INTERVAL=2
+# Spinner cadence: while idle the loop wakes every TICK_INTERVAL to advance
+# the busy spinner (a pure string-substitution redraw); the session list
+# itself is only rebuilt every TICKS_PER_REFRESH ticks (= 2s, the old
+# REFRESH_INTERVAL).
+readonly TICK_INTERVAL=0.25
+readonly TICKS_PER_REFRESH=8
+readonly -a SPINNER_FRAMES=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧')
+# Placeholder embedded in busy rows at build time, replaced with the current
+# frame at render time so the spinner turns without rebuilding the list.
+readonly SPIN_PLACEHOLDER='@@SPIN@@'
+readonly ICON_UNREAD='✱'
+SPIN_TICK=0
 
 # Colors for navigator (using $'...' syntax for actual escape sequences)
 readonly NAV_C_HEADER=$'\033[1;36m'
@@ -71,23 +82,38 @@ build_session_list() {
     BROKEN_START=-1
 
     local -a broken_ids=() broken_displays=()
-    local session_id state label
+    local session_id state label selected unread
+
+    # The selected session is on screen in the view pane: whatever it has
+    # produced counts as seen. Everything else gets a baseline mark so a
+    # later busy->stop transition can be flagged as unread.
+    selected=$(get_nav_selected)
 
     while IFS=: read -r session_id state; do
         [[ -z "$session_id" ]] && continue
+        if [[ "$session_id" == "$selected" ]]; then
+            mark_session_seen "$session_id"
+        else
+            init_session_seen "$session_id"
+        fi
+        unread=""
+        if [[ "$state" == "active" || "$state" == "dormant" ]] &&
+            is_session_unread "$session_id"; then
+            unread=" ${NAV_C_ACCENT}${ICON_UNREAD}${NAV_C_NORMAL}"
+        fi
         label=$(_session_label "$session_id")
         case "$state" in
             busy)
                 SESSION_IDS+=("$session_id")
-                SESSION_DISPLAYS+=("${NAV_C_ACCENT}●${NAV_C_NORMAL} ${label}")
+                SESSION_DISPLAYS+=("${NAV_C_ACCENT}${SPIN_PLACEHOLDER}${NAV_C_NORMAL} ${label}")
                 ;;
             active)
                 SESSION_IDS+=("$session_id")
-                SESSION_DISPLAYS+=("${NAV_C_ACTIVE}▶${NAV_C_NORMAL} ${label}")
+                SESSION_DISPLAYS+=("${NAV_C_ACTIVE}▶${NAV_C_NORMAL} ${label}${unread}")
                 ;;
             dormant)
                 SESSION_IDS+=("$session_id")
-                SESSION_DISPLAYS+=("${NAV_C_DORMANT}○${NAV_C_NORMAL} ${label}")
+                SESSION_DISPLAYS+=("${NAV_C_DORMANT}○${NAV_C_NORMAL} ${label}${unread}")
                 ;;
             dead)
                 broken_ids+=("$session_id")
@@ -182,8 +208,10 @@ render_list() {
     if [[ ${#SESSION_IDS[@]} -eq 0 ]]; then
         output+="${NAV_C_DIM}(no sessions)${NAV_C_NORMAL}${eol}\n"
     else
+        local spin_frame="${SPINNER_FRAMES[$((SPIN_TICK % ${#SPINNER_FRAMES[@]}))]}"
         local i=0
         for display in "${SESSION_DISPLAYS[@]}"; do
+            display="${display//$SPIN_PLACEHOLDER/$spin_frame}"
             if [[ $i -ge $max_lines ]]; then
                 local remaining=$((${#SESSION_IDS[@]} - max_lines))
                 output+="${NAV_C_DIM}... +${remaining} more${NAV_C_NORMAL}${eol}\n"
@@ -235,6 +263,10 @@ show_help() {
     echo "    D          Delete from Tower (Claude's transcript is kept)"
     echo "    r          Resume selected dormant session"
     echo "    Tab        Switch to Tile view"
+    echo ""
+    # Keep the help within 24 rows: one line taller and the title scrolls
+    # off on a default-size terminal.
+    echo "  Marks:     ${SPINNER_FRAMES[0]} working   ${ICON_UNREAD} unread (output since last viewed)"
     echo ""
     echo "  Other:"
     echo "    ?          Show this help"
@@ -542,9 +574,9 @@ main_loop() {
         # render_list handles cursor positioning internally
         render_list "$selected_index"
 
-        # Wait for input with timeout
+        # Wait for input with timeout (short tick so the spinner turns)
         local key=""
-        if read -rsn1 -t "$REFRESH_INTERVAL" key; then
+        if read -rsn1 -t "$TICK_INTERVAL" key; then
             case "$key" in
                 j | $'\x1b')
                     # Handle arrow keys
@@ -613,7 +645,12 @@ main_loop() {
                     ;;
             esac
         else
-            # Timeout - refresh session list
+            # Timeout tick - advance the spinner; only rebuild the session
+            # list (stat/grep per session) every TICKS_PER_REFRESH ticks.
+            SPIN_TICK=$(((SPIN_TICK + 1) % 1000000))
+            if [[ $((SPIN_TICK % TICKS_PER_REFRESH)) -ne 0 ]]; then
+                continue
+            fi
             build_session_list
 
             # Clamp selection

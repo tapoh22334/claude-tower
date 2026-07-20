@@ -237,3 +237,78 @@ EOF
 
     grep -q "sock with space" "${TEST_DIR}/tmp/tmux_calls.log"
 }
+
+# ============================================================================
+# render_list spinner - busy rows carry SPIN_PLACEHOLDER at build time and
+# render_list substitutes the current frame, so the spinner turns on every
+# redraw without rebuilding the session list.
+# ============================================================================
+
+@test "render_list: substitutes the busy placeholder with the current spinner frame" {
+    source "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh" 2>/dev/null || true
+
+    tput() {
+        if [[ "$1" == "lines" ]]; then echo 24; else return 1; fi
+    }
+
+    SESSION_IDS=("tower_busy1")
+    SESSION_DISPLAYS=("${SPIN_PLACEHOLDER} working-session")
+    BROKEN_START=-1
+
+    SPIN_TICK=0
+    run render_list 0
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"$SPIN_PLACEHOLDER"* ]]
+    [[ "$output" == *"${SPINNER_FRAMES[0]} working-session"* ]]
+
+    SPIN_TICK=1
+    run render_list 0
+    [[ "$output" == *"${SPINNER_FRAMES[1]} working-session"* ]]
+}
+
+@test "build_session_list: busy row embeds the spinner placeholder, stopped unseen row gets the unread mark" {
+    source "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh" 2>/dev/null || true
+
+    TOWER_SEEN_DIR="${BATS_TEST_TMPDIR}/seen"
+    local uuid_busy="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    local uuid_done="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+    local f_busy f_done
+    f_busy=$(create_mock_jsonl "-home-user-proj" "$uuid_busy" "/home/user/proj")
+    f_done=$(create_mock_jsonl "-home-user-other" "$uuid_done" "/home/user/other")
+
+    # The stopped session already has a (stale) seen mark; its transcript
+    # then moved on -> unread.
+    touch -d "2020-01-01 00:00:00" "$f_done"
+    mark_session_seen "tower_${uuid_done}"
+    touch -d "2020-01-02 00:00:00" "$f_done"
+
+    list_all_sessions() {
+        echo "tower_${uuid_busy}:busy"
+        echo "tower_${uuid_done}:active"
+    }
+    get_nav_selected() { echo ""; }
+
+    build_session_list
+
+    [[ "${SESSION_DISPLAYS[0]}" == *"$SPIN_PLACEHOLDER"* ]]
+    [[ "${SESSION_DISPLAYS[1]}" == *"$ICON_UNREAD"* ]]
+}
+
+@test "build_session_list: selected session is marked seen, so no unread mark" {
+    source "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh" 2>/dev/null || true
+
+    TOWER_SEEN_DIR="${BATS_TEST_TMPDIR}/seen"
+    local uuid="cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+    local f
+    f=$(create_mock_jsonl "-home-user-proj" "$uuid" "/home/user/proj")
+    touch -d "2020-01-01 00:00:00" "$f"
+    mark_session_seen "tower_${uuid}"
+    touch -d "2020-01-02 00:00:00" "$f"
+
+    list_all_sessions() { echo "tower_${uuid}:active"; }
+    get_nav_selected() { echo "tower_${uuid}"; }
+
+    build_session_list
+
+    [[ "${SESSION_DISPLAYS[0]}" != *"$ICON_UNREAD"* ]]
+}
