@@ -236,7 +236,7 @@ render_list() {
     # if the frame fills the terminal exactly, a final newline would still
     # scroll the screen by one row on every redraw.
     output+="${eol}\n"
-    output+="${NAV_C_DIM}j/k:nav Enter/i:input n:add D:del r:resume q:quit${NAV_C_NORMAL}${eol}"
+    output+="${NAV_C_DIM}j/k:nav Enter/i:input n:add D:del r:resume t:tail q:quit${NAV_C_NORMAL}${eol}"
 
     # Clear to end of screen code
     local clear_eos
@@ -263,6 +263,7 @@ show_help() {
     echo "    D          Delete from Tower (Claude's transcript is kept)"
     echo "    r          Resume selected dormant session"
     echo "    Tab        Switch to Tile view"
+    echo "    t          Switch to Tail view (live output follow)"
     echo ""
     # Keep the help within 24 rows: one line taller and the title scrolls
     # off on a default-size terminal.
@@ -487,6 +488,21 @@ switch_to_tile() {
     fi
 }
 
+# Switch to Tail view (live multi-session output follow)
+switch_to_tail() {
+    info_log "Switching to Tail mode"
+
+    # Create tail window on session server (where Claude sessions live)
+    session_tmux new-window -n "tower-tail" "$SCRIPT_DIR/tail-view.sh" 2>/dev/null || true
+
+    local target_session
+    target_session=$(session_tmux list-sessions -F '#{session_name}' 2>/dev/null | head -1 || echo "")
+
+    if [[ -n "$target_session" ]]; then
+        nav_tmux detach-client -E "TMUX= tmux -L '$TOWER_SESSION_SOCKET' attach-session -t '$target_session'"
+    fi
+}
+
 # Quit Navigator
 # Returns to the caller session or any available session on default server
 quit_navigator() {
@@ -634,6 +650,9 @@ main_loop() {
                     ;;
                 $'\t') # Tab key
                     switch_to_tile
+                    ;;
+                t)
+                    switch_to_tail
                     ;;
                 '?')
                     show_help
