@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# tower - CLI entry point for claude-tower v2
+# Usage: tower <command> [options]
+#
+# Commands:
+#   add <path> [-n name]    Add a new session
+#   rm <name> [-f]          Remove a session
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TOWER_SCRIPT_NAME="tower"
+
+# shellcheck source=../lib/common.sh
+source "$SCRIPT_DIR/../lib/common.sh"
+
+show_help() {
+    cat <<'EOF'
+tower - Claude Tower CLI
+
+Usage: tower <command> [options]
+
+Commands:
+  add <path> [-n name]    Add a new session for the specified directory
+  rm <name> [-f]          Remove a session (keeps directory)
+
+Options:
+  -h, --help              Show this help
+
+Examples:
+  tower add .                       # Add session for current directory
+  tower add /path/to/project        # Add session for specified path
+  tower add . -n my-project         # Add with custom session name
+  tower rm my-project               # Remove session (with confirmation)
+  tower rm my-project -f            # Remove session (force, no confirmation)
+
+EOF
+}
+
+# Main entry point
+main() {
+    if [[ $# -eq 0 ]]; then
+        show_help
+        exit 0
+    fi
+
+    local command="$1"
+    shift
+
+    case "$command" in
+        add)
+            exec "$SCRIPT_DIR/session-add.sh" "$@"
+            ;;
+        rm | remove | delete)
+            exec "$SCRIPT_DIR/session-delete.sh" "$@"
+            ;;
+        -h | --help | help)
+            show_help
+            exit 0
+            ;;
+        *)
+            echo "Error: Unknown command: $command" >&2
+            echo "Run 'tower --help' for usage." >&2
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"
