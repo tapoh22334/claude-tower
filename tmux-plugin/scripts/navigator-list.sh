@@ -65,16 +65,20 @@ readonly NAV_C_EXTERNAL=$'\033[36m'  # Cyan - running outside Tower
 
 # Rows and headers render inside this many cells, so a wide terminal does
 # not stretch a one-line title across the whole screen. Overridable.
-readonly NAV_MAX_WIDTH="${TOWER_LIST_MAX_WIDTH:-100}"
+readonly NAV_MAX_WIDTH="${TOWER_LIST_MAX_WIDTH:-80}"
+# Floor so a narrow pane still leaves room for a readable label; below this
+# the content simply overflows the pane rather than collapsing to nothing.
+readonly NAV_MIN_WIDTH="${TOWER_LIST_MIN_WIDTH:-50}"
 # Right-hand status column (unread ✱ + subagent ⚙N), fixed so the marks
 # line up down the list instead of floating after each title.
 readonly NAV_RIGHT_COL=6
 
-# Effective content width: the terminal, capped at NAV_MAX_WIDTH.
+# Effective content width: the terminal, clamped to [MIN, MAX].
 _content_width() {
     local w
     w=$(tput cols 2>/dev/null || echo 80)
     ((w > NAV_MAX_WIDTH)) && w=$NAV_MAX_WIDTH
+    ((w < NAV_MIN_WIDTH)) && w=$NAV_MIN_WIDTH
     echo "$w"
 }
 

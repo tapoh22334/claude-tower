@@ -40,12 +40,17 @@ _visible_width() {
 
 @test "_content_width: caps at NAV_MAX_WIDTH on a wide terminal" {
     _run_nav 140 'echo "$(_content_width)"'
-    [ "$output" = "100" ]
+    [ "$output" = "80" ]
 }
 
-@test "_content_width: uses the terminal width when under the cap" {
+@test "_content_width: uses the terminal width when between the floor and cap" {
     _run_nav 72 'echo "$(_content_width)"'
     [ "$output" = "72" ]
+}
+
+@test "_content_width: floors at NAV_MIN_WIDTH on a narrow terminal" {
+    _run_nav 40 'echo "$(_content_width)"'
+    [ "$output" = "50" ]
 }
 
 @test "_compose_row: marks land in the fixed right column (rows align)" {
@@ -73,16 +78,15 @@ _visible_width() {
 }
 
 @test "_compose_row: total visible width never exceeds the content width" {
+    # cols 100 clamps to the 80-cell cap, so the composed row (which excludes
+    # the renderer's 2-space indent) must fit within 78 cells.
     _run_nav 100 '
         r=$(_compose_row "●" "a fairly long session title that keeps going and going" "$(printf "\033[2m⚙3\033[0m")")
         plain=$(printf "%s" "$r" | sed -E "s/\x1b\[[0-9;?]*[a-zA-Z]//g")
         str_display_width "$plain"
     '
     [ "$status" -eq 0 ]
-    # The 2-space indent is added by the renderer; the composed row itself
-    # (icon + space + label + pad + right column) must fit within the
-    # content width minus that indent. Measured in cells, not bytes.
-    [ "$output" -le 98 ]
+    [ "$output" -le 78 ]
 }
 
 @test "strip_ansi_seq: removes color codes, keeps text" {
@@ -107,8 +111,9 @@ _visible_width() {
         printf "%s" "${SESSION_HEADERS[0]}" | sed -E "s/\x1b\[[0-9;?]*[a-zA-Z]//g" | awk "{print length}"
     '
     [ "$status" -eq 0 ]
-    # "alpha" (5) + space + rule, capped near 100 cells not 140. The rule
-    # chars are multibyte so byte length > cell width; assert it is bounded.
-    [ "$output" -gt 100 ]   # multibyte, so > 100 bytes
-    [ "$output" -lt 320 ]   # but nowhere near a 140-wide rule (~420 bytes)
+    # "alpha" (5) + space + rule, capped at the 80-cell content width, not
+    # 140. The rule glyph (─) is 3 bytes, so byte length far exceeds the
+    # cell width; assert it is bounded well under a 140-wide rule.
+    [ "$output" -gt 80 ]    # multibyte rule, so > 80 bytes
+    [ "$output" -lt 260 ]   # 80-cap rule ~228 bytes; a 140 rule would be ~410
 }
