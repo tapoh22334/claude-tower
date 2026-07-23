@@ -63,6 +63,21 @@ BROKEN_START=-1
 
 readonly NAV_C_EXTERNAL=$'\033[36m'  # Cyan - running outside Tower
 
+# Rows and headers render inside this many cells, so a wide terminal does
+# not stretch a one-line title across the whole screen. Overridable.
+readonly NAV_MAX_WIDTH="${TOWER_LIST_MAX_WIDTH:-100}"
+# Right-hand status column (unread ✱ + subagent ⚙N), fixed so the marks
+# line up down the list instead of floating after each title.
+readonly NAV_RIGHT_COL=6
+
+# Effective content width: the terminal, capped at NAV_MAX_WIDTH.
+_content_width() {
+    local w
+    w=$(tput cols 2>/dev/null || echo 80)
+    ((w > NAV_MAX_WIDTH)) && w=$NAV_MAX_WIDTH
+    echo "$w"
+}
+
 # Row label inside a project group: the group header already names the
 # directory, so the row shows the conversation title (what distinguishes
 # sessions sharing a project), plus " (name)" when the registry has one.
@@ -79,12 +94,12 @@ _session_label() {
     label=$(get_session_title "$claude_id" 2>/dev/null) || label=""
     [[ -z "$label" ]] && label="${claude_id:0:7}"
 
-    # Budget: terminal width minus the icon, indent and unread mark. Cut by
-    # display cells — a Japanese title counted in characters overflows the
-    # row and wraps onto a second line.
+    # Budget: content width minus the indent (2), state icon (2) and the
+    # fixed right status column. Cut by display cells — a Japanese title
+    # counted in characters overflows the row and wraps onto a second line.
     local width budget
-    width=$(tput cols 2>/dev/null || echo 80)
-    budget=$((width - 8))
+    width=$(_content_width)
+    budget=$((width - 4 - NAV_RIGHT_COL))
     ((budget < 20)) && budget=20
 
     if [[ -n "$name" ]]; then
@@ -99,6 +114,53 @@ _session_label() {
         return 0
     fi
     truncate_display "$label" "$budget"
+}
+
+# Compose a list row: "  <icon> <label><padding><marks>", with marks
+# right-aligned into the fixed NAV_RIGHT_COL so they line up down the list.
+# $1 icon (may contain ANSI), $2 plain label, $3 marks (may contain ANSI).
+# Label width is measured on the plain text; marks width is measured with
+# ANSI stripped so color codes don't count toward the column.
+_compose_row() {
+    local icon="$1" label="$2" marks="$3"
+    local width icon_w label_w marks_plain marks_w pad_w pad=""
+    width=$(_content_width)
+
+    # Fixed left overhead: 2-space indent (added by the renderer) + the
+    # state icon's own display width + one separating space. Measured, not
+    # assumed: some state glyphs (●, ◇) are two cells wide.
+    icon_w=$(str_display_width "$(printf '%s' "$icon" | strip_ansi_seq)")
+    local left=$((2 + icon_w + 1))
+
+    # Hard cap the label to the row budget. _session_label already sizes to
+    # this, but defend the invariant here too so no caller overflows the row.
+    local budget=$((width - left - NAV_RIGHT_COL))
+    ((budget < 10)) && budget=10
+    label=$(truncate_display "$label" "$budget")
+
+    label_w=$(str_display_width "$label")
+    marks_plain=$(printf '%s' "$marks" | strip_ansi_seq)
+    marks_w=$(str_display_width "$marks_plain")
+
+    # Pad the label out so the marks sit in the fixed right column.
+    pad_w=$((width - left - label_w - NAV_RIGHT_COL))
+    ((pad_w < 1)) && pad_w=1
+    printf -v pad '%*s' "$pad_w" ''
+
+    if [[ -n "$marks" ]]; then
+        local gap=$((NAV_RIGHT_COL - marks_w))
+        ((gap < 0)) && gap=0
+        local rpad=""
+        printf -v rpad '%*s' "$gap" ''
+        printf '%s %s%s%s%s\n' "$icon" "$label" "$pad" "$rpad" "$marks"
+    else
+        printf '%s %s\n' "$icon" "$label"
+    fi
+}
+
+# Strip ANSI CSI sequences (color, cursor) so display width can be measured.
+strip_ansi_seq() {
+    sed -E $'s/\033\\[[0-9;?]*[a-zA-Z]//g'
 }
 
 # Project dir of a session ("" when unknown)
@@ -125,6 +187,7 @@ build_session_list() {
     # later busy->stop transition can be flagged as unread.
     selected=$(get_nav_selected)
 
+    local icon marks
     while IFS=: read -r session_id state; do
         [[ -z "$session_id" ]] && continue
         if [[ "$session_id" == "$selected" ]]; then
@@ -132,50 +195,48 @@ build_session_list() {
         else
             init_session_seen "$session_id"
         fi
+
+        # Right status column: unread mark, then subagent count. Assembled
+        # separately from the label so _compose_row can right-align it into
+        # a fixed column, lining the marks up down the whole list.
         unread=""
         if [[ "$state" == "active" || "$state" == "dormant" || "$state" == "external" ]] &&
             is_session_unread "$session_id"; then
-            unread=" ${NAV_C_ACCENT}${ICON_UNREAD}${NAV_C_NORMAL}"
+            unread="${NAV_C_ACCENT}${ICON_UNREAD}${NAV_C_NORMAL}"
         fi
+        badge=""
+        if [[ "$state" == "busy" ]] &&
+            jsonl=$(find_session_jsonl "${session_id#tower_}" 2>/dev/null); then
+            agents=$(count_active_subagents "$jsonl")
+            if [[ "$agents" -gt 0 ]]; then
+                badge="${NAV_C_DIM}⚙${agents}${NAV_C_NORMAL}"
+            fi
+        fi
+        marks="$unread"
+        [[ -n "$badge" ]] && marks="${marks:+$marks }${badge}"
+
         label=$(_session_label "$session_id")
         dir=$(_session_dir "$session_id")
         case "$state" in
-            busy)
-                badge=""
-                if jsonl=$(find_session_jsonl "${session_id#tower_}" 2>/dev/null); then
-                    agents=$(count_active_subagents "$jsonl")
-                    if [[ "$agents" -gt 0 ]]; then
-                        badge=" ${NAV_C_DIM}⚙${agents}${NAV_C_NORMAL}"
-                    fi
-                fi
-                raw_ids+=("$session_id")
-                raw_dirs+=("$dir")
-                raw_displays+=("${NAV_C_ACCENT}${SPIN_PLACEHOLDER}${NAV_C_NORMAL} ${label}${badge}")
-                ;;
-            active)
-                raw_ids+=("$session_id")
-                raw_dirs+=("$dir")
-                raw_displays+=("${NAV_C_ACTIVE}▶${NAV_C_NORMAL} ${label}${unread}")
-                ;;
-            external)
-                raw_ids+=("$session_id")
-                raw_dirs+=("$dir")
-                raw_displays+=("${NAV_C_EXTERNAL}◇${NAV_C_NORMAL} ${label}${unread}")
-                ;;
-            dormant)
-                raw_ids+=("$session_id")
-                raw_dirs+=("$dir")
-                raw_displays+=("${NAV_C_DORMANT}○${NAV_C_NORMAL} ${label}${unread}")
-                ;;
+            busy)    icon="${NAV_C_ACCENT}${SPIN_PLACEHOLDER}${NAV_C_NORMAL}" ;;
+            active)  icon="${NAV_C_ACTIVE}▶${NAV_C_NORMAL}" ;;
+            external) icon="${NAV_C_EXTERNAL}◇${NAV_C_NORMAL}" ;;
+            dormant) icon="${NAV_C_DORMANT}○${NAV_C_NORMAL}" ;;
             dead)
                 broken_ids+=("$session_id")
-                broken_displays+=("${NAV_C_ERROR}✗${NAV_C_NORMAL} ${label}")
+                broken_displays+=("$(_compose_row "${NAV_C_ERROR}✗${NAV_C_NORMAL}" "$label" "")")
+                continue
                 ;;
             lost)
                 broken_ids+=("$session_id")
-                broken_displays+=("${NAV_C_ERROR}?${NAV_C_NORMAL} ${label}")
+                broken_displays+=("$(_compose_row "${NAV_C_ERROR}?${NAV_C_NORMAL}" "$label" "")")
+                continue
                 ;;
+            *) continue ;;
         esac
+        raw_ids+=("$session_id")
+        raw_dirs+=("$dir")
+        raw_displays+=("$(_compose_row "$icon" "$label" "$marks")")
     done < <(list_all_sessions)
 
     # Regroup by project dir: groups in first-appearance order, original
@@ -204,11 +265,13 @@ build_session_list() {
             # (forks / sessions started in plain terminals).
             header+=" ${NAV_C_EXTERNAL}⚡${extern}${NAV_C_NORMAL}"
         fi
-        rule_w=$(( $(tput cols 2>/dev/null || echo 80) - $(str_display_width "$dname") - 4 ))
+        # Rule fills to the capped content width, not the raw terminal, so
+        # a wide screen doesn't draw a rule clear across the display.
+        rule_w=$(( $(_content_width) - $(str_display_width "$dname") - 4 ))
         if ((extern > 0)); then rule_w=$((rule_w - 3)); fi
         if ((rule_w > 0)); then
-            local rule=""
-            while ((${#rule} < rule_w)); do rule+="─"; done
+            local rule="" k
+            for ((k = 0; k < rule_w; k++)); do rule+="─"; done
             header+=" ${NAV_C_DIM}${rule}${NAV_C_NORMAL}"
         fi
 
