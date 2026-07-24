@@ -27,6 +27,45 @@ find_session_jsonl() {
     return 1
 }
 
+# Recover a fork's parent Claude sessionId. A /fork copies the parent's
+# messages into a NEW sessionId transcript, keeping their uuids but
+# rewriting sessionId; forkedFrom is not persisted. So the fork's first
+# messages share uuids with the parent's transcript in the same slug dir.
+# Output: parent sessionId (returns 1, no output, when not a fork).
+# Match rule: another *.jsonl in the same dir, older mtime, sharing at
+# least one of the child's first-5 uuids. Nearest-older wins.
+_FORK_SCAN_LINES=5
+find_fork_parent() {
+    local child_id="$1"
+    local child_jsonl child_dir child_mtime
+    child_jsonl=$(find_session_jsonl "$child_id") || return 1
+    child_dir=$(dirname -- "$child_jsonl")
+    child_mtime=$(stat -c %Y -- "$child_jsonl" 2>/dev/null) || return 1
+
+    local child_uuids
+    child_uuids=$(grep -o -m "$_FORK_SCAN_LINES" '"uuid":"[^"]*"' -- "$child_jsonl" 2>/dev/null | sort -u)
+    [[ -n "$child_uuids" ]] || return 1
+
+    local best="" best_mtime=0 f cand_id cand_mtime shared
+    for f in "$child_dir"/*.jsonl; do
+        [[ -f "$f" ]] || continue
+        [[ "$f" == "$child_jsonl" ]] && continue
+        cand_id=$(basename -- "$f" .jsonl)
+        [[ "$cand_id" =~ ^[0-9a-f-]{36}$ ]] || continue
+        cand_mtime=$(stat -c %Y -- "$f" 2>/dev/null) || continue
+        ((cand_mtime <= child_mtime)) || continue
+        shared=$(grep -o -m "$_FORK_SCAN_LINES" '"uuid":"[^"]*"' -- "$f" 2>/dev/null \
+            | sort -u | grep -Fx -f <(printf '%s\n' "$child_uuids") | head -n 1)
+        [[ -n "$shared" ]] || continue
+        if ((cand_mtime >= best_mtime)); then
+            best="$cand_id"
+            best_mtime=$cand_mtime
+        fi
+    done
+    [[ -n "$best" ]] || return 1
+    printf '%s\n' "$best"
+}
+
 # First "cwd" value in a transcript (= launch dir; matches --resume scope
 # and the slug). cwd can change mid-session via cd; first occurrence wins.
 # Returns 1 if the transcript has no cwd line (session died at startup).

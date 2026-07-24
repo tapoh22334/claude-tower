@@ -93,3 +93,28 @@ create_empty_jsonl() {
     echo '{"type":"queue-operation","op":"enqueue"}' > "$f"
     echo "$f"
 }
+
+# Create a parent transcript and a fork transcript that copies the parent's
+# first messages by uuid (sessionId rewritten to the fork's id) — the real
+# on-disk fork signature. $1 slug, $2 parent uuid, $3 fork uuid, $4 cwd.
+# The fork file is touched newer than the parent.
+create_fork_pair_jsonl() {
+    local slug="$1" parent="$2" fork="$3" cwd="$4"
+    local dir="${CLAUDE_PROJECTS_DIR}/${slug}"
+    mkdir -p "$dir"
+    local pf="${dir}/${parent}.jsonl" ff="${dir}/${fork}.jsonl"
+    local u1="aaaaaaaa-0000-4000-8000-000000000001"
+    local u2="aaaaaaaa-0000-4000-8000-000000000002"
+    # Parent: two messages with uuids u1,u2 under the parent sessionId.
+    printf '{"type":"user","cwd":"%s","sessionId":"%s","uuid":"%s"}\n' "$cwd" "$parent" "$u1" >"$pf"
+    printf '{"type":"assistant","cwd":"%s","sessionId":"%s","uuid":"%s"}\n' "$cwd" "$parent" "$u2" >>"$pf"
+    # Fork: same uuids u1,u2 but sessionId rewritten to the fork id, plus a
+    # new fork-only message.
+    printf '{"type":"user","cwd":"%s","sessionId":"%s","uuid":"%s"}\n' "$cwd" "$fork" "$u1" >"$ff"
+    printf '{"type":"assistant","cwd":"%s","sessionId":"%s","uuid":"%s"}\n' "$cwd" "$fork" "$u2" >>"$ff"
+    printf '{"type":"user","cwd":"%s","sessionId":"%s","uuid":"%s"}\n' "$cwd" "$fork" "bbbbbbbb-0000-4000-8000-000000000003" >>"$ff"
+    # Ensure fork is newer than parent.
+    touch -d '2020-01-01 00:00:00' "$pf"
+    touch -d '2020-01-01 00:00:10' "$ff"
+    printf '%s\t%s\n' "$pf" "$ff"
+}
