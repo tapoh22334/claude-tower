@@ -14,17 +14,71 @@ CLAUDE_HISTORY_FILE="${CLAUDE_HISTORY_FILE:-$HOME/.claude/history.jsonl}"
 CLAUDE_LIVE_SESSIONS_DIR="${CLAUDE_LIVE_SESSIONS_DIR:-$HOME/.claude/sessions}"
 TOWER_BUSY_WINDOW="${TOWER_BUSY_WINDOW:-45}"
 
-# Find the transcript for a Claude session ID (without tower_ prefix)
+# Slugify a cwd the way Claude Code names its project dirs: every "/" (and
+# other non-alnum run) becomes "-", so "/home/iwase/working/foo" becomes
+# "-home-iwase-working-foo". Used to tell a session's canonical transcript
+# (the one under the slug matching its own launch cwd) from stray copies.
+_cwd_to_slug() {
+    local cwd="$1"
+    # Claude replaces every non-alphanumeric character with a single dash.
+    printf '%s\n' "$cwd" | sed 's/[^a-zA-Z0-9]/-/g'
+}
+
+# Find the transcript for a Claude session ID (without tower_ prefix).
 # Output: absolute path. Returns 1 if not found.
+#
+# The same sessionId can have a transcript under MORE THAN ONE slug dir
+# (a session that cd'd between projects, or worktree/scratchpad slugs whose
+# path doesn't match the recorded cwd). A plain glob returns whichever the
+# shell expands first — arbitrary sort order, not the real launch dir — so
+# the list would group the session under the wrong directory header.
+#
+# Resolve deterministically toward the CANONICAL transcript:
+#   1. the candidate whose slug basename equals its own recorded launch cwd
+#      slugified (i.e. the transcript that actually belongs to that dir);
+#   2. failing that, the newest one by mtime (the session's latest home).
+# A single candidate is returned as-is without any extra stat/grep cost.
 find_session_jsonl() {
     local session_id="$1"
     local f
+    local -a candidates=()
     for f in "$CLAUDE_PROJECTS_DIR"/*/"${session_id}".jsonl; do
         [[ -f "$f" ]] || continue
-        echo "$f"
-        return 0
+        candidates+=("$f")
     done
-    return 1
+
+    case ${#candidates[@]} in
+        0) return 1 ;;
+        1) echo "${candidates[0]}"; return 0 ;;
+    esac
+
+    # Multiple slugs hold this sessionId. Prefer the one whose slug matches
+    # the transcript's own launch cwd.
+    local slug cwd
+    for f in "${candidates[@]}"; do
+        slug=$(basename -- "$(dirname -- "$f")")
+        cwd=$(get_session_cwd "$f" 2>/dev/null) || continue
+        [[ -z "$cwd" ]] && continue
+        if [[ "$slug" == "$(_cwd_to_slug "$cwd")" ]]; then
+            echo "$f"
+            return 0
+        fi
+    done
+
+    # No slug matched its own cwd — fall back to the newest transcript.
+    local newest="" newest_mtime=-1 mtime
+    for f in "${candidates[@]}"; do
+        mtime=$(stat -c %Y -- "$f" 2>/dev/null) || continue
+        if ((mtime > newest_mtime)); then
+            newest_mtime=$mtime
+            newest="$f"
+        fi
+    done
+    [[ -n "$newest" ]] && { echo "$newest"; return 0; }
+
+    # stat failed for all; return the first candidate so callers still work.
+    echo "${candidates[0]}"
+    return 0
 }
 
 # First "cwd" value in a transcript (= launch dir; matches --resume scope
@@ -176,14 +230,26 @@ is_claude_process_alive() {
 
 # Count of live claude processes in a directory whose session is NOT
 # registered in Tower — forks/sessions started outside Tower's tmux.
+#
+# $2 (optional): a pre-fetched live-process table (the output of
+# list_live_claude_processes). Scanning the live-process table means walking
+# ~/.claude/sessions, one kill -0 + grep per entry — a full rescan per call.
+# build_session_list calls this once per project dir, so without the snapshot
+# it rescans the same table N times per refresh. Pass the table in to scan the
+# processes once and reuse it. Falls back to a fresh scan when omitted.
 count_unregistered_processes_in_dir() {
     local dir="$1"
+    local table="${2-}"
     local sid _pid cwd n=0
+    if [[ -z "${2+set}" ]]; then
+        table=$(list_live_claude_processes)
+    fi
     while IFS=$'\t' read -r sid _pid cwd; do
+        [[ -z "$sid" ]] && continue
         [[ "$cwd" == "$dir" ]] || continue
         has_metadata "tower_${sid}" && continue
         n=$((n + 1))
-    done < <(list_live_claude_processes)
+    done <<<"$table"
     echo "$n"
 }
 

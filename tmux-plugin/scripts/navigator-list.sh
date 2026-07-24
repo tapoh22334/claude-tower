@@ -185,6 +185,13 @@ build_session_list() {
     local -a broken_ids=() broken_displays=()
     local session_id state label selected dir jsonl agents badge
 
+    # Snapshot the live-process table ONCE for this whole build. The per-dir
+    # unmanaged-process count would otherwise rescan ~/.claude/sessions (a
+    # kill -0 + grep per entry) once for every project group; one snapshot,
+    # reused, replaces N full rescans per refresh.
+    local live_procs
+    live_procs=$(list_live_claude_processes)
+
     # The selected session is on screen in the view pane: whatever it has
     # produced counts as seen. Everything else gets a baseline mark so a
     # later busy->stop transition can be flagged as unread.
@@ -262,7 +269,7 @@ build_session_list() {
         local dname rule_w
         dname=$(basename -- "${d:-unknown}")
         header="${NAV_C_HEADER}${dname}${NAV_C_NORMAL}"
-        extern=$(count_unregistered_processes_in_dir "$d")
+        extern=$(count_unregistered_processes_in_dir "$d" "$live_procs")
         if [[ "$extern" -gt 0 ]]; then
             # Live claude processes here that Tower doesn't manage
             # (forks / sessions started in plain terminals).
