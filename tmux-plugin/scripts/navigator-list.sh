@@ -751,7 +751,15 @@ restore_selected() {
 
     # Check if metadata exists (can restore)
     if ! has_metadata "$selected"; then
-        # No metadata - can't restore
+        # A selected fork row carries a raw Claude sessionId (no tower_
+        # prefix) for a live, unregistered session. Offer to add it so the
+        # user can resume it under Tower rather than dead-ending.
+        if [[ "$selected" != tower_* ]] && is_claude_process_alive "$selected"; then
+            echo ""
+            echo "  ${NAV_C_DIM}Fork — press n to add it to Tower${NAV_C_NORMAL}"
+            sleep 0.5
+            return 0
+        fi
         echo ""
         echo "  ${NAV_C_DIM}Not registered — press n to add${NAV_C_NORMAL}"
         sleep 0.3
