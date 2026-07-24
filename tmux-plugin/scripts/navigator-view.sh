@@ -145,13 +145,15 @@ attach_to_session() {
 # Main Loop
 # ============================================================================
 
-# Wait for update signal from list pane
-# Uses polling to avoid missing signals from tmux wait-for
+# Idle wait between view-state checks.
+#
+# Session switching itself is driven by the list pane's switch-client, which
+# redirects this already-attached nested client instantly. This poll only
+# needs to catch state the client can't push us: a selected session going
+# dormant/restored, or the selection cleared. 0.1s keeps that responsive
+# without busy-spinning (one stat + one has-session per idle tick).
 wait_for_update() {
-    # Poll for selection changes every 0.2 seconds
-    # This prevents the signal timing issue where wait-for -S signals
-    # can be lost if sent before wait-for is called
-    sleep 0.2
+    sleep 0.1
 }
 
 main_loop() {

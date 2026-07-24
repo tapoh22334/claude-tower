@@ -426,8 +426,12 @@ render_list() {
     local clear_eos
     clear_eos=$(tput ed 2>/dev/null || printf '\033[J')
 
-    # Single atomic write: hide cursor, move home, print, clear rest, show cursor
-    printf '\033[?25l\033[H%b%s\033[?25h' "$output" "$clear_eos"
+    # Single atomic write: hide cursor, move home, print, clear rest.
+    # Cursor stays HIDDEN — the selection is the reverse-video row, so a
+    # terminal cursor is never needed and, left visible, parks as a stray
+    # block on the last line. The EXIT trap restores it; interactive
+    # sub-flows (fzf, y/n) re-enable it themselves after their own clear.
+    printf '\033[?25l\033[H%b%s' "$output" "$clear_eos"
 }
 
 # Show help screen
@@ -464,55 +468,48 @@ show_help() {
 # Actions
 # ============================================================================
 
-# Signal view pane to update
-# Uses tmux switch-client for instant session switching in inner tmux
+# Redirect the view pane to the currently-selected session.
+#
+# The view pane blocks inside `session_tmux attach-session`, so it cannot
+# switch itself — switch-client reaches into that already-attached nested
+# client and points it at the new session without a detach/re-attach cycle.
+# This is load-bearing for correctness, not just speed: without it the view
+# stays stuck on whatever it first attached to.
+#
+# Why it must not run inline: the list and view share ONE tmux server, a
+# single event loop. Run synchronously in move_selection, each keypress
+# waits on this whole round-trip (display-message + switch-client + wait-for)
+# AND on the view repainting the freshly-switched session — that coupling is
+# the cursor-movement lag. So we NEVER call this inline; movers call
+# signal_view_update_async, which detaches it completely (see below).
 signal_view_update() {
     local selected view_tty
     selected=$(get_nav_selected)
+    [[ -z "$selected" ]] && return
 
-    if [[ -z "$selected" ]]; then
-        return
-    fi
-
-    # Get the tty of the view pane (pane 1 in navigator session)
     view_tty=$(nav_tmux display-message -t "$TOWER_NAV_SESSION:0.1" -p '#{pane_tty}' 2>/dev/null)
+    [[ -z "$view_tty" ]] && return
 
-    if [[ -z "$view_tty" ]]; then
-        return
-    fi
-
-    # Use switch-client for instant session switching
-    # This switches the inner tmux client to the new session without detach/re-attach cycle
     session_tmux switch-client -c "$view_tty" -t "$selected" 2>/dev/null || true
-    debug_log "switch-client: tty=$view_tty session=$selected"
-
-    # Signal the view pane via tmux wait-for (wakes up if waiting)
-    nav_tmux wait-for -S "$TOWER_VIEW_UPDATE_CHANNEL" 2>/dev/null || true
 }
 
-# Fire the (slow) view-pane update WITHOUT blocking cursor movement.
-# switch-client + wait-for each spawn a tmux round-trip; run serially inline
-# they stall every j/k keypress behind the right pane's repaint. The view
-# pane independently polls the selected-state file, so it will pick up the
-# new selection on its own poll even if this signal is still in flight — the
-# background call only makes it snappier, it is never the source of truth.
-# Only one pending signal is useful; a rapid j/k/j/k burst should not fork a
-# process per key, so we coalesce on a single background PID.
+# Fire the view redirect fully detached so cursor movement never waits on it.
+#
+# Two things keep the list loop from blocking:
+#  1. The job runs in the background (&) with its own stdout/stderr sent to
+#     /dev/null, so even a mover called inside $(...) does not keep the
+#     command-substitution pipe open waiting for it.
+#  2. We coalesce on a single PID: while one redirect is still in flight we
+#     don't spawn another. A fast j/k burst therefore fires at most one
+#     switch per completed redirect, and the LAST selection always wins
+#     because signal_view_update re-reads the state file at the moment it
+#     runs — set_nav_selected has already recorded the newest value.
 _VIEW_SIGNAL_PID=""
 signal_view_update_async() {
-    # If the previous signal is still running, let it finish — the selected
-    # state file it will read is already the latest value, so a queued extra
-    # signal would be redundant work.
     if [[ -n "$_VIEW_SIGNAL_PID" ]] && kill -0 "$_VIEW_SIGNAL_PID" 2>/dev/null; then
         return
     fi
-    # Redirect the background job's own stdout/stderr to /dev/null. Without
-    # this, when a mover runs inside $(...) command substitution the forked
-    # signal inherits the capture pipe's write end, and the substitution
-    # blocks until the (slow) tmux round-trip exits — exactly the stall we
-    # are removing. Detached fds let the mover return instantly while the
-    # signal finishes on its own.
-    signal_view_update >/dev/null 2>&1 &
+    { signal_view_update; } >/dev/null 2>&1 &
     _VIEW_SIGNAL_PID=$!
 }
 
@@ -521,6 +518,14 @@ signal_view_update_async() {
 # soon as the local state file is updated — the command substitution no
 # longer waits on the slow tmux round-trip because signal_view_update_async
 # detaches the background job's fds.
+# The movers publish the new index in NAV_NEW_INDEX *and* echo it. The loop
+# reads the global (no fork); tests still capture via $(...). This matters
+# for latency: calling a mover as $(move_selection ...) forks a subshell per
+# keypress, and the backgrounded view-redirect started inside it can keep
+# the command-substitution pipe open until it finishes — reintroducing the
+# very stall we removed. Reading the global sidesteps the subshell entirely.
+NAV_NEW_INDEX=0
+
 move_selection() {
     local direction="$1" # "up" or "down"
     local current_index="$2"
@@ -541,6 +546,7 @@ move_selection() {
         signal_view_update_async
     fi
 
+    NAV_NEW_INDEX="$new_index"
     echo "$new_index"
 }
 
@@ -550,6 +556,7 @@ go_first() {
         set_nav_selected "${SESSION_IDS[0]}"
         signal_view_update_async
     fi
+    NAV_NEW_INDEX=0
     echo 0
 }
 
@@ -559,8 +566,10 @@ go_last() {
         local last_index=$((${#SESSION_IDS[@]} - 1))
         set_nav_selected "${SESSION_IDS[$last_index]}"
         signal_view_update_async
+        NAV_NEW_INDEX="$last_index"
         echo "$last_index"
     else
+        NAV_NEW_INDEX=0
         echo 0
     fi
 }
@@ -875,17 +884,21 @@ main_loop() {
                         esac
                     fi
                     if [[ "$key" == "j" ]]; then
-                        selected_index=$(move_selection "down" "$selected_index")
+                        move_selection "down" "$selected_index" >/dev/null
+                        selected_index=$NAV_NEW_INDEX
                     fi
                     ;;
                 k)
-                    selected_index=$(move_selection "up" "$selected_index")
+                    move_selection "up" "$selected_index" >/dev/null
+                    selected_index=$NAV_NEW_INDEX
                     ;;
                 g)
-                    selected_index=$(go_first)
+                    go_first >/dev/null
+                    selected_index=$NAV_NEW_INDEX
                     ;;
                 G)
-                    selected_index=$(go_last)
+                    go_last >/dev/null
+                    selected_index=$NAV_NEW_INDEX
                     ;;
                 '') # Enter key - same as i
                     focus_view
