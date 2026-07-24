@@ -490,7 +490,22 @@ signal_view_update() {
     view_tty=$(nav_tmux display-message -t "$TOWER_NAV_SESSION:0.1" -p '#{pane_tty}' 2>/dev/null)
     [[ -z "$view_tty" ]] && return
 
-    session_tmux switch-client -c "$view_tty" -t "$selected" 2>/dev/null || true
+    if session_tmux has-session -t "$selected" 2>/dev/null; then
+        # Live session: retarget the view's nested client straight onto it.
+        # This detaches the old session and attaches the new one in one step,
+        # which also unblocks navigator-view.sh's attach-session so its poll
+        # loop resumes on the new session.
+        session_tmux switch-client -c "$view_tty" -t "$selected" 2>/dev/null || true
+    else
+        # Not live (dormant / unregistered). switch-client would fail — there
+        # is no session to switch to — and, failing, would leave the nested
+        # client parked on the PREVIOUS session, so its stale pane stays on
+        # screen. Instead force the client to detach. That unblocks the
+        # attach-session call in navigator-view.sh; its poll loop then takes
+        # the not-live branch and paints the dedicated dormant/placeholder
+        # screen for this selection.
+        session_tmux detach-client -t "$view_tty" 2>/dev/null || true
+    fi
 }
 
 # Fire the view redirect fully detached so cursor movement never waits on it.
