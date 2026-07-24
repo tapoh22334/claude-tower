@@ -34,7 +34,6 @@ readonly -a SPINNER_FRAMES=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧')
 # Placeholder embedded in busy rows at build time, replaced with the current
 # frame at render time so the spinner turns without rebuilding the list.
 readonly SPIN_PLACEHOLDER='@@SPIN@@'
-readonly ICON_UNREAD='✱'
 SPIN_TICK=0
 
 # Colors for navigator (using $'...' syntax for actual escape sequences)
@@ -184,7 +183,7 @@ build_session_list() {
 
     local -a raw_ids=() raw_displays=() raw_dirs=()
     local -a broken_ids=() broken_displays=()
-    local session_id state label selected unread dir jsonl agents badge
+    local session_id state label selected dir jsonl agents badge
 
     # The selected session is on screen in the view pane: whatever it has
     # produced counts as seen. Everything else gets a baseline mark so a
@@ -200,13 +199,13 @@ build_session_list() {
             init_session_seen "$session_id"
         fi
 
-        # Right status column: unread mark, then subagent count. Assembled
-        # separately from the label so _compose_row can right-align it into
-        # a fixed column, lining the marks up down the whole list.
-        unread=""
+        # Unread is a STATE, not a right-column mark: a stopped session that
+        # produced output since it was last viewed becomes newmsg, shown by
+        # the ✱ left icon like any other state. The right column is left to
+        # the subagent count alone.
         if [[ "$state" == "active" || "$state" == "dormant" || "$state" == "external" ]] &&
             is_session_unread "$session_id"; then
-            unread="${NAV_C_ACCENT}${ICON_UNREAD}${NAV_C_NORMAL}"
+            state="newmsg"
         fi
         badge=""
         if [[ "$state" == "busy" ]] &&
@@ -216,13 +215,13 @@ build_session_list() {
                 badge="${NAV_C_DIM}⚙${agents}${NAV_C_NORMAL}"
             fi
         fi
-        marks="$unread"
-        [[ -n "$badge" ]] && marks="${marks:+$marks }${badge}"
+        marks="$badge"
 
         label=$(_session_label "$session_id")
         dir=$(_session_dir "$session_id")
         case "$state" in
             busy)    icon="${NAV_C_ACCENT}${SPIN_PLACEHOLDER}${NAV_C_NORMAL}" ;;
+            newmsg)  icon="${NAV_C_ACCENT}✱${NAV_C_NORMAL}" ;;
             active)  icon="${NAV_C_ACTIVE}▶${NAV_C_NORMAL}" ;;
             external) icon="${NAV_C_EXTERNAL}◇${NAV_C_NORMAL}" ;;
             dormant) icon="${NAV_C_DORMANT}○${NAV_C_NORMAL}" ;;
@@ -449,14 +448,13 @@ show_help() {
     echo "    N          New session in a picked project directory"
     echo "    D          Delete from Tower (Claude's transcript is kept)"
     echo "    r          Resume selected dormant session"
-    echo "    Tab        Switch to Tile view"
-    echo "    t          Switch to Tail view (live output follow)"
-    echo "    ?          Show this help"
-    echo "    q          Quit Navigator"
+    echo "    Tab / t    Tile view / Tail view (live output)"
+    echo "    ?          Show this help      q  Quit Navigator"
     echo ""
     # Keep the help under 24 rows total: at 24 printed lines the final
     # newline scrolls the title off a default-size terminal.
-    echo "  Marks:     ${SPINNER_FRAMES[0]} working  ${ICON_UNREAD} unread  ◇ external  ⚙N subagents  ⚡N unmanaged"
+    echo "  States:    ${SPINNER_FRAMES[0]} working  ✱ new output  ▶ waiting  ○ dormant  ◇ external  ✗/? gone"
+    echo "  Marks:     ⚙N active subagents (right)   ⚡N unmanaged claude in dir (header)"
     echo ""
     echo -e "${NAV_C_DIM}Press any key to continue...${NAV_C_NORMAL}"
     read -rsn1

@@ -843,6 +843,10 @@ readonly STATE_BUSY="busy"
 readonly STATE_DEAD="dead"
 readonly STATE_LOST="lost"
 readonly STATE_EXTERNAL="external"
+# Stopped session with output produced since it was last viewed. A state
+# of its own, not a separate mark: the left icon says all of dormant /
+# waiting / processing / new-message in one place.
+readonly STATE_NEWMSG="newmsg"
 
 readonly ICON_STATE_ACTIVE="▶"
 readonly ICON_STATE_DORMANT="○"
@@ -850,6 +854,7 @@ readonly ICON_STATE_BUSY="●"
 readonly ICON_STATE_DEAD="✗"
 readonly ICON_STATE_LOST="?"
 readonly ICON_STATE_EXTERNAL="◇"
+readonly ICON_STATE_NEWMSG="✱"
 
 # Cheap 2-state check (active/dormant), for callers that don't need
 # busy-granularity. See get_display_state (claude-sessions.sh) for the
@@ -892,6 +897,7 @@ get_state_icon() {
         "dead") echo "$ICON_STATE_DEAD" ;;
         "lost") echo "$ICON_STATE_LOST" ;;
         "$STATE_EXTERNAL") echo "$ICON_STATE_EXTERNAL" ;;
+        "$STATE_NEWMSG") echo "$ICON_STATE_NEWMSG" ;;
         *) echo "?" ;;
     esac
 }
