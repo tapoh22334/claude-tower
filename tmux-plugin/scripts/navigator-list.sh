@@ -301,6 +301,92 @@ build_session_list() {
     fi
 }
 
+# ----------------------------------------------------------------------------
+# Background rebuild + cache
+#
+# build_session_list is expensive (per-session state detection, per-row jsonl
+# greps, per-dir live-process scans) — measured well into the seconds. Run on
+# the input thread it stalls `read`, so any j/k pressed during a refresh is
+# buffered and lands late: the intermittent navigation lag. So the refresh
+# tick never builds inline. It (a) loads the last cached result instantly and
+# (b) spawns ONE background rebuild that writes a fresh cache; the next tick
+# swaps that in. The cursor loop keeps running throughout.
+# ----------------------------------------------------------------------------
+
+# Cache path for the serialized list (per user, alongside the nav state).
+_session_cache_file() {
+    echo "${TOWER_NAV_STATE_DIR:-/tmp/claude-tower}/session-list.cache"
+}
+
+# Serialize the current arrays to stdout. One row per line, fields quoted with
+# printf %q so ANSI escapes, spaces and the em-dash survive a round-trip. A
+# leading meta line carries BROKEN_START; each row line is idx-agnostic.
+_serialize_session_state() {
+    printf 'BROKEN_START %s\n' "$BROKEN_START"
+    local i
+    for ((i = 0; i < ${#SESSION_IDS[@]}; i++)); do
+        printf 'ROW %q %q %q %q\n' \
+            "${SESSION_IDS[$i]}" \
+            "${SESSION_DISPLAYS[$i]}" \
+            "${SESSION_DIRS[$i]}" \
+            "${SESSION_HEADERS[$i]}"
+    done
+}
+
+# Load arrays from the cache file. Returns 1 if the cache is missing/empty so
+# the caller can fall back to a synchronous build the very first time.
+_load_session_state() {
+    local cache
+    cache=$(_session_cache_file)
+    [[ -s "$cache" ]] || return 1
+
+    local -a ids=() disp=() dirs=() heads=()
+    local broken=-1
+    local tag a b c d
+    while read -r tag rest; do
+        case "$tag" in
+            BROKEN_START) broken="$rest" ;;
+            ROW)
+                # Re-split the four %q-quoted fields safely via eval into an
+                # array — %q output is valid shell word syntax by construction.
+                eval "local -a f=($rest)"
+                ids+=("${f[0]}")
+                disp+=("${f[1]}")
+                dirs+=("${f[2]}")
+                heads+=("${f[3]}")
+                ;;
+        esac
+    done <"$cache"
+
+    SESSION_IDS=("${ids[@]}")
+    SESSION_DISPLAYS=("${disp[@]}")
+    SESSION_DIRS=("${dirs[@]}")
+    SESSION_HEADERS=("${heads[@]}")
+    BROKEN_START=$broken
+    return 0
+}
+
+# Spawn ONE background rebuild. It builds into a fresh subshell (so it can't
+# touch our live arrays), serializes to a temp file, then atomically renames
+# it over the cache. Coalesced on a PID: a second spawn while one is running
+# is a no-op, so a burst of ticks doesn't fork a pile of scanners.
+_REBUILD_PID=""
+_spawn_background_rebuild() {
+    if [[ -n "$_REBUILD_PID" ]] && kill -0 "$_REBUILD_PID" 2>/dev/null; then
+        return
+    fi
+    local cache tmp
+    cache=$(_session_cache_file)
+    tmp="${cache}.$$"
+    (
+        # Subshell: build_session_list mutates only this copy of the arrays.
+        build_session_list
+        _serialize_session_state >"$tmp" 2>/dev/null && mv -f "$tmp" "$cache" 2>/dev/null
+        rm -f "$tmp" 2>/dev/null
+    ) >/dev/null 2>&1 &
+    _REBUILD_PID=$!
+}
+
 # Get current selection index from state
 get_selection_index() {
     local selected
@@ -847,8 +933,11 @@ main_loop() {
     nav_echo_off
     trap 'nav_echo_on; printf "\033[?25h" 2>/dev/null || true' EXIT INT TERM
 
-    # Initial build
+    # Initial build is synchronous so the first frame is correct, then seed
+    # the cache from it. From here on the refresh tick only loads the cache
+    # and rebuilds in the background, never on the input thread.
     build_session_list
+    _serialize_session_state >"$(_session_cache_file)" 2>/dev/null || true
 
     # Validate current selection - clear if session no longer exists
     local current_selected
@@ -978,13 +1067,17 @@ main_loop() {
                     ;;
             esac
         else
-            # Timeout tick - advance the spinner; only rebuild the session
-            # list (stat/grep per session) every TICKS_PER_REFRESH ticks.
+            # Timeout tick - advance the spinner; refresh the session list
+            # every TICKS_PER_REFRESH ticks. The refresh must NOT build inline
+            # (seconds of stat/grep would stall the read loop and swallow j/k):
+            # load the last cached result instantly, then kick ONE background
+            # rebuild whose fresh cache the next refresh swaps in.
             SPIN_TICK=$(((SPIN_TICK + 1) % 1000000))
             if [[ $((SPIN_TICK % TICKS_PER_REFRESH)) -ne 0 ]]; then
                 continue
             fi
-            build_session_list
+            _load_session_state || build_session_list
+            _spawn_background_rebuild
 
             # Clamp selection
             if [[ $selected_index -ge ${#SESSION_IDS[@]} ]]; then
