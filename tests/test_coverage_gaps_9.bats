@@ -273,7 +273,7 @@ EOF
     [[ "$output" == *"${SPINNER_FRAMES[1]} working-session"* ]]
 }
 
-@test "build_session_list: busy row embeds the spinner placeholder, stopped unseen row gets the unread mark" {
+@test "build_session_list: busy row embeds the spinner placeholder, stopped unseen row becomes newmsg (✱ state)" {
     source "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh" 2>/dev/null || true
 
     TOWER_SEEN_DIR="${BATS_TEST_TMPDIR}/seen"
@@ -284,7 +284,7 @@ EOF
     f_done=$(create_mock_jsonl "-home-user-other" "$uuid_done" "/home/user/other")
 
     # The stopped session already has a (stale) seen mark; its transcript
-    # then moved on -> unread.
+    # then moved on -> unread, so it renders as the newmsg state.
     touch -d "2020-01-01 00:00:00" "$f_done"
     mark_session_seen "tower_${uuid_done}"
     touch -d "2020-01-02 00:00:00" "$f_done"
@@ -298,10 +298,11 @@ EOF
     build_session_list
 
     [[ "${SESSION_DISPLAYS[0]}" == *"$SPIN_PLACEHOLDER"* ]]
-    [[ "${SESSION_DISPLAYS[1]}" == *"$ICON_UNREAD"* ]]
+    # Unread is now a state (✱ left icon), not a right-column mark.
+    [[ "${SESSION_DISPLAYS[1]}" == *"✱"* ]]
 }
 
-@test "build_session_list: selected session is marked seen, so no unread mark" {
+@test "build_session_list: selected session is marked seen, so it stays active not newmsg" {
     source "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh" 2>/dev/null || true
 
     TOWER_SEEN_DIR="${BATS_TEST_TMPDIR}/seen"
@@ -317,5 +318,7 @@ EOF
 
     build_session_list
 
-    [[ "${SESSION_DISPLAYS[0]}" != *"$ICON_UNREAD"* ]]
+    # Seen -> stays ▶ active, never promoted to the ✱ newmsg state.
+    [[ "${SESSION_DISPLAYS[0]}" == *"▶"* ]]
+    [[ "${SESSION_DISPLAYS[0]}" != *"✱"* ]]
 }
