@@ -756,7 +756,7 @@ restore_selected() {
         # user can resume it under Tower rather than dead-ending.
         if [[ "$selected" != tower_* ]] && is_claude_process_alive "$selected"; then
             echo ""
-            echo "  ${NAV_C_DIM}Fork — press n to add it to Tower${NAV_C_NORMAL}"
+            echo "  ${NAV_C_DIM}Fork — press n to add${NAV_C_NORMAL}"
             sleep 0.5
             return 0
         fi
