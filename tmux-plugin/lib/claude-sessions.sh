@@ -226,6 +226,20 @@ count_unregistered_processes_in_dir() {
     echo "$n"
 }
 
+# Live, unregistered forks whose directory is $1.
+# Output: <child_sid>\t<parent_sid>\t<pid>   one line per fork.
+list_fork_sessions() {
+    local dir="$1"
+    local sid pid cwd parent
+    while IFS=$'\t' read -r sid pid cwd; do
+        [[ "$cwd" == "$dir" ]] || continue
+        has_metadata "tower_${sid}" && continue
+        parent=$(find_fork_parent "$sid") || continue
+        printf '%s\t%s\t%s\n' "$sid" "$parent" "$pid"
+    done < <(list_live_claude_processes)
+    return 0
+}
+
 # Count of a session's subagents active within TOWER_BUSY_WINDOW.
 count_active_subagents() {
     local jsonl="$1"

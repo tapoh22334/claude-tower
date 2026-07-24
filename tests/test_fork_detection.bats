@@ -45,3 +45,33 @@ teardown() {
     run find_fork_parent "$PARENT"
     [ "$status" -eq 1 ]
 }
+
+@test "list_fork_sessions: lists an unregistered fork with its parent and pid" {
+    create_fork_pair_jsonl "-home-user-proj" "$PARENT" "$FORK" "/home/user/proj" >/dev/null
+    # Stub the live-process source: the fork is live at pid 4242.
+    list_live_claude_processes() {
+        printf '%s\t%s\t%s\n' "$FORK" "4242" "/home/user/proj"
+    }
+    # Nothing is registered in Tower.
+    has_metadata() { return 1; }
+    run list_fork_sessions "/home/user/proj"
+    [ "$status" -eq 0 ]
+    [ "$output" = "$(printf '%s\t%s\t%s' "$FORK" "$PARENT" "4242")" ]
+}
+
+@test "list_fork_sessions: skips forks already registered in Tower" {
+    create_fork_pair_jsonl "-home-user-proj" "$PARENT" "$FORK" "/home/user/proj" >/dev/null
+    list_live_claude_processes() { printf '%s\t%s\t%s\n' "$FORK" "4242" "/home/user/proj"; }
+    has_metadata() { return 0; }   # everything is registered
+    run list_fork_sessions "/home/user/proj"
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+}
+
+@test "list_fork_sessions: skips live processes with no fork parent" {
+    list_live_claude_processes() { printf '%s\t%s\t%s\n' "$SOLO" "4243" "/home/user/proj"; }
+    has_metadata() { return 1; }
+    run list_fork_sessions "/home/user/proj"
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+}
