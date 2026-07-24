@@ -127,12 +127,13 @@ resolve_picked_id() {
 }
 
 # Prompt for the new-session directory. Default: caller pane cwd (or $PWD).
-# "+" enters the worktree helper (a plain `git worktree add` wrapper —
-# Tower does not track or clean up worktrees).
+# A path that doesn't exist is offered for creation (mkdir -p). "+" enters
+# the worktree helper (a plain `git worktree add` wrapper — Tower does not
+# track or clean up worktrees).
 prompt_new_directory() {
     local default_dir="${1:-$PWD}"
     local dir
-    printf 'Directory [%s] ("+" = new git worktree): ' "$default_dir" >&2
+    printf 'Directory [%s] ("+" = new git worktree, new path = create): ' "$default_dir" >&2
     read -r dir </dev/tty || return 1
     if [[ -z "$dir" ]]; then
         echo "$default_dir"
@@ -162,6 +163,24 @@ prompt_new_directory() {
     fi
     # Expand leading ~
     dir="${dir/#\~/$HOME}"
+
+    # A path that doesn't exist yet is the common "start a brand-new
+    # project" case. Offer to create it (mkdir -p is non-destructive: it
+    # only adds directories, never touches existing ones). Declining leaves
+    # $dir non-existent so start_new_session's own check aborts cleanly.
+    if [[ ! -d "$dir" ]]; then
+        local reply
+        printf 'Directory does not exist. Create %s? [y/N]: ' "$dir" >&2
+        read -r reply </dev/tty || return 1
+        case "$reply" in
+            y | Y | yes | Yes)
+                if ! mkdir -p -- "$dir" 2>/dev/null; then
+                    echo "Could not create directory: $dir" >&2
+                    return 1
+                fi
+                ;;
+        esac
+    fi
     echo "$dir"
 }
 
