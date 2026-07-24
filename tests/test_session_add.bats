@@ -276,12 +276,56 @@ _source_resolver() {
 # prompt_new_directory(): session-add.sh:102 — default dir / worktree flow
 # ============================================================================
 
+# Extract prompt_new_directory with its /dev/tty reads redirected to stdin,
+# so bats can drive the prompts. common.sh is already loaded by setup().
+_source_prompt_new_directory() {
+    eval "$(sed -n '/^prompt_new_directory()/,/^}/p' "$SESSION_ADD" | sed 's# </dev/tty##g')"
+}
+
+@test "prompt_new_directory: creates a nonexistent path after y confirmation" {
+    _source_prompt_new_directory
+    local newdir="${BATS_TEST_TMPDIR}/brand-new-proj"
+    [ ! -d "$newdir" ]
+    run --separate-stderr prompt_new_directory "$HOME" <<<"$newdir"$'\ny'
+    [ "$status" -eq 0 ]
+    [ "$output" = "$newdir" ]
+    [ -d "$newdir" ]
+}
+
+@test "prompt_new_directory: declining creation leaves the path uncreated" {
+    _source_prompt_new_directory
+    local newdir="${BATS_TEST_TMPDIR}/not-created"
+    run --separate-stderr prompt_new_directory "$HOME" <<<"$newdir"$'\nn'
+    [ "$status" -eq 0 ]
+    # Path echoed back, but never created — start_new_session's own check
+    # then aborts.
+    [ "$output" = "$newdir" ]
+    [ ! -d "$newdir" ]
+}
+
+@test "prompt_new_directory: an existing path is returned without a create prompt" {
+    _source_prompt_new_directory
+    local existing="${BATS_TEST_TMPDIR}/exists"
+    mkdir -p "$existing"
+    run --separate-stderr prompt_new_directory "$HOME" <<<"$existing"
+    [ "$status" -eq 0 ]
+    [ "$output" = "$existing" ]
+    [[ "$output" != *"Create"* ]]
+}
+
 @test "prompt_new_directory: empty input returns the default directory" {
-    skip "requires /dev/tty stdin injection — see session-add.sh:107-109"
+    _source_prompt_new_directory
+    run --separate-stderr prompt_new_directory "$HOME" <<<""
+    [ "$status" -eq 0 ]
+    [ "$output" = "$HOME" ]
 }
 
 @test "prompt_new_directory: expands leading ~ to \$HOME" {
-    skip "requires /dev/tty stdin injection — see session-add.sh:134"
+    _source_prompt_new_directory
+    # ~ expands to $HOME, which exists, so no create prompt fires.
+    run --separate-stderr prompt_new_directory "/tmp" <<<'~'
+    [ "$status" -eq 0 ]
+    [ "$output" = "$HOME" ]
 }
 
 @test "prompt_new_directory: '+' on a non-git-repo default dir rejects with 'Not a git repository'" {
