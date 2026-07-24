@@ -120,6 +120,20 @@ _session_label() {
     truncate_display "$label" "$budget"
 }
 
+# Row label for a nested fork: "↳ " + the fork's conversation title.
+_fork_label() {
+    local claude_id="$1"
+    local label
+    label=$(get_session_title "$claude_id" 2>/dev/null) || label=""
+    [[ -z "$label" ]] && label="${claude_id:0:7}"
+    local width budget
+    width=$(_content_width)
+    # Extra 2 cells of indent vs a normal row (the "↳ " prefix).
+    budget=$((width - 6 - NAV_RIGHT_COL))
+    ((budget < 18)) && budget=18
+    printf '↳ %s\n' "$(truncate_display "$label" "$budget")"
+}
+
 # Compose a list row: "  <icon> <label><padding><marks>", with marks
 # right-aligned into the fixed NAV_RIGHT_COL so they line up down the list.
 # $1 icon (may contain ANSI), $2 plain label, $3 marks (may contain ANSI).
@@ -279,6 +293,16 @@ build_session_list() {
             header+=" ${NAV_C_DIM}${rule}${NAV_C_NORMAL}"
         fi
 
+        # Collect this dir's live forks once: child<TAB>parent<TAB>pid.
+        local -a fork_child=() fork_parent=()
+        local fchild fparent fpid
+        while IFS=$'\t' read -r fchild fparent fpid; do
+            [[ -n "$fchild" ]] || continue
+            fork_child+=("$fchild")
+            fork_parent+=("$fparent")
+        done < <(list_fork_sessions "$d")
+
+        local m
         for ((j = i; j < ${#raw_ids[@]}; j++)); do
             if [[ "${raw_dirs[$j]}" == "$d" ]]; then
                 SESSION_IDS+=("${raw_ids[$j]}")
@@ -286,7 +310,34 @@ build_session_list() {
                 SESSION_DIRS+=("$d")
                 SESSION_HEADERS+=("$header")
                 header=""
+                # Nest any fork whose parent is this row's Claude id.
+                local parent_cid="${raw_ids[$j]#tower_}"
+                for ((m = 0; m < ${#fork_child[@]}; m++)); do
+                    [[ -n "${fork_child[$m]}" ]] || continue
+                    if [[ "${fork_parent[$m]}" == "$parent_cid" ]]; then
+                        SESSION_IDS+=("${fork_child[$m]}")
+                        SESSION_DISPLAYS+=("$(_compose_row \
+                            "${NAV_C_EXTERNAL}◇${NAV_C_NORMAL}" \
+                            "$(_fork_label "${fork_child[$m]}")" \
+                            "${NAV_C_EXTERNAL}⚡${NAV_C_NORMAL}")")
+                        SESSION_DIRS+=("$d")
+                        SESSION_HEADERS+=("")
+                        fork_child[m]="" # consumed
+                    fi
+                done
             fi
+        done
+        # Forks whose parent is not a registered row in this group: show
+        # them standalone at group end (single external row, no ↳).
+        for ((m = 0; m < ${#fork_child[@]}; m++)); do
+            [[ -n "${fork_child[$m]}" ]] || continue
+            SESSION_IDS+=("${fork_child[$m]}")
+            SESSION_DISPLAYS+=("$(_compose_row \
+                "${NAV_C_EXTERNAL}◇${NAV_C_NORMAL}" \
+                "$(get_session_title "${fork_child[$m]}" 2>/dev/null || echo "${fork_child[$m]:0:7}")" \
+                "${NAV_C_EXTERNAL}⚡${NAV_C_NORMAL}")")
+            SESSION_DIRS+=("$d")
+            SESSION_HEADERS+=("")
         done
     done
 
