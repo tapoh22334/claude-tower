@@ -490,7 +490,37 @@ signal_view_update() {
     nav_tmux wait-for -S "$TOWER_VIEW_UPDATE_CHANNEL" 2>/dev/null || true
 }
 
-# Move selection and update view
+# Fire the (slow) view-pane update WITHOUT blocking cursor movement.
+# switch-client + wait-for each spawn a tmux round-trip; run serially inline
+# they stall every j/k keypress behind the right pane's repaint. The view
+# pane independently polls the selected-state file, so it will pick up the
+# new selection on its own poll even if this signal is still in flight — the
+# background call only makes it snappier, it is never the source of truth.
+# Only one pending signal is useful; a rapid j/k/j/k burst should not fork a
+# process per key, so we coalesce on a single background PID.
+_VIEW_SIGNAL_PID=""
+signal_view_update_async() {
+    # If the previous signal is still running, let it finish — the selected
+    # state file it will read is already the latest value, so a queued extra
+    # signal would be redundant work.
+    if [[ -n "$_VIEW_SIGNAL_PID" ]] && kill -0 "$_VIEW_SIGNAL_PID" 2>/dev/null; then
+        return
+    fi
+    # Redirect the background job's own stdout/stderr to /dev/null. Without
+    # this, when a mover runs inside $(...) command substitution the forked
+    # signal inherits the capture pipe's write end, and the substitution
+    # blocks until the (slow) tmux round-trip exits — exactly the stall we
+    # are removing. Detached fds let the mover return instantly while the
+    # signal finishes on its own.
+    signal_view_update >/dev/null 2>&1 &
+    _VIEW_SIGNAL_PID=$!
+}
+
+# Move selection and update view. Echoes the new index (callers capture it
+# via $(...)); the view-pane signal fires asynchronously so this returns as
+# soon as the local state file is updated — the command substitution no
+# longer waits on the slow tmux round-trip because signal_view_update_async
+# detaches the background job's fds.
 move_selection() {
     local direction="$1" # "up" or "down"
     local current_index="$2"
@@ -508,7 +538,7 @@ move_selection() {
     if [[ ${#SESSION_IDS[@]} -gt 0 ]]; then
         local new_session="${SESSION_IDS[$new_index]}"
         set_nav_selected "$new_session"
-        signal_view_update
+        signal_view_update_async
     fi
 
     echo "$new_index"
@@ -518,7 +548,7 @@ move_selection() {
 go_first() {
     if [[ ${#SESSION_IDS[@]} -gt 0 ]]; then
         set_nav_selected "${SESSION_IDS[0]}"
-        signal_view_update
+        signal_view_update_async
     fi
     echo 0
 }
@@ -528,7 +558,7 @@ go_last() {
     if [[ ${#SESSION_IDS[@]} -gt 0 ]]; then
         local last_index=$((${#SESSION_IDS[@]} - 1))
         set_nav_selected "${SESSION_IDS[$last_index]}"
-        signal_view_update
+        signal_view_update_async
         echo "$last_index"
     else
         echo 0
@@ -778,7 +808,21 @@ quit_navigator() {
 # Main Loop
 # ============================================================================
 
+# Turn OFF terminal echo so navigation keys (j/k/g/G/…) don't paint their
+# literal characters onto the list before we redraw. read -rsn1 still
+# receives the key; only the terminal's own echoing is suppressed. Restored
+# on exit so the shell we return to behaves normally. Interactive sub-flows
+# (fzf, y/n prompts) re-enable echo themselves and call nav_echo_off again
+# on return.
+nav_echo_off() { stty -echo 2>/dev/null || true; }
+nav_echo_on() { stty echo 2>/dev/null || true; }
+
 main_loop() {
+    # Keep the terminal quiet during navigation, and always hand it back in a
+    # sane state (echo on, cursor visible) however the loop ends.
+    nav_echo_off
+    trap 'nav_echo_on; printf "\033[?25h" 2>/dev/null || true' EXIT INT TERM
+
     # Initial build
     build_session_list
 
@@ -853,7 +897,7 @@ main_loop() {
                     add_session_inline
                     # Flush input buffer and restore terminal state
                     read -rsn100 -t 0.01 _ 2>/dev/null || true
-                    stty echo 2>/dev/null || true
+                    nav_echo_off
                     build_session_list
                     selected_index=$(get_selection_index)
                     clear
@@ -861,7 +905,7 @@ main_loop() {
                 f)
                     fork_session_here
                     read -rsn100 -t 0.01 _ 2>/dev/null || true
-                    stty echo 2>/dev/null || true
+                    nav_echo_off
                     build_session_list
                     selected_index=$(get_selection_index)
                     clear
@@ -869,7 +913,7 @@ main_loop() {
                 N)
                     new_session_pick_dir
                     read -rsn100 -t 0.01 _ 2>/dev/null || true
-                    stty echo 2>/dev/null || true
+                    nav_echo_off
                     build_session_list
                     selected_index=$(get_selection_index)
                     clear
@@ -878,7 +922,7 @@ main_loop() {
                     delete_selected
                     # Flush input buffer and restore terminal state
                     read -rsn100 -t 0.01 _ 2>/dev/null || true
-                    stty echo 2>/dev/null || true
+                    nav_echo_off
                     build_session_list
                     selected_index=$(get_selection_index)
                     clear  # Clear screen after input mode
