@@ -1,7 +1,7 @@
 # Claude Tower - Development Makefile
 # Usage: make <target>
 
-.PHONY: help lint lint-fix format format-fix test test-docker clean reload reset status
+.PHONY: help lint lint-fix format format-fix test test-docker clean reload reset update status
 
 # Default target
 help:
@@ -10,6 +10,7 @@ help:
 	@echo "  Development:"
 	@echo "    make reload     - Reload tmux plugin"
 	@echo "    make reset      - Kill Navigator, clear caches, reload"
+	@echo "    make update     - Pull installed plugin from origin/main + kill Navigator"
 	@echo "    make status     - Show servers, sessions, state files"
 	@echo ""
 	@echo "  Linting & Formatting:"
@@ -135,6 +136,18 @@ reset:
 		echo "  (not in tmux, skipping reload)"; \
 	fi
 	@echo "=== Done ==="
+
+# Update the INSTALLED plugin from origin/main and kill the Navigator server
+# so the next `prefix + t` picks up the new code. `git push` only updates the
+# GitHub remote; the TPM checkout under ~/.tmux/plugins/claude-tower is a
+# separate clone that must be pulled. Override PLUGIN_DIR if installed elsewhere.
+PLUGIN_DIR ?= $(HOME)/.tmux/plugins/claude-tower
+update:
+	@echo "=== Pulling installed plugin: $(PLUGIN_DIR) ==="
+	@git -C "$(PLUGIN_DIR)" pull --ff-only origin main
+	@echo "=== Killing Navigator server (reopen with prefix + t) ==="
+	@tmux -L claude-tower kill-server 2>/dev/null && echo "✓ Navigator killed" || echo "  (not running)"
+	@echo "=== Done — press prefix + t to relaunch ==="
 
 # Show status of servers, sessions, and state files
 status:
