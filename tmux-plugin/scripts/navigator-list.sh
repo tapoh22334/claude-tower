@@ -9,7 +9,12 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/../lib/common.sh"
+# Tests source this file to reach its functions after having already loaded
+# common.sh themselves; sourcing it twice re-assigns its readonly vars and
+# aborts. TOWER_COMMON_LOADED lets such callers skip the second load.
+if [[ -z "${TOWER_COMMON_LOADED:-}" ]]; then
+    source "$SCRIPT_DIR/../lib/common.sh"
+fi
 
 # Error handler - log and continue instead of exiting
 handle_script_error() {
@@ -472,7 +477,7 @@ render_list() {
     # if the frame fills the terminal exactly, a final newline would still
     # scroll the screen by one row on every redraw.
     output+="${eol}\n"
-    output+="${NAV_C_DIM}j/k:nav Enter/i:input n:add f:fork N:new-dir D:del r:resume t:tail q:quit${NAV_C_NORMAL}${eol}"
+    output+="${NAV_C_DIM}j/k:nav Enter/i:input n:add f:fork N:new-dir D:del r:resume Tab:tile t:tail q:quit${NAV_C_NORMAL}${eol}"
 
     # Clear to end of screen code
     local clear_eos
@@ -788,36 +793,69 @@ restore_selected() {
     sleep 0.5
 }
 
+# Name of the session we would land on after detaching into a full-screen
+# view. Both Tile and Tail live as a window on the session server, so they can
+# only be entered when that server actually has a session to attach to.
+# Prints the session name; returns non-zero when there is none.
+tile_target_session() {
+    local target
+    target=$(session_tmux list-sessions -F '#{session_name}' 2>/dev/null | head -1 || echo "")
+    [[ -n "$target" ]] || return 1
+    echo "$target"
+}
+
+# Create a full-screen view window (Tile/Tail) on the session server.
+# Returns the tmux exit status instead of swallowing it: a failure here used to
+# be hidden by `2>/dev/null || true`, after which the Navigator detached
+# anyway -- the view "started and immediately died" with nothing on screen to
+# explain why.
+launch_view_window() {
+    local window_name="$1"
+    local command="$2"
+    session_tmux new-window -n "$window_name" "$command" 2>/dev/null
+}
+
+# Enter a full-screen view (Tile/Tail) on the session server.
+# Only detaches the Navigator once the view window really exists, so a failed
+# launch leaves the user in the Navigator with a message rather than dropping
+# them into an empty screen.
+enter_view_mode() {
+    local label="$1"
+    local window_name="$2"
+    local command="$3"
+
+    info_log "Switching to $label mode"
+
+    local target_session
+    if ! target_session=$(tile_target_session); then
+        error_log "$label mode needs a running session; none found"
+        echo ""
+        echo "  ${NAV_C_ERROR}✗${NAV_C_NORMAL} No running session — ${label} mode needs one"
+        echo "  ${NAV_C_DIM}Press n to add a session${NAV_C_NORMAL}"
+        sleep 1
+        return 1
+    fi
+
+    if ! launch_view_window "$window_name" "$command"; then
+        error_log "Failed to create $window_name window on the session server"
+        echo ""
+        echo "  ${NAV_C_ERROR}✗${NAV_C_NORMAL} Could not start ${label} mode"
+        sleep 1
+        return 1
+    fi
+
+    # Detach from Navigator and attach to session server
+    nav_tmux detach-client -E "TMUX= tmux -L '$TOWER_SESSION_SOCKET' attach-session -t '$target_session'"
+}
+
 # Switch to Tile mode
 switch_to_tile() {
-    info_log "Switching to Tile mode"
-
-    # Create tile window on session server (where Claude sessions live)
-    session_tmux new-window -n "tower-tile" "$SCRIPT_DIR/tile.sh" 2>/dev/null || true
-
-    # Get the first available session on session server
-    local target_session
-    target_session=$(session_tmux list-sessions -F '#{session_name}' 2>/dev/null | head -1 || echo "")
-
-    if [[ -n "$target_session" ]]; then
-        # Detach from Navigator and attach to session server
-        nav_tmux detach-client -E "TMUX= tmux -L '$TOWER_SESSION_SOCKET' attach-session -t '$target_session'"
-    fi
+    enter_view_mode "Tile" "tower-tile" "$SCRIPT_DIR/tile.sh"
 }
 
 # Switch to Tail view (live multi-session output follow)
 switch_to_tail() {
-    info_log "Switching to Tail mode"
-
-    # Create tail window on session server (where Claude sessions live)
-    session_tmux new-window -n "tower-tail" "$SCRIPT_DIR/tail-view.sh" 2>/dev/null || true
-
-    local target_session
-    target_session=$(session_tmux list-sessions -F '#{session_name}' 2>/dev/null | head -1 || echo "")
-
-    if [[ -n "$target_session" ]]; then
-        nav_tmux detach-client -E "TMUX= tmux -L '$TOWER_SESSION_SOCKET' attach-session -t '$target_session'"
-    fi
+    enter_view_mode "Tail" "tower-tail" "$SCRIPT_DIR/tail-view.sh"
 }
 
 # Quit Navigator
@@ -921,9 +959,13 @@ main_loop() {
         # render_list handles cursor positioning internally
         render_list "$selected_index"
 
-        # Wait for input with timeout (short tick so the spinner turns)
+        # Wait for input with timeout (short tick so the spinner turns).
+        # IFS= is required: the default IFS contains TAB, so without it a
+        # pressed Tab is word-split away and arrives as the empty string --
+        # matching the `''` (Enter) branch instead of `$'\t'`, which left Tile
+        # mode unreachable by its own documented key.
         local key=""
-        if read -rsn1 -t "$TICK_INTERVAL" key; then
+        if IFS= read -rsn1 -t "$TICK_INTERVAL" key; then
             case "$key" in
                 j | $'\x1b')
                     # Handle arrow keys

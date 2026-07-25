@@ -105,8 +105,29 @@ _run_tail_frame() {
 }
 
 @test "navigator-list.sh: switch_to_tail launches tail-view.sh on the session server" {
-    run grep -A 6 "^switch_to_tail()" "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
+    # Asserts behaviour rather than the shape of switch_to_tail's body: the
+    # new-window call now lives in the shared launch_view_window helper, so a
+    # grep of the function body would only re-test the old inlined form.
+    run bash -c '
+        source "'"$PROJECT_ROOT"'/tmux-plugin/lib/common.sh"
+        TOWER_COMMON_LOADED=1 source "'"$PROJECT_ROOT"'/tmux-plugin/scripts/navigator-list.sh"
+
+        # Capture what would be run on the session server, and stub the detach
+        # so the test does not tear down its own client.
+        session_tmux() {
+            if [[ "$1" == "list-sessions" ]]; then
+                echo "tower_probe"
+            elif [[ "$1" == "new-window" ]]; then
+                echo "NEW_WINDOW: $*"
+            fi
+            return 0
+        }
+        nav_tmux() { return 0; }
+
+        switch_to_tail
+    '
     [ "$status" -eq 0 ]
+    [[ "$output" == *"NEW_WINDOW:"* ]]
+    [[ "$output" == *"tower-tail"* ]]
     [[ "$output" == *"tail-view.sh"* ]]
-    [[ "$output" == *"session_tmux new-window"* ]]
 }

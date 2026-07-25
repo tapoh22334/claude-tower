@@ -224,7 +224,9 @@ main() {
     local key key2
     while true; do
         key=""
-        if read -rsn1 -t "$REFRESH_INTERVAL" key; then
+        # IFS= keeps a pressed Tab intact; the default IFS contains TAB and
+        # would word-split it into the empty string.
+        if IFS= read -rsn1 -t "$REFRESH_INTERVAL" key; then
             if [[ "$key" == $'\x1b' ]]; then
                 read -rsn2 -t 0.1 key2 || true
                 [[ -z "${key2:-}" ]] && continue

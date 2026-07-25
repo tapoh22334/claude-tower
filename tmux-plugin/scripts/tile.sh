@@ -208,7 +208,9 @@ return_to_list_view() {
 # Handle input
 handle_input() {
     local key
-    read -rsn1 key
+    # IFS= keeps a pressed Tab intact; the default IFS contains TAB and would
+    # word-split it into the empty string, colliding with the Enter branch.
+    IFS= read -rsn1 key
 
     # Handle escape sequences (arrow keys)
     if [[ "$key" == $'\x1b' ]]; then
