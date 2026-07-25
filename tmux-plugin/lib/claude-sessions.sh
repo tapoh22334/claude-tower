@@ -271,6 +271,69 @@ list_project_dirs() {
     done | sort -k1,1nr | awk -F'\t' '!seen[$2]++ { print $2 }'
 }
 
+# A slash command reaches the transcript already expanded by Claude, as
+#   <command-message>name</command-message><command-name>/name</command-name>
+#   <command-args>the user's actual words</command-args>
+# Only the args carry meaning; the rest is machinery. Unwrap to the args
+# when present, otherwise drop the tags and keep whatever text remains.
+_strip_command_markup() {
+    local s="$1"
+    # Boilerplate Claude prepends to prompts typed during a local command.
+    # It precedes the real text, so drop the element and keep what follows.
+    if [[ "$s" == *"<local-command-caveat>"* ]]; then
+        if [[ "$s" == *"</local-command-caveat>"* ]]; then
+            s="${s%%<local-command-caveat>*}${s#*</local-command-caveat>}"
+        else
+            s="${s%%<local-command-caveat>*}"
+        fi
+    fi
+    if [[ "$s" == *"<command-args>"* ]]; then
+        s="${s#*<command-args>}"
+        s="${s%%</command-args>*}"
+    elif [[ "$s" == *"<command-"* ]]; then
+        # A bare command with no args. command-message/command-name wrap the
+        # command's own identity, not the user's words, so drop each element
+        # whole — keeping their text would title the row "init/init".
+        local out="" head
+        while [[ "$s" == *"<command-"* ]]; do
+            head="${s%%<command-*}"
+            out+="$head"
+            s="${s#*<command-}"
+            # Past this element's closing tag, if it has one.
+            if [[ "$s" == *"</command-"* ]]; then
+                s="${s#*</command-}"
+                s="${s#*>}"
+            else
+                s="${s#*>}"
+            fi
+        done
+        s="${out}${s}"
+    fi
+    while [[ "$s" == " "* ]]; do s="${s# }"; done
+    while [[ "$s" == *" " ]]; do s="${s% }"; done
+    printf '%s\n' "$s"
+}
+
+# Last-resort title for a session whose every prompt is a slash command:
+# the command's argument ("/brainstorming make X nicer" -> "make X nicer").
+# Preferred over falling through to the transcript, whose first message for
+# such a session is the raw command expansion. Returns 1 when the command
+# carries no argument (bare "/init" says nothing about the work).
+_slash_command_argument() {
+    local s="$1"
+    s="${s//\\n/ }"
+    s="${s//\\t/ }"
+    s="${s//$'\t'/ }"
+    s="${s//\\\"/\"}"
+    s=$(_strip_command_markup "$s")
+    while [[ "$s" == " "* ]]; do s="${s# }"; done
+    [[ "$s" == /* ]] || return 1
+    # Drop the command word; what follows is the user's own text.
+    [[ "$s" == *" "* ]] || return 1
+    s="${s#* }"
+    _first_meaningful_sentence "$s"
+}
+
 # Reduce a raw prompt to the one line worth showing in a list: the first
 # sentence, with the JSON escapes Claude stores flattened. Returns 1 for
 # prompts that identify nothing — bare slash commands, pastes, and stock
@@ -282,6 +345,7 @@ _first_meaningful_sentence() {
     s="${s//\\t/ }"
     s="${s//$'\t'/ }"
     s="${s//\\\"/\"}"
+    s=$(_strip_command_markup "$s")
     # Leading whitespace, then a bare slash command (with or without args
     # on the same line) is a command invocation, not a description.
     while [[ "$s" == " "* ]]; do s="${s# }"; done
@@ -312,19 +376,30 @@ _first_meaningful_sentence() {
 # Distinguishes sessions that share a cwd. Returns 1 if unknown.
 get_session_title() {
     local session_id="$1"
-    local line title
+    local line title raw
+    local -a displays=()
     if [[ -f "$CLAUDE_HISTORY_FILE" ]]; then
         # First few prompts of this session, oldest first. The very first
         # one is often a bare slash command or a one-word nudge that says
         # nothing about the work — walk forward until something does.
         while IFS= read -r line; do
-            title=$(printf '%s\n' "$line" | grep -o '"display":"[^"]*"') || continue
-            title="${title#\"display\":\"}"
-            title="${title%\"}"
-            title=$(_first_meaningful_sentence "$title") || continue
+            raw=$(printf '%s\n' "$line" | grep -o '"display":"[^"]*"') || continue
+            raw="${raw#\"display\":\"}"
+            raw="${raw%\"}"
+            displays+=("$raw")
+            title=$(_first_meaningful_sentence "$raw") || continue
             printf '%s\n' "$title"
             return 0
         done < <(grep -m 5 -F "\"sessionId\":\"${session_id}\"" -- "$CLAUDE_HISTORY_FILE" 2>/dev/null)
+
+        # Every prompt was a slash command. Its argument is still a better
+        # title than the transcript, which for these sessions holds only
+        # Claude's raw command expansion.
+        for raw in "${displays[@]}"; do
+            title=$(_slash_command_argument "$raw") || continue
+            printf '%s\n' "$title"
+            return 0
+        done
     fi
     # Fallback: first user message in the transcript. Sessions started
     # non-interactively (-p, SDK, subagent relaunch) never reach history.
@@ -338,7 +413,10 @@ get_session_title() {
     title="${title#*:\"}"
     title="${title%\"}"
     [[ -n "$title" ]] || return 1
-    _first_meaningful_sentence "$title" || printf '%s\n' "$title"
+    # The raw-title fallback must never emit command expansion markup.
+    _first_meaningful_sentence "$title" \
+        || _slash_command_argument "$title" \
+        || printf '%s\n' "$(_strip_command_markup "$title")"
 }
 
 # Display width in terminal cells, and truncation to a cell budget. CJK,
