@@ -228,6 +228,96 @@ is_claude_process_alive() {
     list_live_claude_processes | grep -q -m 1 "^${session_id}$(printf '\t')"
 }
 
+# --- Wait-queue detection --------------------------------------------------
+# A session is "waiting" when Claude has stopped and needs the user. The
+# status field in ~/.claude/sessions/<pid>.json cannot tell a permission
+# prompt from a finished session (both read "idle") — the distinguishing
+# signal is on screen, so managed sessions are classified by their pane.
+
+# Last lines of a Tower-managed session's pane. Isolated so tests can stub
+# it (capture-pane needs a live tmux server). Empty when uncapturable.
+capture_pane_signature() {
+    local session_id="$1"
+    session_tmux capture-pane -t "$session_id" -p 2>/dev/null | grep -v '^$' | tail -n 8 || true
+}
+
+# Classify a chunk of pane text into a wait kind, or empty if the pane
+# shows work in progress. Signatures verified against live Claude panes.
+#   working (esc to interrupt)      -> "" (not waiting)
+#   [y/N] / "Do you want" + Yes/No  -> permission
+#   "❯ 1." numbered menu            -> question
+#   otherwise                       -> input (finished, awaiting a prompt)
+classify_pane_wait() {
+    local text="$1"
+    if printf '%s' "$text" | grep -qiE 'esc to interrupt|to interrupt\)'; then
+        echo ""
+        return 0
+    fi
+    if printf '%s' "$text" | grep -qiE '\[y/n\]|do you want|yes, and|no, and (tell|keep)|proceed\?'; then
+        echo "permission"
+        return 0
+    fi
+    if printf '%s' "$text" | grep -qE '❯ ?[0-9]\.'; then
+        echo "question"
+        return 0
+    fi
+    echo "input"
+}
+
+# Wait kind for a session, or empty when it is not waiting on the user.
+#   busy / working              -> "" (skip)
+#   managed + idle              -> classify by pane
+#   external (live, no pane)    -> coarse "input" (can't see the prompt)
+#   dead/lost (registered)      -> error
+#   dormant                     -> "" (not waiting)
+# $2 (optional): pre-fetched pane text, so a caller that already captured
+# the pane (or a test) can pass it instead of shelling out again.
+get_wait_state() {
+    local session_id="$1"
+    local pane="${2-}"
+    local claude_id="${session_id#tower_}"
+    local jsonl
+
+    if session_tmux has-session -t "$session_id" 2>/dev/null; then
+        # Managed: a real pane exists. Working sessions are not waiting.
+        if jsonl=$(find_session_jsonl "$claude_id") && is_session_busy "$jsonl"; then
+            echo ""
+            return 0
+        fi
+        [[ -z "${2+set}" ]] && pane=$(capture_pane_signature "$session_id")
+        classify_pane_wait "$pane"
+        return 0
+    fi
+
+    has_metadata "$session_id" || { echo ""; return 0; }
+
+    if ! jsonl=$(find_session_jsonl "$claude_id"); then
+        echo "error"   # lost: transcript gone
+        return 0
+    fi
+    local cwd
+    cwd=$(get_session_cwd "$jsonl" || true)
+    if [[ -z "$cwd" || ! -d "$cwd" ]]; then
+        echo "error"   # dead: cwd gone
+        return 0
+    fi
+    if is_claude_process_alive "$claude_id"; then
+        echo "input"   # external live process — coarse, pane unreachable
+        return 0
+    fi
+    echo ""            # dormant: registered, not running, not waiting
+}
+
+# Epoch when the wait began ≈ when work last stopped (newest activity).
+# Returns 0 when unknown, so an unknown wait sorts as oldest (surfaced).
+wait_since() {
+    local session_id="$1"
+    local claude_id="${session_id#tower_}"
+    local jsonl
+    jsonl=$(find_session_jsonl "$claude_id" 2>/dev/null) || { echo 0; return 0; }
+    get_session_activity "$jsonl"
+}
+
 # Count of live claude processes in a directory whose session is NOT
 # registered in Tower — forks/sessions started outside Tower's tmux.
 #

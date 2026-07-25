@@ -195,10 +195,11 @@ render_navigator_list() {
     # Footer reflects the current 5-state-era keybindings (n:add, D:del,
     # r:resume - not the removed R:restore-all)
     [[ "$output" == *"j/k:nav"* ]]
-    [[ "$output" == *"Enter/i:input"* ]]
+    [[ "$output" == *"i:input"* ]]
     [[ "$output" == *"n:add"* ]]
     [[ "$output" == *"D:del"* ]]
     [[ "$output" == *"r:resume"* ]]
+    [[ "$output" == *"w:queue"* ]]
     [[ "$output" == *"q:quit"* ]]
 
     TMUX= tmux -L "$SESSION_SOCKET" kill-session -t "tower_render_active" 2>/dev/null || true

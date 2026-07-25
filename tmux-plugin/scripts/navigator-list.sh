@@ -513,7 +513,9 @@ render_list() {
     # if the frame fills the terminal exactly, a final newline would still
     # scroll the screen by one row on every redraw.
     output+="${eol}\n"
-    output+="${NAV_C_DIM}j/k:nav Enter/i:input n:add f:fork N:new-dir D:del r:resume t:tail q:quit${NAV_C_NORMAL}${eol}"
+    # Keep this within 80 cells: a longer footer wraps and the trailing
+    # binding is lost on an 80-wide capture.
+    output+="${NAV_C_DIM}j/k:nav ↵/i:input n:add f:fork N:newdir D:del r:resume t:tail w:queue q:quit${NAV_C_NORMAL}${eol}"
 
     # Clear to end of screen code
     local clear_eos
@@ -546,6 +548,7 @@ show_help() {
     echo "    D          Delete from Tower (Claude's transcript is kept)"
     echo "    r          Resume selected dormant session"
     echo "    Tab / t    Tile view / Tail view (live output)"
+    echo "    w          Queue view (sessions waiting on you)"
     echo "    ?          Show this help      q  Quit Navigator"
     echo ""
     # Keep the help under 24 rows total: at 24 printed lines the final
@@ -876,6 +879,20 @@ switch_to_tail() {
     fi
 }
 
+# Switch to Queue view (sessions awaiting your action, oldest wait first)
+switch_to_queue() {
+    info_log "Switching to Queue mode"
+
+    session_tmux new-window -n "tower-queue" "$SCRIPT_DIR/queue-view.sh" 2>/dev/null || true
+
+    local target_session
+    target_session=$(session_tmux list-sessions -F '#{session_name}' 2>/dev/null | head -1 || echo "")
+
+    if [[ -n "$target_session" ]]; then
+        nav_tmux detach-client -E "TMUX= tmux -L '$TOWER_SESSION_SOCKET' attach-session -t '$target_session'"
+    fi
+}
+
 # Quit Navigator
 # Returns to the caller session or any available session on default server
 quit_navigator() {
@@ -1063,6 +1080,9 @@ main_loop() {
                     ;;
                 t)
                     switch_to_tail
+                    ;;
+                w)
+                    switch_to_queue
                     ;;
                 '?')
                     show_help
