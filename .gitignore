@@ -25,6 +25,15 @@ tests/bats/
 # Test temporary files
 tests/tmp/
 
+# Agent-generated audit/analysis reports. These are intermediate artifacts —
+# the same scan re-run under a new filename — and have repeatedly littered the
+# repo root. Keep findings worth acting on in Backlog, not in dropped JSON.
+SECURITY_*.json
+security-*.json
+*_ANALYSIS.json
+*_AUDIT.json
+*_FINDINGS.json
+
 
 # Removed Windows wrapper files per user request
 hive-mind-prompt-*.txt
