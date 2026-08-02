@@ -1114,6 +1114,50 @@ send_to_session() {
 }
 
 # ============================================================================
+# Interactive read loop guard
+# ============================================================================
+# Every view (list/tile/tail/queue) runs a `read -rsn1 -t <interval>` loop.
+# That read normally either gets a key (exit 0) or times out (exit >128).
+# But if the controlling terminal vanishes — the tmux client/server died and
+# left this process orphaned — read hits EOF and returns exit 1 *instantly*,
+# every iteration. The interval-paced loop becomes a CPU-pinning busy-spin
+# that can survive for days (observed: an 8-day-old orphan burning 40% CPU).
+#
+# nav_read_key wraps the timed read and classifies the outcome so callers can
+# tell "key" / "timeout" / "terminal gone" apart, and bails out when a run of
+# instant EOFs proves the pane is gone (a real idle user only ever times out).
+#
+# Usage:
+#   nav_read_key VARNAME <interval>
+#   rc=$?   # 0 = got a key (in VARNAME); 1 = timeout; 2 = terminal gone, exit
+# Keeps its EOF streak in the caller-visible NAV_EOF_STREAK so the count
+# persists across loop iterations.
+NAV_EOF_STREAK=0
+readonly NAV_EOF_LIMIT="${TOWER_NAV_EOF_LIMIT:-20}"
+
+nav_read_key() {
+    local __var="$1" __interval="$2" __rc=0
+    # IFS= so a pressed Tab (\t) survives — the default IFS contains TAB and
+    # would split it into the empty string.
+    # shellcheck disable=SC2229  # read into the named variable by design
+    IFS= read -rsn1 -t "$__interval" "$__var" || __rc=$?
+    if [[ $__rc -eq 0 ]]; then
+        NAV_EOF_STREAK=0
+        return 0
+    fi
+    if [[ $__rc -gt 128 ]]; then
+        NAV_EOF_STREAK=0
+        return 1 # genuine timeout
+    fi
+    # Non-timeout failure: EOF / closed stdin.
+    NAV_EOF_STREAK=$((NAV_EOF_STREAK + 1))
+    if [[ $NAV_EOF_STREAK -ge $NAV_EOF_LIMIT ]]; then
+        return 2 # terminal is gone — caller should exit, not spin
+    fi
+    return 1 # transient; treat like a timeout tick for now
+}
+
+# ============================================================================
 # Claude session derivation (jsonl parsing)
 # ============================================================================
 # shellcheck source=claude-sessions.sh

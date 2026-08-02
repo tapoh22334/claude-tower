@@ -208,7 +208,11 @@ return_to_list_view() {
 # Handle input
 handle_input() {
     local key
-    read -rsn1 key
+    # A blocking read normally can't busy-loop, but if the terminal vanishes
+    # (orphaned after the tmux client/server died) read returns EOF instantly
+    # every call, spinning the main loop. Return non-zero on EOF so the caller
+    # breaks out instead of spinning.
+    read -rsn1 key || return 1
 
     # Handle escape sequences (arrow keys)
     if [[ "$key" == $'\x1b' ]]; then

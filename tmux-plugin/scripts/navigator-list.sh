@@ -997,9 +997,13 @@ main_loop() {
         # render_list handles cursor positioning internally
         render_list "$selected_index"
 
-        # Wait for input with timeout (short tick so the spinner turns)
-        local key=""
-        if read -rsn1 -t "$TICK_INTERVAL" key; then
+        # Wait for input with timeout (short tick so the spinner turns).
+        # nav_read_key guards against the orphaned-terminal busy-loop: rc 2
+        # means the pane is gone and we must exit rather than spin forever.
+        local key="" read_rc=0
+        nav_read_key key "$TICK_INTERVAL" || read_rc=$?
+        [[ $read_rc -eq 2 ]] && exit 0
+        if [[ $read_rc -eq 0 ]]; then
             case "$key" in
                 j | $'\x1b')
                     # Handle arrow keys

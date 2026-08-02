@@ -241,10 +241,14 @@ main() {
     load_queue
     render_frame
 
-    local key key2
+    local key key2 read_rc
     while true; do
         key=""
-        if IFS= read -rsn1 -t "$REFRESH_INTERVAL" key; then
+        read_rc=0
+        # nav_read_key guards the orphaned-terminal busy-loop (rc 2 = pane gone).
+        nav_read_key key "$REFRESH_INTERVAL" || read_rc=$?
+        [[ $read_rc -eq 2 ]] && exit 0
+        if [[ $read_rc -eq 0 ]]; then
             if [[ "$key" == $'\x1b' ]]; then
                 read -rsn2 -t 0.1 key2 || true
                 [[ -z "${key2:-}" ]] && continue
