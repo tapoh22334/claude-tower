@@ -18,6 +18,7 @@ Thumbs.db
 
 # claude-tower data
 .claude
+.superpowers/
 
 # Test dependencies (installed via git clone)
 tests/bats/

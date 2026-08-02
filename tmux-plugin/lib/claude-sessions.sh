@@ -15,7 +15,7 @@ CLAUDE_LIVE_SESSIONS_DIR="${CLAUDE_LIVE_SESSIONS_DIR:-$HOME/.claude/sessions}"
 TOWER_BUSY_WINDOW="${TOWER_BUSY_WINDOW:-45}"
 
 # Slugify a cwd the way Claude Code names its project dirs: every "/" (and
-# other non-alnum run) becomes "-", so "/home/iwase/working/foo" becomes
+# other non-alnum run) becomes "-", so "/home/dev/working/foo" becomes
 # "-home-iwase-working-foo". Used to tell a session's canonical transcript
 # (the one under the slug matching its own launch cwd) from stray copies.
 _cwd_to_slug() {

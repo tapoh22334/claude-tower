@@ -16,8 +16,8 @@ picked up and managed.
 ## Requirements
 
 - tmux 3.2+
-- git
 - Claude Code CLI (`claude`)
+- git (optional — only for creating a worktree from the new-session prompt)
 - fzf (recommended — enables fuzzy picking in the add flow; without it a
   numbered prompt is used)
 
@@ -60,7 +60,7 @@ Press `prefix + t` to open the Navigator.
 │                     │                                            │
 │ j/k:nav n:add D:del │                                            │
 └─────────────────────┴────────────────────────────────────────────┘
-     List Pane (24%)              View Pane (76%)
+     List Pane (30%)              View Pane (70%)
 ```
 
 ### Keybindings
@@ -71,13 +71,17 @@ Press `prefix + t` to open the Navigator.
 | `k` / `↑` | Move up |
 | `g` | Go to first session |
 | `G` | Go to last session |
-| `Enter` | Attach to selected session |
-| `i` | Focus view pane (input mode) |
+| `Enter` / `i` | Focus the view pane so you can type into the session |
 | `Escape` | Return to list (from view) |
 | `Tab` | Switch to tile view |
-| `n` | Add session (existing Claude session or new) |
+| `n` | Add a session — pick an existing Claude session, or start a new one |
+| `f` | Fork: start a new session in the selected session's directory |
+| `N` | Start a new session in a directory you pick |
+| `t` | Switch to tail view (follow several sessions' output at once) |
+| `w` | Switch to queue view (sessions waiting on you) |
 | `D` | Delete session |
 | `r` | Resume dormant session |
+| `?` | Show help |
 | `?` | Show help |
 | `q` | Quit Navigator |
 
@@ -85,11 +89,27 @@ Press `prefix + t` to open the Navigator.
 
 | Icon | State | Description |
 |------|-------|--------------|
-| `●` | Busy | Claude is actively working |
+| `●` | Busy | Claude is actively working — drawn as a turning spinner in the live list |
 | `▶` | Active | tmux session is running (idle) |
 | `○` | Dormant | Registered, no tmux session — press `r` to resume |
 | `✗` | Dead | Registered, but the session's working directory is gone |
+| `◇` | External | A live `claude` running outside Tower — attach from its own terminal; `r` will not resume it |
+| `✱` | Unread | New output you haven't looked at since last visiting the session |
 | `?` | Lost | Registered, but the Claude transcript is gone (unrecoverable) |
+
+### Command line
+
+Sessions can also be registered without opening the Navigator. The `tower`
+script lives at `tmux-plugin/scripts/tower`; put it on your `PATH` to use it
+directly.
+
+```bash
+tower add .                    # register a session for the current directory
+tower add /path/to/project     # ...or for a specific one
+tower add . -n my-project      # give it a name
+tower rm my-project            # unregister (the directory is left alone)
+tower rm my-project -f         # ...without the confirmation prompt
+```
 
 ## Architecture
 
@@ -133,8 +153,10 @@ export CLAUDE_TOWER_NAV_SOCKET="claude-tower"
 # Session server socket name (default: claude-tower-sessions)
 export CLAUDE_TOWER_SESSION_SOCKET="claude-tower-sessions"
 
-# Navigator list pane width (default: 24)
-export CLAUDE_TOWER_NAV_WIDTH="24"
+# Bounds on how wide the session list draws its content. The list pane
+# itself is a fixed 30% split; these clamp the text inside it.
+export TOWER_LIST_MAX_WIDTH="80"
+export TOWER_LIST_MIN_WIDTH="50"
 
 # Enable debug logging
 export CLAUDE_TOWER_DEBUG=1

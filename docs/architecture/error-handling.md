@@ -2,7 +2,6 @@
 
 ## Architecture Design Document
 
-**Author:** Hive Mind Architect Agent
 **Date:** 2026-01-02
 **Version:** 1.0
 

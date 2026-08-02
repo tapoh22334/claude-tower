@@ -1,3 +1,5 @@
+> ⚠️ **OUTDATED (v3.x)** — this document describes the pre-v4 worktree-based model, which has been removed. It still specifies a restore-all key, the worktree prompt, and a two-state session model, none of which exist now. See the top-level [README](../README.md) for the current session-registry model.
+
 # Claude Tower Navigator 仕様書
 
 Version: 3.4

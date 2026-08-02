@@ -1289,14 +1289,13 @@ Run existing test suite:
 
 ```bash
 # All tests
-/Users/iwase/working/claude-tower/tests/run_all_tests.sh
+./tests/run_all_tests.sh
 
 # Individual test suites
-bats /Users/iwase/working/claude-tower/tests/test_sanitize.bats        # Security/input validation
-bats /Users/iwase/working/claude-tower/tests/test_validation.bats      # Path/session validation
-bats /Users/iwase/working/claude-tower/tests/test_metadata.bats        # Metadata operations
-bats /Users/iwase/working/claude-tower/tests/test_orphan.bats          # Cleanup detection
-bats /Users/iwase/working/claude-tower/tests/test_error_handling.bats  # Error scenarios
+bats ./tests/test_sanitize.bats        # Security/input validation
+bats ./tests/test_validation.bats      # Path/session validation
+bats ./tests/test_metadata.bats        # Metadata operations
+bats ./tests/test_error_handling.bats  # Error scenarios
 ```
 
 **Success Criteria**: All unit tests pass (100% pass rate required)
@@ -1305,10 +1304,10 @@ bats /Users/iwase/working/claude-tower/tests/test_error_handling.bats  # Error s
 
 ```bash
 # Integration tests
-/Users/iwase/working/claude-tower/tests/run_integration_tests.sh
+./tests/run_integration_tests.sh
 
 # E2E workflow tests
-/Users/iwase/working/claude-tower/tests/run_e2e_tests.sh
+./tests/run_e2e_tests.sh
 ```
 
 **Success Criteria**: All integration tests pass
@@ -1544,13 +1543,13 @@ All critical security functions are unit tested. Verify:
 
 ```bash
 # Run security-focused tests
-bats /Users/iwase/working/claude-tower/tests/test_sanitize.bats
-bats /Users/iwase/working/claude-tower/tests/test_validation.bats
+bats ./tests/test_sanitize.bats
+bats ./tests/test_validation.bats
 ```
 
 ### Manual Security Review
 
-- [ ] Review `sanitize_name()` in `/Users/iwase/working/claude-tower/tmux-plugin/lib/common.sh` (lines 109-114)
+- [ ] Review `sanitize_name()` in `./tmux-plugin/lib/common.sh` (lines 109-114)
   - Confirms: Only allows `[a-zA-Z0-9_-]`
   - Confirms: Truncates to 64 characters
   - Confirms: Removes path traversal (../)

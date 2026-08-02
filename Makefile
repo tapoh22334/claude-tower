@@ -173,9 +173,9 @@ status:
 		echo "  (directory not found)"; \
 	fi
 	@echo ""
-	@echo "=== Metadata Files (~/.claude-tower/sessions/) ==="
-	@if [ -d ~/.claude-tower/sessions ]; then \
-		ls ~/.claude-tower/sessions/*.meta 2>/dev/null | head -10 || echo "  (no metadata)"; \
+	@echo "=== Metadata Files (~/.claude-tower/metadata/) ==="
+	@if [ -d ~/.claude-tower/metadata ]; then \
+		ls ~/.claude-tower/metadata/*.meta 2>/dev/null | head -10 || echo "  (no metadata)"; \
 	else \
 		echo "  (directory not found)"; \
 	fi

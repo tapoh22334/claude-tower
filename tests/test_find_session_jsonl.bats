@@ -30,21 +30,21 @@ _make_transcript() {
 }
 
 @test "find_session_jsonl: single transcript returns as-is" {
-    _make_transcript "-home-iwase-working-c5017f" "aaaaaaaa-0000-0000-0000-000000000000" "/home/iwase/working/c5017f"
+    _make_transcript "-home-dev-working-c5017f" "aaaaaaaa-0000-0000-0000-000000000000" "/home/dev/working/c5017f"
     run find_session_jsonl "aaaaaaaa-0000-0000-0000-000000000000"
     [ "$status" -eq 0 ]
-    [[ "$output" == *"-home-iwase-working-c5017f/"* ]]
+    [[ "$output" == *"-home-dev-working-c5017f/"* ]]
 }
 
 @test "find_session_jsonl: multi-slug picks the slug matching its own cwd" {
     local sid="bbbbbbbb-0000-0000-0000-000000000000"
     # A stray copy under the aquarium slug whose recorded cwd is actually c5017f...
-    _make_transcript "-home-iwase-working-claude-aquarium" "$sid" "/home/iwase/working/c5017f"
+    _make_transcript "-home-dev-working-claude-aquarium" "$sid" "/home/dev/working/c5017f"
     # ...and the canonical transcript under the c5017f slug (slug == cwd).
-    _make_transcript "-home-iwase-working-c5017f" "$sid" "/home/iwase/working/c5017f"
+    _make_transcript "-home-dev-working-c5017f" "$sid" "/home/dev/working/c5017f"
     run find_session_jsonl "$sid"
     [ "$status" -eq 0 ]
-    [[ "$output" == *"-home-iwase-working-c5017f/"* ]]
+    [[ "$output" == *"-home-dev-working-c5017f/"* ]]
     [[ "$output" != *"-claude-aquarium/"* ]]
 }
 
@@ -53,13 +53,13 @@ _make_transcript() {
     # Neither slug matches the recorded cwd (both worktree-style); newest wins.
     # stat mtime is whole-second granularity, so set the times explicitly
     # rather than racing a sub-second sleep.
-    _make_transcript "-home-iwase-slugA" "$sid" "/home/iwase/working/real"
-    _make_transcript "-home-iwase-slugB" "$sid" "/home/iwase/working/real"
-    touch -d '2020-01-01 00:00:00' "$CLAUDE_PROJECTS_DIR/-home-iwase-slugA/$sid.jsonl"
-    touch -d '2020-01-01 00:01:00' "$CLAUDE_PROJECTS_DIR/-home-iwase-slugB/$sid.jsonl"
+    _make_transcript "-home-dev-slugA" "$sid" "/home/dev/working/real"
+    _make_transcript "-home-dev-slugB" "$sid" "/home/dev/working/real"
+    touch -d '2020-01-01 00:00:00' "$CLAUDE_PROJECTS_DIR/-home-dev-slugA/$sid.jsonl"
+    touch -d '2020-01-01 00:01:00' "$CLAUDE_PROJECTS_DIR/-home-dev-slugB/$sid.jsonl"
     run find_session_jsonl "$sid"
     [ "$status" -eq 0 ]
-    [[ "$output" == *"-home-iwase-slugB/"* ]]   # slugB is newer
+    [[ "$output" == *"-home-dev-slugB/"* ]]   # slugB is newer
 }
 
 @test "find_session_jsonl: returns nonzero when no transcript exists" {

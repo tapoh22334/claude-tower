@@ -39,7 +39,7 @@ source_navigator_list_functions() {
         $'  ▶ double  spaces'
         $'  ○ plain'
     )
-    SESSION_DIRS=("/home/iwase/working/claude-aquarium" "" "/home/iwase/working/c5017f")
+    SESSION_DIRS=("/home/dev/working/claude-aquarium" "" "/home/dev/working/c5017f")
     SESSION_HEADERS=($'\033[1;36maquarium\033[0m ──' "" "")
     BROKEN_START=2
 

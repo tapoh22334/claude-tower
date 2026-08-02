@@ -29,17 +29,21 @@ docs/
 
 | Document | Purpose |
 |----------|---------|
-| [SPECIFICATION.md](./SPECIFICATION.md) | Authoritative behavioral specification (v3.2) |
+| [SPECIFICATION.md](./SPECIFICATION.md) | ⚠️ Outdated (v3.x) — describes the removed worktree model |
 | [GLOSSARY.md](./GLOSSARY.md) | Domain vocabulary definitions |
-| [PSEUDOCODE.md](./PSEUDOCODE.md) | Implementation reference (v3.2) |
+| [PSEUDOCODE.md](./PSEUDOCODE.md) | ⚠️ Outdated (v3.x) — implementation reference for the pre-v4 design |
 
 ### User Guides
 
+The current user documentation is the [top-level README](../README.md). The
+three guides below predate v4 and describe the worktree-based model that was
+removed; they are kept for historical reference only.
+
 | Document | Purpose |
 |----------|---------|
-| [QUICKSTART.md](./QUICKSTART.md) | Getting started in 5 minutes |
-| [CONFIGURATION.md](./CONFIGURATION.md) | Complete configuration reference |
-| [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) | Common issues and solutions |
+| [QUICKSTART.md](./QUICKSTART.md) | ⚠️ Outdated (v3.x) |
+| [CONFIGURATION.md](./CONFIGURATION.md) | ⚠️ Outdated (v3.x) |
+| [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) | ⚠️ Outdated (v3.x) |
 
 ### Architecture
 
@@ -65,6 +69,5 @@ docs/
 
 ## Quick Links
 
-- **Getting Started**: See [QUICKSTART.md](./QUICKSTART.md)
-- **Current Version**: v3.2 (2026-01-03)
-- **Test Status**: All behavioral tests passing
+- **Getting Started**: See the [top-level README](../README.md)
+- **Contributing**: See [CONTRIBUTING.md](../CONTRIBUTING.md)

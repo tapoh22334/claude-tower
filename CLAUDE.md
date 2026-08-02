@@ -47,8 +47,9 @@ make status        # Show servers, sessions, state files
 
 ## Testing
 
-- Framework: bats (Bash Automated Testing System), submodule at tests/bats/
-- Run single test: `./tests/bats/bin/bats tests/test_metadata.bats`
+- Framework: bats (Bash Automated Testing System), installed separately — CI
+  uses `apt-get install bats`; locally any recent bats on `PATH` works
+- Run single test: `bats tests/test_metadata.bats`
 - Integration/E2E tests MUST set `CLAUDE_TOWER_SESSION_SOCKET` and `TMUX_TMPDIR` BEFORE `source_common`
 - CI: GitHub Actions with 5 jobs (Unit, Integration, E2E, Docker, ShellCheck)
 
