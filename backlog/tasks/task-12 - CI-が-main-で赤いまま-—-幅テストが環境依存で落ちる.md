@@ -4,6 +4,7 @@ title: CI が main で赤いまま — 幅テストが環境依存で落ちる
 status: To Do
 assignee: []
 created_date: '2026-08-02 07:46'
+updated_date: '2026-08-02 08:52'
 labels:
   - bug
   - ci
@@ -25,3 +26,9 @@ ordinal: 12000
 
 付随して見つかった環境の綻び: CLAUDE.md は bats を 'submodule at tests/bats/' と書いているが .gitmodules は存在せず tests/bats も無い。CI は apt install bats で用意している。新規コントリビューターが CLAUDE.md 通りにしても動かない。
 <!-- SECTION:DESCRIPTION:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+2026-08-02: リポジトリ整理の 4 コミットを push 後も同じ状態を確認 (run 30740544462)。失敗は依然この 1 件のみで、同時に追加した 40 テストは CI 上でも全て通っている。つまりこの失敗は今回の変更とは独立した既存問題。Unit Tests と Docker Tests がこれ 1 件で赤くなり、E2E / Integration / ShellCheck は緑。
+<!-- SECTION:NOTES:END -->
