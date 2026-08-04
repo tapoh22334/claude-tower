@@ -53,12 +53,15 @@ make status        # Show servers, sessions, state files
 - Integration/E2E tests MUST set `CLAUDE_TOWER_SESSION_SOCKET` and `TMUX_TMPDIR` BEFORE `source_common`
 - CI: GitHub Actions with 5 jobs (Unit, Integration, E2E, Docker, ShellCheck)
 
-## Key API (v2)
+## Key API
 
-- `create_session(name, dir)` -- 2 args
-- `save_metadata(session_id, directory_path)` -- 2 args
-- `load_metadata()` sets `META_DIRECTORY_PATH`
-- v1 compat: `load_metadata` resolves priority: directory_path > worktree_path > repository_path
+- `start_claude_session(session_id, dir, mode)` -- mode is `new` or `resume`
+- `save_metadata(session_id, session_name)` -- name is optional; the registry
+  stores nothing else
+- `load_metadata(session_id)` sets `META_SESSION_NAME`, `META_CREATED_AT`
+- A session's directory is **not** stored. It is always derived from the
+  Claude transcript via `get_session_cwd` (lib/claude-sessions.sh), which is
+  why a moved or deleted directory shows up as the `✗` dead state.
 
 ## Recent Changes
 
