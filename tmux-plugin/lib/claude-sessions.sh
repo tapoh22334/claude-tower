@@ -21,8 +21,12 @@ TOWER_BUSY_WINDOW="${TOWER_BUSY_WINDOW:-45}"
 _cwd_to_slug() {
     local cwd="$1"
     # Claude replaces every non-alphanumeric character with a single dash.
-    printf '%s\n' "$cwd" | sed 's/[^a-zA-Z0-9]/-/g'
+    # Done with bash's own substitution rather than sed: this sits on the
+    # list-rebuild path, where every external command is a fork+exec.
+    local slug="${cwd//[^a-zA-Z0-9]/-}"
+    printf '%s\n' "$slug"
 }
+
 
 # Find the transcript for a Claude session ID (without tower_ prefix).
 # Output: absolute path. Returns 1 if not found.
@@ -56,7 +60,8 @@ find_session_jsonl() {
     # the transcript's own launch cwd.
     local slug cwd
     for f in "${candidates[@]}"; do
-        slug=$(basename -- "$(dirname -- "$f")")
+        slug="${f%/*}"
+        slug="${slug##*/}"
         cwd=$(get_session_cwd "$f" 2>/dev/null) || continue
         [[ -z "$cwd" ]] && continue
         if [[ "$slug" == "$(_cwd_to_slug "$cwd")" ]]; then
@@ -106,23 +111,33 @@ session_has_messages() {
 # as idle.
 get_session_activity() {
     local jsonl="$1"
-    local latest=0 t f
-    t=$(stat -c %Y -- "$jsonl" 2>/dev/null) && ((t > latest)) && latest=$t
+    local latest=0 f
+    local -a batch=("$jsonl")
 
-    local session_id dir slug
-    dir=$(dirname -- "$jsonl")
-    session_id=$(basename -- "$jsonl" .jsonl)
-    slug=$(basename -- "$dir")
+    # Path arithmetic with bash's own operators. dirname/basename here cost
+    # three forks per session, and this runs for every row of every rebuild.
+    local dir="${jsonl%/*}"
+    local base="${jsonl##*/}"
+    local session_id="${base%.jsonl}"
+    local slug="${dir##*/}"
 
     for f in "${dir}/${session_id}/subagents"/*.jsonl; do
-        [[ -f "$f" ]] || continue
-        t=$(stat -c %Y -- "$f" 2>/dev/null) && ((t > latest)) && latest=$t
+        [[ -f "$f" ]] && batch+=("$f")
     done
 
-    for f in "${TMPDIR:-/tmp}/claude-$(id -u)/${slug}/${session_id}/tasks"/*.output; do
-        [[ -f "$f" ]] || continue
-        t=$(stat -c %Y -- "$f" 2>/dev/null) && ((t > latest)) && latest=$t
+    for f in "${TMPDIR:-/tmp}/claude-${EUID}/${slug}/${session_id}/tasks"/*.output; do
+        [[ -f "$f" ]] && batch+=("$f")
     done
+
+    # One stat for the whole batch instead of one per file. A busy session can
+    # own dozens of subagent and task files, and statting them individually was
+    # the single largest source of processes in a rebuild (measured: 1,131 of
+    # 1,614 execve calls across 19 sessions).
+    local t
+    while IFS= read -r t; do
+        [[ "$t" =~ ^[0-9]+$ ]] || continue
+        ((t > latest)) && latest=$t
+    done < <(stat -c %Y -- "${batch[@]}" 2>/dev/null)
 
     echo "$latest"
 }
@@ -186,7 +201,8 @@ list_addable_sessions() {
     local f session_id cwd mtime
     for f in "$CLAUDE_PROJECTS_DIR"/*/*.jsonl; do
         [[ -f "$f" ]] || continue
-        session_id=$(basename -- "$f" .jsonl)
+        session_id="${f##*/}"
+        session_id="${session_id%.jsonl}"
         [[ "$session_id" =~ ^[0-9a-f-]{36}$ ]] || continue
         has_metadata "tower_${session_id}" && continue
         session_has_messages "$f" || continue
@@ -207,7 +223,8 @@ list_live_claude_processes() {
     local f pid line sid cwd
     for f in "$CLAUDE_LIVE_SESSIONS_DIR"/*.json; do
         [[ -f "$f" ]] || continue
-        pid=$(basename -- "$f" .json)
+        pid="${f##*/}"
+        pid="${pid%.json}"
         [[ "$pid" =~ ^[0-9]+$ ]] || continue
         kill -0 "$pid" 2>/dev/null || continue
         line=$(head -c 2000 -- "$f" 2>/dev/null) || continue
@@ -347,8 +364,9 @@ count_unregistered_processes_in_dir() {
 count_active_subagents() {
     local jsonl="$1"
     local dir session_id now t f n=0
-    dir=$(dirname -- "$jsonl")
-    session_id=$(basename -- "$jsonl" .jsonl)
+    dir="${jsonl%/*}"
+    session_id="${jsonl##*/}"
+    session_id="${session_id%.jsonl}"
     now=$(date +%s)
     for f in "${dir}/${session_id}/subagents"/*.jsonl; do
         [[ -f "$f" ]] || continue
@@ -486,9 +504,12 @@ get_session_title() {
         # one is often a bare slash command or a one-word nudge that says
         # nothing about the work — walk forward until something does.
         while IFS= read -r line; do
-            raw=$(printf '%s\n' "$line" | grep -o '"display":"[^"]*"') || continue
-            raw="${raw#\"display\":\"}"
-            raw="${raw%\"}"
+            # Pull "display":"..." out with bash's own matching. This used to
+            # be `printf | grep -o`, i.e. two more processes for every history
+            # line examined, on a path the list rebuild walks once per session.
+            [[ "$line" == *'"display":"'* ]] || continue
+            raw="${line#*\"display\":\"}"
+            raw="${raw%%\"*}"
             displays+=("$raw")
             title=$(_first_meaningful_sentence "$raw") || continue
             printf '%s\n' "$title"

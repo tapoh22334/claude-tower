@@ -73,11 +73,23 @@ readonly NAV_MIN_WIDTH="${TOWER_LIST_MIN_WIDTH:-50}"
 readonly NAV_RIGHT_COL=6
 
 # Effective content width: the terminal, clamped to [MIN, MAX].
+#
+# Cached per pass. Every row asks for this two or three times (label budget,
+# row composition, group rule), and each miss forks tput. The terminal cannot
+# resize midway through one rebuild, so one reading per pass is enough;
+# _reset_width_cache drops it when a new pass starts or SIGWINCH arrives.
+_NAV_WIDTH_CACHE=""
+_reset_width_cache() { _NAV_WIDTH_CACHE=""; }
 _content_width() {
+    if [[ -n "$_NAV_WIDTH_CACHE" ]]; then
+        echo "$_NAV_WIDTH_CACHE"
+        return 0
+    fi
     local w
     w=$(tput cols 2>/dev/null || echo 80)
     ((w > NAV_MAX_WIDTH)) && w=$NAV_MAX_WIDTH
     ((w < NAV_MIN_WIDTH)) && w=$NAV_MIN_WIDTH
+    _NAV_WIDTH_CACHE="$w"
     echo "$w"
 }
 
@@ -132,7 +144,7 @@ _compose_row() {
     # Fixed left overhead: 2-space indent (added by the renderer) + the
     # state icon's own display width + one separating space. Measured, not
     # assumed: some state glyphs (●, ◇) are two cells wide.
-    icon_w=$(str_display_width "$(printf '%s' "$icon" | strip_ansi_seq)")
+    icon_w=$(str_display_width "$(_strip_ansi_str "$icon")")
     local left=$((2 + icon_w + 1))
 
     # Hard cap the label to the row budget. _session_label already sizes to
@@ -142,7 +154,7 @@ _compose_row() {
     label=$(truncate_display "$label" "$budget")
 
     label_w=$(str_display_width "$label")
-    marks_plain=$(printf '%s' "$marks" | strip_ansi_seq)
+    marks_plain=$(_strip_ansi_str "$marks")
     marks_w=$(str_display_width "$marks_plain")
 
     # Pad the label out so the marks sit in the fixed right column.
@@ -162,8 +174,24 @@ _compose_row() {
 }
 
 # Strip ANSI CSI sequences (color, cursor) so display width can be measured.
+# Filter form, kept for callers that pipe into it.
 strip_ansi_seq() {
     sed -E $'s/\033\\[[0-9;?]*[a-zA-Z]//g'
+}
+
+# Same thing for a single string, without the sed. Every row composed calls
+# this twice, and `$(printf ... | strip_ansi_seq)` costs a subshell plus a
+# fork+exec each time — measurable once the list is more than a few rows.
+_strip_ansi_str() {
+    local s="$1" out="" rest
+    while [[ "$s" == *$'\033['* ]]; do
+        out+="${s%%$'\033['*}"
+        rest="${s#*$'\033['}"
+        # A CSI sequence ends at its first letter; drop through it.
+        while [[ -n "$rest" && "$rest" != [a-zA-Z]* ]]; do rest="${rest:1}"; done
+        s="${rest:1}"
+    done
+    printf '%s' "$out$s"
 }
 
 # Project dir of a session ("" when unknown)
@@ -184,6 +212,9 @@ build_session_list() {
     local -a raw_ids=() raw_displays=() raw_dirs=()
     local -a broken_ids=() broken_displays=()
     local session_id state label selected dir jsonl agents badge
+
+    # Re-read the terminal width once for this pass.
+    _reset_width_cache
 
     # Snapshot the live-process table ONCE for this whole build. The per-dir
     # unmanaged-process count would otherwise rescan ~/.claude/sessions (a
@@ -267,7 +298,12 @@ build_session_list() {
         # glance, so it gets the strongest treatment on screen: bold cyan
         # against dim rows, with a rule running out to the right margin.
         local dname rule_w
-        dname=$(basename -- "${d:-unknown}")
+        # basename without the fork. Strip a trailing slash, then everything
+        # up to the last one; "/" has nothing left, so keep it as itself.
+        dname="${d:-unknown}"
+        dname="${dname%/}"
+        dname="${dname##*/}"
+        [[ -z "$dname" ]] && dname="/"
         header="${NAV_C_HEADER}${dname}${NAV_C_NORMAL}"
         extern=$(count_unregistered_processes_in_dir "$d" "$live_procs")
         if [[ "$extern" -gt 0 ]]; then
@@ -425,6 +461,10 @@ get_selection_index() {
 render_list() {
     local selected_index="$1"
     local term_height
+    # Re-read the terminal size every frame, and drop the cached width with
+    # it, so a resize is picked up on the next redraw rather than at the next
+    # rebuild (which can be seconds away).
+    _reset_width_cache
     term_height=$(tput lines 2>/dev/null || echo 24)
     # Row budget for the body (session rows + group headers + separator).
     # Reserve: header (2) + footer (2). If the frame is even one line
