@@ -692,12 +692,28 @@ signal_view_update() {
 #     because signal_view_update re-reads the state file at the moment it
 #     runs — set_nav_selected has already recorded the newest value.
 _VIEW_SIGNAL_PID=""
+_VIEW_SIGNAL_PENDING=0
 signal_view_update_async() {
     if [[ -n "$_VIEW_SIGNAL_PID" ]] && kill -0 "$_VIEW_SIGNAL_PID" 2>/dev/null; then
+        # One is already in flight. Remember that the selection moved again
+        # so the trailing edge still gets sent: the running redirect re-reads
+        # the state file when it starts, so it may have been launched before
+        # this newest move and would otherwise leave the view pane waiting on
+        # its own 0.1s poll to notice.
+        _VIEW_SIGNAL_PENDING=1
         return
     fi
+    _VIEW_SIGNAL_PENDING=0
     { signal_view_update; } >/dev/null 2>&1 &
     _VIEW_SIGNAL_PID=$!
+}
+
+# Re-fire the redirect that was coalesced away, once the in-flight one is
+# done. Called from the tick loop, where a stall costs nothing.
+_flush_pending_view_signal() {
+    ((_VIEW_SIGNAL_PENDING)) || return 0
+    [[ -n "$_VIEW_SIGNAL_PID" ]] && kill -0 "$_VIEW_SIGNAL_PID" 2>/dev/null && return 0
+    signal_view_update_async
 }
 
 # Move selection and update view. Echoes the new index (callers capture it
@@ -1044,8 +1060,12 @@ nav_echo_on() { stty echo 2>/dev/null || true; }
 main_loop() {
     # Keep the terminal quiet during navigation, and always hand it back in a
     # sane state (echo on, cursor visible) however the loop ends.
-    nav_echo_off
+    #
+    # Arm the restore FIRST. With the order reversed, a signal arriving in the
+    # gap between disabling echo and installing the handler would leave the
+    # user at a shell that no longer echoes what they type.
     trap 'nav_echo_on; printf "\033[?25h" 2>/dev/null || true' EXIT INT TERM
+    nav_echo_off
 
     # Initial build is synchronous so the first frame is correct, then seed
     # the cache from it. From here on the refresh tick only loads the cache
@@ -1194,6 +1214,10 @@ main_loop() {
             # load the last cached result instantly, then kick ONE background
             # rebuild whose fresh cache the next refresh swaps in.
             SPIN_TICK=$(((SPIN_TICK + 1) % 1000000))
+            # Every tick, not just refresh ticks: a redirect dropped by the
+            # coalescer should reach the view pane in a quarter second, not
+            # wait two for the next rebuild.
+            _flush_pending_view_signal
             if [[ $((SPIN_TICK % TICKS_PER_REFRESH)) -ne 0 ]]; then
                 continue
             fi

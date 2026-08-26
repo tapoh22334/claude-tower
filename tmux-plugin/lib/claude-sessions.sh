@@ -538,9 +538,16 @@ get_session_title() {
     title="${title%\"}"
     [[ -n "$title" ]] || return 1
     # The raw-title fallback must never emit command expansion markup.
-    _first_meaningful_sentence "$title" \
-        || _slash_command_argument "$title" \
-        || printf '%s\n' "$(_strip_command_markup "$title")"
+    _first_meaningful_sentence "$title" && return 0
+    _slash_command_argument "$title" && return 0
+    # Stripping can leave nothing at all — a message that was pure markup,
+    # e.g. "<command-message>init</command-message><command-name>/init</…>".
+    # Succeeding with an empty line would render a blank row: callers only
+    # fall back to the id prefix on a non-zero exit, not on empty output.
+    local stripped
+    stripped=$(_strip_command_markup "$title")
+    [[ -n "$stripped" ]] || return 1
+    printf '%s\n' "$stripped"
 }
 
 # Display width in terminal cells, and truncation to a cell budget. CJK,
