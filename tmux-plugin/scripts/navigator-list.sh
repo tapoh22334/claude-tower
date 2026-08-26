@@ -413,11 +413,47 @@ _load_session_state() {
 # touch our live arrays), serializes to a temp file, then atomically renames
 # it over the cache. Coalesced on a PID: a second spawn while one is running
 # is a no-op, so a burst of ticks doesn't fork a pile of scanners.
+#
+# The PID guard alone is not enough to keep the machine quiet. It stops two
+# rebuilds overlapping, but if a rebuild takes longer than the refresh
+# interval — which it does on any busy machine — the very next tick starts
+# another the instant one finishes. There is no gap, and the scanner runs
+# continuously: a Navigator left open for ten days sat at 42% CPU doing
+# exactly this.
+#
+# So also require REBUILD_MIN_GAP seconds of quiet since the last rebuild
+# ENDED. The list still refreshes on its own; it just stops treating "as
+# often as physically possible" as the target.
+readonly REBUILD_MIN_GAP="${TOWER_REBUILD_MIN_GAP:-5}"
+
+# Seconds now. EPOCHSECONDS is a bash 5 builtin; the project supports 4.0+
+# (and macOS still ships 3.2), so fall back to date on older shells. The
+# fallback costs a fork, but only once per refresh tick, not per row.
+if [[ -n "${EPOCHSECONDS+set}" ]]; then
+    _now_seconds() { echo "$EPOCHSECONDS"; }
+else
+    _now_seconds() { date +%s; }
+fi
+
 _REBUILD_PID=""
+_REBUILD_DONE_AT=0
 _spawn_background_rebuild() {
-    if [[ -n "$_REBUILD_PID" ]] && kill -0 "$_REBUILD_PID" 2>/dev/null; then
+    local now
+    now=$(_now_seconds)
+    if [[ -n "$_REBUILD_PID" ]]; then
+        if kill -0 "$_REBUILD_PID" 2>/dev/null; then
+            return
+        fi
+        # It finished since we last looked; start the cool-off from now.
+        if [[ $_REBUILD_DONE_AT -eq 0 ]]; then
+            _REBUILD_DONE_AT=$now
+            return
+        fi
+    fi
+    if ((now - _REBUILD_DONE_AT < REBUILD_MIN_GAP)); then
         return
     fi
+    _REBUILD_DONE_AT=0
     local cache tmp
     cache=$(_session_cache_file)
     tmp="${cache}.$$"
