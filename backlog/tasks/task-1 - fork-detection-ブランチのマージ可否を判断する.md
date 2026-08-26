@@ -4,7 +4,7 @@ title: fork-detection の成果を main に取り込むか、破棄するかを�
 status: To Do
 assignee: []
 created_date: '2026-07-25 00:43'
-updated_date: '2026-07-25 15:26'
+updated_date: '2026-08-26 15:10'
 labels:
   - fork-detection
   - blocked
@@ -46,4 +46,20 @@ fork 検出機能(_fork_label / list_fork_sessions / find_fork_parent)は featur
   fork検出のマージ可否とは独立に価値があるため、fork検出側を破棄する判断に
   なった場合でも 6cb0641 だけは main に取り込む価値がある (cherry-pick 可能)。
 - 既知のコンフリクト予測は前回追記のとおり claude-sessions.sh のタイトル生成部。
+
+2026-08-27 コードレビュー結果 (feature/fork-detection の 11 コミットが対象)。マージ可否の判断材料として記録する。
+
+未検証の指摘なので、着手時に各項目を実際に確かめること。私が main 側で検証した 13 件中 2 件は誤検出だった (無限ループの主張は実際には起きない、空タイトルの主張は原因が別の場所) ので、この一覧も鵜呑みにしない。
+
+【性能】fork 行の描画が、直前に TASK-16 で潰したプロセス生成の問題を戻す可能性がある。list_fork_sessions → find_fork_parent が live な未登録プロセスごとに slug ディレクトリ内の全 *.jsonl を grep し、さらに fork 行ごとに get_session_title が走る。指摘では『10 セッション × 30 兄弟ファイル = 1 リフレッシュあたり 300 回の grep』。TASK-16 で 1584→275 回まで落とした直後なので、マージ前に strace -f -e trace=execve で実測すべき。
+
+【正しさ】find_fork_parent (claude-sessions.sh:56) の tie-break が非決定的。比較が ((cand_mtime >= best_mtime)) と >= なので、mtime が同一の候補群では『最後に走査されたもの』が勝つ。glob 順は UUID の辞書順で、fork の親子関係とは無関係。親の直後に fork を作ると mtime が同秒になりやすく、まさにこの条件を踏む。TASK-3 が『非決定的である旨をコードに残す』としているが、レビューは実害があると見ている。
+
+【正しさ】_FORK_SCAN_LINES の grep -o -m 5 は『最初の 5 uuid』ではなく『マッチを含む最初の 5 行』を意味する。同じ -m 5 を親候補側にも適用しているため、前置きの長い親では共有 uuid が 5 行目より後ろにあり、本物の fork が黙って検出漏れする。
+
+【安全性】D (削除) が fork 行を守っていない。r (resume) は fork 行を判定して弾くよう直されたが、delete_selected は $selected が登録済み tower セッションか確認せずに session-delete.sh を呼ぶ。fork 行は登録されていない生の Claude sessionId なので、未登録 id に対して削除が走る。
+
+【UI】fork 行が SESSION_IDS に混ざることで、リビルド間に fork が消えるとカーソル位置が別セッションを指す。既存のクランプは index >= len しか見ておらず、範囲内で中身が変わるケースを扱わない。set_nav_selected も呼ばれないので、リストと右ペインの認識がずれる。
+
+【UI】fork 行で r を押したときの sleep 0.5 が、隣接する未登録パスの sleep 0.3 より長く、r を押しっぱなしにするとループが目に見えて止まる。
 <!-- SECTION:NOTES:END -->
