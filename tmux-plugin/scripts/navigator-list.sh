@@ -1018,6 +1018,20 @@ quit_navigator() {
 # Main Loop
 # ============================================================================
 
+# Hand the screen back to the list after an interactive sub-flow (fzf, a
+# y/n prompt, session-add) has drawn over it.
+#
+# This used to be `clear`, which blanks the whole screen and leaves it blank
+# until the next render_list — a visible flash on every n/f/N/D/r. It isn't
+# needed: render_list homes the cursor, writes every line with a clear-to-
+# end-of-line, and finishes with clear-to-end-of-screen, so it overwrites
+# whatever the sub-flow left behind. All that's required is to invalidate
+# the cached width (the sub-flow may have resized things) and let the loop
+# draw the next frame.
+_repaint_after_subflow() {
+    _reset_width_cache
+}
+
 # Turn OFF terminal echo so navigation keys (j/k/g/G/…) don't paint their
 # literal characters onto the list before we redraw. read -rsn1 still
 # receives the key; only the terminal's own echoing is suppressed. Restored
@@ -1121,7 +1135,7 @@ main_loop() {
                     nav_echo_off
                     build_session_list
                     selected_index=$(get_selection_index)
-                    clear
+                    _repaint_after_subflow
                     ;;
                 f)
                     fork_session_here
@@ -1129,7 +1143,7 @@ main_loop() {
                     nav_echo_off
                     build_session_list
                     selected_index=$(get_selection_index)
-                    clear
+                    _repaint_after_subflow
                     ;;
                 N)
                     new_session_pick_dir
@@ -1137,7 +1151,7 @@ main_loop() {
                     nav_echo_off
                     build_session_list
                     selected_index=$(get_selection_index)
-                    clear
+                    _repaint_after_subflow
                     ;;
                 D)
                     delete_selected
@@ -1146,14 +1160,14 @@ main_loop() {
                     nav_echo_off
                     build_session_list
                     selected_index=$(get_selection_index)
-                    clear  # Clear screen after input mode
+                    _repaint_after_subflow
                     ;;
                 r)
                     # Restore selected dormant session
                     restore_selected
                     build_session_list
                     selected_index=$(get_selection_index)
-                    clear
+                    _repaint_after_subflow
                     ;;
                 $'\t') # Tab key
                     switch_to_tile
