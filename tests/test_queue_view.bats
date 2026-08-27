@@ -121,8 +121,26 @@ _run_queue() {
 }
 
 @test "navigator-list.sh: switch_to_queue launches queue-view.sh on the session server" {
-    run grep -A 6 "^switch_to_queue()" "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
+    # Asserted by calling the function with tmux stubbed, not by grepping the
+    # source: the three switch_to_* functions share one helper now, so the
+    # new-window call no longer sits inside switch_to_queue's own body.
+    run bash -c '
+        source "'"$PROJECT_ROOT"'/tmux-plugin/scripts/navigator-list.sh"
+        set +e
+        session_tmux() {
+            case "$1" in
+                list-sessions) echo "tower_stub" ;;
+                new-window) printf "new-window %s\n" "$*" ;;
+            esac
+        }
+        nav_tmux() { :; }
+        handle_error() { :; }
+        handle_info() { :; }
+        switch_to_queue
+    '
     [ "$status" -eq 0 ]
+    [[ "$output" == *"new-window"* ]]
     [[ "$output" == *"queue-view.sh"* ]]
-    [[ "$output" == *"session_tmux new-window"* ]]
+    # The window must be pinned to the session the user gets attached to.
+    [[ "$output" == *"-t tower_stub"* ]]
 }

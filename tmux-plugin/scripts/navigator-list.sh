@@ -940,49 +940,47 @@ restore_selected() {
 }
 
 # Switch to Tile mode
+# Hand the terminal over to one of the full-screen views (tile/tail/queue).
+#
+# The view runs as a window on the session server, and we detach the
+# Navigator so the user lands on it. Both halves must name the SAME session:
+# `new-window` with no target goes to whatever session the server currently
+# considers current, while the attach used to pick `list-sessions | head -1`.
+# Those are different sessions as soon as more than one exists, so the user
+# was detached onto a session that had no view window in it — the view had
+# been created, just not where they were sent. That is the "tile mode does
+# nothing" report.
+_switch_to_view() {
+    local window="$1" script="$2"
+    local target
+    target=$(session_tmux list-sessions -F '#{session_name}' 2>/dev/null | head -1 || echo "")
+    if [[ -z "$target" ]]; then
+        handle_info "No sessions to show"
+        return 0
+    fi
+    # -t pins the window to the session we are about to attach to.
+    if ! session_tmux new-window -t "$target" -n "$window" "$script" 2>/dev/null; then
+        handle_error "Could not open $window"
+        return 1
+    fi
+    nav_tmux detach-client -E "TMUX= tmux -L '$TOWER_SESSION_SOCKET' attach-session -t '$target'"
+}
+
 switch_to_tile() {
     info_log "Switching to Tile mode"
-
-    # Create tile window on session server (where Claude sessions live)
-    session_tmux new-window -n "tower-tile" "$SCRIPT_DIR/tile.sh" 2>/dev/null || true
-
-    # Get the first available session on session server
-    local target_session
-    target_session=$(session_tmux list-sessions -F '#{session_name}' 2>/dev/null | head -1 || echo "")
-
-    if [[ -n "$target_session" ]]; then
-        # Detach from Navigator and attach to session server
-        nav_tmux detach-client -E "TMUX= tmux -L '$TOWER_SESSION_SOCKET' attach-session -t '$target_session'"
-    fi
+    _switch_to_view "tower-tile" "$SCRIPT_DIR/tile.sh"
 }
 
 # Switch to Tail view (live multi-session output follow)
 switch_to_tail() {
     info_log "Switching to Tail mode"
-
-    # Create tail window on session server (where Claude sessions live)
-    session_tmux new-window -n "tower-tail" "$SCRIPT_DIR/tail-view.sh" 2>/dev/null || true
-
-    local target_session
-    target_session=$(session_tmux list-sessions -F '#{session_name}' 2>/dev/null | head -1 || echo "")
-
-    if [[ -n "$target_session" ]]; then
-        nav_tmux detach-client -E "TMUX= tmux -L '$TOWER_SESSION_SOCKET' attach-session -t '$target_session'"
-    fi
+    _switch_to_view "tower-tail" "$SCRIPT_DIR/tail-view.sh"
 }
 
 # Switch to Queue view (sessions awaiting your action, oldest wait first)
 switch_to_queue() {
     info_log "Switching to Queue mode"
-
-    session_tmux new-window -n "tower-queue" "$SCRIPT_DIR/queue-view.sh" 2>/dev/null || true
-
-    local target_session
-    target_session=$(session_tmux list-sessions -F '#{session_name}' 2>/dev/null | head -1 || echo "")
-
-    if [[ -n "$target_session" ]]; then
-        nav_tmux detach-client -E "TMUX= tmux -L '$TOWER_SESSION_SOCKET' attach-session -t '$target_session'"
-    fi
+    _switch_to_view "tower-queue" "$SCRIPT_DIR/queue-view.sh"
 }
 
 # Quit Navigator
