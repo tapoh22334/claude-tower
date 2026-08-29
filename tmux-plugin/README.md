@@ -77,5 +77,6 @@ This ensures Navigator operations don't interfere with user sessions.
 
 ## For Developers
 
-See `/docs/SPECIFICATION.md` for the authoritative behavioral specification.
-See `/docs/PSEUDOCODE.md` for implementation reference.
+The scripts are the specification — they are short and commented where the
+obvious implementation would be wrong. See [`/docs`](../docs/README.md) for the
+reasoning behind the architecture.

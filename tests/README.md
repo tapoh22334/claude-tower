@@ -99,5 +99,5 @@ Scripts without dedicated unit test files (exercised indirectly via
 - `session-delete.sh`, `session-restore.sh`, `session-list.sh`
 - `navigator.sh`, `navigator-view.sh`
 
-See `/docs/development/GAP_ANALYSIS.md` for further coverage analysis
+See the bats suites themselves for what is covered; `make test` runs them all.
 (may not fully reflect the current session-registry model).

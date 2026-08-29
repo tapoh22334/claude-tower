@@ -1,4 +1,7 @@
-# Claude Tower Constitution
+# Claude Tower Principles
+
+The rules the codebase is held to. Written under a spec-kit workflow that the
+project no longer runs; the principles outlived it.
 
 ## Core Principles
 
@@ -31,10 +34,9 @@ Start simple, YAGNI principles. CLI responses under 100ms. Files under 500 lines
 - All PRs must pass: `make lint`, `make test`
 - ShellCheck violations are blocking (except excluded codes)
 - Integration tests must not hang (socket isolation required)
-- New CLI commands require contract documentation in specs/NNN-feature/contracts/
+- New CLI behaviour is documented in the README, not in a separate spec
 
 ## Governance
 
-Constitution supersedes all other practices. Amendments require documentation and review. All specs must include a "Constitution Check" gate that verifies compliance with these principles.
-
-**Version**: 1.0.0 | **Ratified**: 2026-02-11 | **Last Amended**: 2026-02-11
+These principles take precedence over local convenience. Changing one is a
+deliberate act — say why in the commit that changes it.

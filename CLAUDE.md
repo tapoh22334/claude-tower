@@ -18,8 +18,8 @@ tests/
   integration/ # Integration tests (bats)
   e2e/         # End-to-end tests (bats)
   scenarios/   # Test scenario data
-specs/         # Feature specifications (spec-kit)
-.specify/      # spec-kit config, templates, scripts
+docs/          # Design notes worth keeping (PRINCIPLES.md, architecture/)
+backlog/       # Backlog.md tasks and decisions
 .github/       # CI/CD (GitHub Actions)
 ```
 

@@ -19,6 +19,9 @@ Thumbs.db
 # claude-tower data
 .claude
 .superpowers/
+# Agent working notes: plans, provisional design docs, screen captures. The
+# reasoning worth keeping goes in Backlog or a commit message, not here.
+docs/superpowers/
 
 # Test dependencies (installed via git clone)
 tests/bats/
@@ -47,7 +50,6 @@ claude-flow.config.json
 .hive-mind/
 .claude-flow/
 memory/
-!.specify/memory/
 coordination/
 memory/claude-flow-data.json
 memory/sessions/*

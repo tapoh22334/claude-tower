@@ -88,8 +88,7 @@ Inspired by the Zen of Python, Unix Philosophy, and successful tmux plugins.
 **Rationale**: Modal interfaces confuse when state is invisible. Transparency builds trust.
 
 **In Practice**:
-- Session states indicated by icons (▶ active, ○ dormant)
-- Session types shown ([W] worktree, [S] simple)
+- Session states indicated by icons (▶ active, ○ dormant, ✗ dead, and so on)
 - Current focus position clearly highlighted
 - Help available via `?` key in all modes
 
@@ -394,9 +393,9 @@ validate_path_within() {
 
 ### 6.3 Related Documents
 
-- [SPECIFICATION.md](../SPECIFICATION.md) - Detailed behavioral specification
-- [error-handling-design.md](./error-handling-design.md) - Error handling patterns
-- [GAP_ANALYSIS.md](../GAP_ANALYSIS.md) - Implementation status
+- [error-handling.md](./error-handling.md) - Error handling patterns
+- [socket-separation.md](./socket-separation.md) - Why Tower runs its own tmux servers
+- [PRINCIPLES.md](../PRINCIPLES.md) - The rules the codebase is held to
 
 ---
 
