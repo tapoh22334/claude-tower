@@ -24,7 +24,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --new-in-dir) MODE="new-in-dir" ;;
         -n | --name)
-            SESSION_NAME="${2:-}"
+            # Refuse to swallow the next flag as a name: `-n --print-id` would
+            # otherwise consume --print-id and leave the caller wondering why
+            # nothing was printed.
+            if [[ -z "${2:-}" || "${2}" == -* ]]; then
+                handle_error "$1 needs a name"
+                exit 1
+            fi
+            SESSION_NAME="$2"
             shift
             ;;
         -*)
@@ -36,6 +43,10 @@ while [[ $# -gt 0 ]]; do
             # `tower add .` promised this in its help long before anything
             # parsed it — the argument was silently dropped and the picker
             # opened instead.
+            if [[ -n "$TARGET_DIR" ]]; then
+                handle_error "Only one directory can be given (got '$TARGET_DIR' and '$1')"
+                exit 1
+            fi
             MODE="in-dir"
             TARGET_DIR="$1"
             ;;

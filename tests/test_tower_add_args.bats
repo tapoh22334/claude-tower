@@ -56,6 +56,26 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
+@test "tower add: -n without a name is an error, not a swallowed flag" {
+    # `-n --print-id` used to consume --print-id as the name, so the caller
+    # got no id and no explanation.
+    run bash "$ADD" -n --print-id
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"needs a name"* ]]
+}
+
+@test "tower add: a trailing -n is an error" {
+    run bash "$ADD" -n
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"needs a name"* ]]
+}
+
+@test "tower add: two directories are refused rather than last-wins" {
+    run bash "$ADD" "$BATS_TEST_TMPDIR/a" "$BATS_TEST_TMPDIR/b"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Only one directory"* ]]
+}
+
 @test "tower add: no arguments still opens the picker, not the path branch" {
     # MODE stays "pick" unless a bare path arrives.
     run grep -c 'MODE="in-dir"' "$ADD"
