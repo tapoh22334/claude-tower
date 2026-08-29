@@ -219,7 +219,10 @@ _run_format_candidate_lines() {
 
 @test "run_picker: warns loudly on stderr and falls back when user-set TOWER_FINDER binary is missing" {
     TOWER_FINDER="totally-not-a-real-finder --flag" run bash -c "echo '' | '$SESSION_ADD'"
-    [[ "$output" == *"TOWER_FINDER command not found: totally-not-a-real-finder"* ]]
+    # Names the binary and says what happens instead. Goes through
+    # handle_warning, so it also lands in tower.log.
+    [[ "$output" == *"TOWER_FINDER not found: totally-not-a-real-finder"* ]]
+    [[ "$output" == *"numbered picker"* ]]
 }
 
 # ============================================================================

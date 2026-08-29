@@ -117,7 +117,7 @@ run_picker() {
         eval "$finder"
     else
         if [[ -n "${TOWER_FINDER:-}" ]]; then
-            echo "TOWER_FINDER command not found: $finder_bin (falling back to numbered picker)" >&2
+            handle_warning "TOWER_FINDER not found: $finder_bin — using the numbered picker"
         fi
         pick_with_numbers
     fi
@@ -174,7 +174,7 @@ prompt_new_directory() {
         read -r repo </dev/tty || return 1
         repo="${repo:-$default_dir}"
         if ! git -C "$repo" rev-parse --git-dir >/dev/null 2>&1; then
-            echo "Not a git repository: $repo" >&2
+            handle_error "Not a git repository: $repo"
             return 1
         fi
         printf 'Worktree path: ' >&2
@@ -195,8 +195,12 @@ prompt_new_directory() {
         branch="${branch:-tower/${wt_path##*/}}"
         # Branch names go to `git worktree add -b`; git rejects a bad one, but
         # it also treats a leading dash as an option, so refuse those outright.
-        if [[ "$branch" == -* ]] || ! git check-ref-format --branch "$branch" >/dev/null 2>&1; then
-            handle_error "Invalid branch name: $branch"
+        if [[ "$branch" == -* ]]; then
+            handle_error "Branch name cannot start with '-' (git would read it as an option): $branch"
+            return 1
+        fi
+        if ! git check-ref-format --branch "$branch" >/dev/null 2>&1; then
+            handle_error "Not a valid git branch name: $branch (no spaces, '..', '~', '^', ':' or a trailing '.')"
             return 1
         fi
         if ! git -C "$repo" worktree add -b "$branch" "$wt_path" >&2; then
@@ -220,7 +224,7 @@ prompt_new_directory() {
         case "$reply" in
             y | Y | yes | Yes)
                 if ! mkdir -p -- "$dir" 2>/dev/null; then
-                    echo "Could not create directory: $dir" >&2
+                    handle_error "Could not create directory: $dir"
                     return 1
                 fi
                 ;;
