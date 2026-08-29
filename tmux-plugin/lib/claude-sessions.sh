@@ -9,6 +9,10 @@
 # these paths must use absolute paths and the "--" separator.
 # grep -o / -m are GNU extensions; keep flags separated (no -om1).
 
+# Include guard — see common.sh for why this matters.
+[[ -n "${_TOWER_CLAUDE_SESSIONS_LOADED:-}" ]] && return 0
+_TOWER_CLAUDE_SESSIONS_LOADED=1
+
 CLAUDE_PROJECTS_DIR="${CLAUDE_PROJECTS_DIR:-$HOME/.claude/projects}"
 CLAUDE_HISTORY_FILE="${CLAUDE_HISTORY_FILE:-$HOME/.claude/history.jsonl}"
 CLAUDE_LIVE_SESSIONS_DIR="${CLAUDE_LIVE_SESSIONS_DIR:-$HOME/.claude/sessions}"

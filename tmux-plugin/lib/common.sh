@@ -2,6 +2,15 @@
 # Common library for claude-tower
 # This file should be sourced by other scripts
 
+# Include guard - prevent multiple sourcing.
+#
+# Without it a second source dies on "TOWER_DEBUG: readonly variable" and takes
+# the caller with it under set -e. That is not hypothetical: any script that
+# sources this and then sources another script which also sources it — the
+# view scripts do exactly that — crashes on the spot.
+[[ -n "${_TOWER_COMMON_LOADED:-}" ]] && return 0
+_TOWER_COMMON_LOADED=1
+
 # Strict mode
 set -euo pipefail
 
