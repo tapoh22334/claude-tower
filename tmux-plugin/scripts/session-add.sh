@@ -151,11 +151,27 @@ prompt_new_directory() {
         printf 'Worktree path: ' >&2
         read -r wt_path </dev/tty || return 1
         [[ -n "$wt_path" ]] || return 1
-        printf 'Branch [tower/%s]: ' "$(basename -- "$wt_path")" >&2
+        wt_path="${wt_path/#\~/$HOME}"
+        # A relative path here is taken against the repo, not the caller's cwd,
+        # and "../.." must not walk out of it: `git worktree add` will happily
+        # create a tree anywhere on disk, which is not what "make me a worktree
+        # of this repo" means to the person typing it.
+        [[ "$wt_path" == /* ]] || wt_path="${repo%/}/$wt_path"
+        if ! validate_path_within "$wt_path" "$repo"; then
+            handle_error "Worktree path must stay inside $repo"
+            return 1
+        fi
+        printf 'Branch [tower/%s]: ' "${wt_path##*/}" >&2
         read -r branch </dev/tty || return 1
-        branch="${branch:-tower/$(basename -- "$wt_path")}"
+        branch="${branch:-tower/${wt_path##*/}}"
+        # Branch names go to `git worktree add -b`; git rejects a bad one, but
+        # it also treats a leading dash as an option, so refuse those outright.
+        if [[ "$branch" == -* ]] || ! git check-ref-format --branch "$branch" >/dev/null 2>&1; then
+            handle_error "Invalid branch name: $branch"
+            return 1
+        fi
         if ! git -C "$repo" worktree add -b "$branch" "$wt_path" >&2; then
-            echo "git worktree add failed" >&2
+            handle_error "git worktree add failed"
             return 1
         fi
         echo "$wt_path"
