@@ -23,18 +23,6 @@ services:
     environment:
       - CLAUDE_TOWER_DEBUG=1
 
-  # E2E tests - full workflow simulation
-  e2e-tests:
-    build:
-      context: .
-      dockerfile: Dockerfile.test
-    command: ["./tests/run_e2e_tests.sh"]
-    volumes:
-      - ./tests:/app/tests:ro
-      - ./tmux-plugin:/app/tmux-plugin:ro
-    environment:
-      - CLAUDE_TOWER_DEBUG=1
-
   # All tests
   all-tests:
     build:

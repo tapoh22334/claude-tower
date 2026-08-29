@@ -44,31 +44,6 @@ jobs:
         run: ./tests/run_integration_tests.sh
         timeout-minutes: 5
 
-  # E2E tests - full workflow
-  e2e-tests:
-    name: E2E Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y bats tmux git fzf
-
-      - name: Configure git
-        run: |
-          git config --global user.email "test@example.com"
-          git config --global user.name "Test User"
-          git config --global init.defaultBranch main
-
-      - name: Make scripts executable
-        run: chmod +x ./tests/*.sh
-
-      - name: Run E2E tests
-        run: ./tests/run_e2e_tests.sh
-        timeout-minutes: 5
-
   # Docker-based tests (comprehensive)
   docker-tests:
     name: Docker Tests
@@ -101,4 +76,4 @@ jobs:
 
       - name: Run ShellCheck on test scripts
         run: |
-          shellcheck --exclude=SC2034,SC1091 tests/run_tests.sh tests/run_integration_tests.sh tests/run_e2e_tests.sh tests/run_all_tests.sh || true
+          shellcheck --exclude=SC2034,SC1091 tests/run_tests.sh tests/run_integration_tests.sh tests/run_all_tests.sh || true

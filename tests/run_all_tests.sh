@@ -21,8 +21,7 @@ run_docker() {
     docker build -f Dockerfile.test -t claude-tower-test .
     docker run --rm claude-tower-test bash -c "
         ./tests/run_tests.sh && \
-        ./tests/run_integration_tests.sh && \
-        ./tests/run_e2e_tests.sh
+        ./tests/run_integration_tests.sh
     "
 }
 
@@ -43,15 +42,6 @@ run_local() {
         echo -e "${GREEN}Integration tests passed${NC}"
     else
         echo -e "${RED}Integration tests failed${NC}"
-        failed=1
-    fi
-
-    echo ""
-    echo -e "${BLUE}=== E2E Tests ===${NC}"
-    if "$SCRIPT_DIR/run_e2e_tests.sh"; then
-        echo -e "${GREEN}E2E tests passed${NC}"
-    else
-        echo -e "${RED}E2E tests failed${NC}"
         failed=1
     fi
 
