@@ -230,19 +230,33 @@ export CLAUDE_TOWER_PREFIX='s'
   - Pro: No additional dependencies
   - Con: Manual serialization/parsing required
 
-#### DR-003: Session States (Active/Dormant)
+#### DR-003: Session States (seven, derived from the transcript)
 
 - **Context**: Users need to understand session status at a glance
 - **Options Considered**:
   1. Binary (running/not running)
   2. Three states (active/exited/dormant)
-  3. Fine-grained states (idle/typing/streaming/etc.)
-- **Decision**: Option 1 - Binary states (v3.2 simplification)
-- **Rationale**: The `exited` state was removed in v3.2. If a tmux session exists, it is `active`. Claude's running state should be determined within the session itself, not at the Navigator level.
+  3. Fine-grained states derived from Claude's own transcript
+- **Decision**: Option 3. `busy`, `active`, `dormant`, `external`, `dead`,
+  `lost`, plus the `unread` mark. See `get_display_state` in
+  `lib/claude-sessions.sh`; the README's state table is the user-facing
+  version.
+- **Rationale**: v3.2 did settle on binary states, on the reasoning that
+  Claude's running state belongs inside the session rather than in the
+  Navigator. Reversed once Tower started reading the transcripts directly:
+  the information was already there, and binary states could not express
+  the cases that actually matter — a session whose directory is gone
+  (`dead`) is not the same as one Claude has deleted (`lost`), and a
+  session running outside Tower (`external`) must not be offered for
+  resume. Being unable to tell working from idle was the single most
+  common complaint the binary model produced.
 - **Consequences**:
-  - Pro: Simpler mental model
-  - Pro: Idempotent state detection
-  - Con: Cannot distinguish Claude idle vs. working at Navigator level
+  - Pro: The list answers "which one needs me?" without opening anything
+  - Pro: `dead`/`lost` are distinguishable, so the UI can say what to do
+  - Con: Busy is inferred from an activity window, so it is approximate —
+    a starting session looks busy, a long tool call looks idle
+  - Con: State detection costs transcript reads, which is why the list is
+    rebuilt on a timer rather than on every keystroke
 
 #### DR-004: Nested Tmux for Session Preview
 

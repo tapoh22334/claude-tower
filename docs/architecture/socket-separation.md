@@ -2,22 +2,24 @@
 
 ## Overview
 
-Navigator uses a dedicated tmux server (`-L claude-tower`) separate from the user's default tmux environment. This allows Navigator to act as a "control center" while keeping Claude Code sessions in the user's familiar environment.
+Tower runs on two tmux servers of its own — one for the Navigator UI, one for
+the Claude sessions — and leaves the user's default server alone. The UI can
+crash without taking the sessions with it, and killing Tower never touches the
+tmux the user was already working in.
 
 ## Architecture Diagram
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│ default tmux server (user's world)                              │
+│ -L claude-tower-sessions (where the work happens)               │
 │                                                                 │
 │ ├── tower_api        ← Claude Code session                     │
 │ ├── tower_frontend   ← Claude Code session                     │
 │ ├── tower_scripts    ← Claude Code session                     │
-│ ├── my_work          ← User's other work                       │
-│ └── ...                                                         │
+│ └── tower-tile / tower-tail / tower-queue  ← view windows      │
 └─────────────────────────────────────────────────────────────────┘
         ▲
-        │ Right pane connects via: TMUX= tmux attach -t <session>
+        │ Right pane connects via: TMUX= tmux -L … attach -t <session>
         │
 ┌───────┴─────────────────────────────────────────────────────────┐
 │ -L claude-tower server (Navigator's world)                      │
@@ -29,7 +31,7 @@ Navigator uses a dedicated tmux server (`-L claude-tower`) separate from the use
 │     │ Session List    │ Real-time view of                   │  │
 │     │ ─────────────   │ selected session                    │  │
 │     │ ▶ tower_api     │                                     │  │
-│     │   tower_frontend│ (Connected to default server)       │  │
+│     │   tower_frontend│ (Attached to session server)         │  │
 │     │   tower_scripts │                                     │  │
 │     │                 │                                     │  │
 │     │ ─────────────   │                                     │  │
@@ -45,16 +47,26 @@ Navigator uses a dedicated tmux server (`-L claude-tower`) separate from the use
 
 ### Socket Separation
 
+Three servers, not two. Claude sessions moved off the user's default server
+onto one of Tower's own, so that killing Tower cannot take the user's tmux
+with it and vice versa.
+
 | Server | Socket | Purpose |
 |--------|--------|---------|
-| default | `/tmp/tmux-{UID}/default` | User's sessions, Claude Code |
-| claude-tower | `/tmp/tmux-{UID}/claude-tower` | Navigator only |
+| default | `/tmp/tmux-{UID}/default` | The user's own sessions. Tower never touches it except to return you there |
+| claude-tower | `/tmp/tmux-{UID}/claude-tower` | The Navigator UI |
+| claude-tower-sessions | `/tmp/tmux-{UID}/claude-tower-sessions` | Where Claude sessions actually run |
+
+Both Tower socket names are overridable — `CLAUDE_TOWER_NAV_SOCKET` and
+`CLAUDE_TOWER_SESSION_SOCKET` (`lib/common.sh`).
 
 ### Components
 
 1. **navigator.sh**: Entry point, manages Navigator lifecycle
 2. **navigator-list.sh**: Left pane, session list with vim-style navigation
-3. **navigator-view.sh**: Right pane wrapper, manages connection to default server
+3. **navigator-view.sh**: Right pane wrapper. Runs a nested tmux client
+   attached to the selected session on the session server — which is why
+   you can read a session and type into it in place
 4. **view-focus.conf**: Configuration for the nested tmux client
 
 ## User Flow
@@ -164,7 +176,7 @@ User presses: a (full attach)
          ▼
 ┌─────────────────────────────────┐
 │ 2. Attach to selected session   │
-│    in default server            │
+│    on the session server         │
 │    tmux attach -t tower_api     │
 └─────────────────────────────────┘
 ```
@@ -211,8 +223,12 @@ tmux-plugin/
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CLAUDE_TOWER_NAV_WIDTH` | 30 | Left pane width |
-| `CLAUDE_TOWER_SOCKET` | claude-tower | Navigator server socket name |
+| `CLAUDE_TOWER_NAV_SOCKET` | claude-tower | Navigator server socket name |
+| `CLAUDE_TOWER_SESSION_SOCKET` | claude-tower-sessions | Session server socket name |
+
+The list pane is a fixed 30% split; `TOWER_LIST_MAX_WIDTH` /
+`TOWER_LIST_MIN_WIDTH` bound the text drawn inside it. See the README for the
+full set.
 
 ### View Mode Control
 
@@ -240,6 +256,6 @@ Session switching uses `switch-client` for instant transitions without detach/re
 
 ## Security
 
-- Navigator only reads from default server
+- Navigator never writes to the user's own tmux server
 - No special permissions required
 - State files in /tmp with user permissions

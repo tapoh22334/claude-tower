@@ -38,7 +38,7 @@ make status        # Show servers, sessions, state files
 
 ## Code Style
 
-- ShellCheck compliant (exclude SC2034, SC1091, SC2317)
+- ShellCheck compliant (`.shellcheckrc` excludes SC1091, SC1007, SC2034, SC1003)
 - 4-space indentation (shfmt -i 4 -ci)
 - Internal functions prefixed with underscore: `_internal_func()`
 - Error handling via `handle_error` / `error_log` from lib/error-recovery.sh
@@ -51,7 +51,7 @@ make status        # Show servers, sessions, state files
   uses `apt-get install bats`; locally any recent bats on `PATH` works
 - Run single test: `bats tests/test_metadata.bats`
 - Integration/E2E tests MUST set `CLAUDE_TOWER_SESSION_SOCKET` and `TMUX_TMPDIR` BEFORE `source_common`
-- CI: GitHub Actions with 5 jobs (Unit, Integration, E2E, Docker, ShellCheck)
+- CI: GitHub Actions with 4 jobs (Unit, Integration, Docker, ShellCheck)
 
 ## Key API
 
