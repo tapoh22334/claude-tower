@@ -102,8 +102,8 @@ load_sessions() {
 
 # Get terminal dimensions
 get_dimensions() {
-    TERM_HEIGHT=$(tput lines)
-    TERM_WIDTH=$(tput cols)
+    TERM_HEIGHT=$(_term_lines)
+    TERM_WIDTH=$(_term_cols)
 }
 
 # Draw tile view

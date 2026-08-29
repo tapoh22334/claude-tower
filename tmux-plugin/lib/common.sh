@@ -24,6 +24,28 @@ readonly TOWER_DEBUG="${CLAUDE_TOWER_DEBUG:-0}"
 readonly TOWER_LOG_DIR="${CLAUDE_TOWER_METADATA_DIR:-$HOME/.claude-tower/metadata}"
 readonly TOWER_LOG_FILE="${TOWER_LOG_DIR}/tower.log"
 
+# ============================================================================
+# Terminal geometry
+# ============================================================================
+# Every view draws to a fixed-size frame and so has to know the size. Ask tput
+# first: it is right whenever it can answer, and tests that stub it keep
+# working. It needs a controlling terminal, though — under bats there is none,
+# so the answer comes from $TERM or not at all and varies between runs. That
+# made rendering tests nondeterministic in a way that reads as flakiness
+# rather than failure: tests vanished mid-file instead of reporting a verdict.
+# TOWER_TERM_COLS/TOWER_TERM_LINES cover that case; 80x24 is the last resort.
+_term_cols() {
+    local w
+    w=$(tput cols 2>/dev/null) && [[ -n "$w" ]] && { echo "$w"; return 0; }
+    echo "${TOWER_TERM_COLS:-80}"
+}
+
+_term_lines() {
+    local h
+    h=$(tput lines 2>/dev/null) && [[ -n "$h" ]] && { echo "$h"; return 0; }
+    echo "${TOWER_TERM_LINES:-24}"
+}
+
 # Store the calling script name for error messages
 TOWER_SCRIPT_NAME="${TOWER_SCRIPT_NAME:-${BASH_SOURCE[1]:-unknown}}"
 TOWER_SCRIPT_NAME=$(basename "$TOWER_SCRIPT_NAME")

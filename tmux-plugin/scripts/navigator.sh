@@ -75,7 +75,7 @@ create_navigator() {
 
     # Create new session in Navigator server
     # Unset TMUX to allow nested tmux
-    TMUX= nav_tmux new-session -d -s "$TOWER_NAV_SESSION" -x "$(tput cols)" -y "$(tput lines)"
+    TMUX= nav_tmux new-session -d -s "$TOWER_NAV_SESSION" -x "$(_term_cols)" -y "$(_term_lines)"
 
     # Split into left (list) and right (view) panes
     nav_tmux split-window -t "$TOWER_NAV_SESSION" -h -l "70%"
@@ -305,7 +305,7 @@ open_navigator_direct() {
     set +e
     local create_error=""
 
-    if ! TMUX= nav_tmux new-session -d -s "$TOWER_NAV_SESSION" -x "$(tput cols)" -y "$(tput lines)" 2>&1; then
+    if ! TMUX= nav_tmux new-session -d -s "$TOWER_NAV_SESSION" -x "$(_term_cols)" -y "$(_term_lines)" 2>&1; then
         create_error="Failed to create Navigator session"
     elif ! nav_tmux split-window -t "$TOWER_NAV_SESSION" -h -l "70%" 2>&1; then
         create_error="Failed to split Navigator window"

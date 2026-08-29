@@ -220,11 +220,35 @@ list_addable_sessions() {
     done | sort -t "$(printf '\t')" -k2,2nr
 }
 
+# The session id a pid is really running.
+#
+# The .json records the id claude launched with, which goes stale the moment
+# the process resumes a different session: `claude --resume <id>` keeps
+# writing the ORIGINAL sessionId while actually running <id>. argv is the
+# only place the truth survives, so it wins when it disagrees. Falls back to
+# the recorded id when argv is unreadable (a foreign-owned /proc entry) or
+# carries no --resume.
+_live_session_id() {
+    local pid="$1" recorded="$2" argv rid
+    argv=$(tr '\0' '\n' < "/proc/${pid}/cmdline" 2>/dev/null) || { echo "$recorded"; return 0; }
+    rid=$(grep -A1 -x -F -- '--resume' <<<"$argv" | tail -1)
+    if [[ "$rid" =~ ^[0-9a-fA-F-]{36}$ ]]; then
+        echo "$rid"
+    else
+        echo "$recorded"
+    fi
+}
+
 # Live claude processes, from Claude's own per-process files
 # (~/.claude/sessions/<pid>.json, written by every running claude).
 # Output: <sessionId>\t<pid>\t<cwd>   one line per process that is alive.
+#
+# Only real sessions are listed. `"kind":"bg"` covers the daemon helpers
+# (`claude bg-spare`, bg-pty-host) — they carry a sessionId and cwd like any
+# session, but they are infrastructure: nothing a user can attach to or would
+# recognise as work in their project.
 list_live_claude_processes() {
-    local f pid line sid cwd
+    local f pid line sid cwd kind
     for f in "$CLAUDE_LIVE_SESSIONS_DIR"/*.json; do
         [[ -f "$f" ]] || continue
         pid="${f##*/}"
@@ -232,9 +256,14 @@ list_live_claude_processes() {
         [[ "$pid" =~ ^[0-9]+$ ]] || continue
         kill -0 "$pid" 2>/dev/null || continue
         line=$(head -c 2000 -- "$f" 2>/dev/null) || continue
+        kind=$(grep -o '"kind":"[^"]*"' <<<"$line") || kind=""
+        kind="${kind#\"kind\":\"}"
+        kind="${kind%\"}"
+        [[ "$kind" == "bg" ]] && continue
         sid=$(grep -o '"sessionId":"[^"]*"' <<<"$line") || continue
         sid="${sid#\"sessionId\":\"}"
         sid="${sid%\"}"
+        sid=$(_live_session_id "$pid" "$sid")
         cwd=$(grep -o '"cwd":"[^"]*"' <<<"$line") || cwd=""
         cwd="${cwd#\"cwd\":\"}"
         cwd="${cwd%\"}"
@@ -352,6 +381,12 @@ count_unregistered_processes_in_dir() {
     local dir="$1"
     local table="${2-}"
     local sid _pid cwd n=0
+    local -a counted=()
+    local seen s
+    # Identity of the session hosting Tower. claude exports both; the pid is
+    # the unambiguous key (a session id can span several pids), the id is the
+    # fallback when the navigator runs one process removed from claude.
+    local self_pid="${CLAUDE_PID:-}" self_sid="${CLAUDE_CODE_SESSION_ID:-}"
     if [[ -z "${2+set}" ]]; then
         table=$(list_live_claude_processes)
     fi
@@ -359,6 +394,21 @@ count_unregistered_processes_in_dir() {
         [[ -z "$sid" ]] && continue
         [[ "$cwd" == "$dir" ]] || continue
         has_metadata "tower_${sid}" && continue
+        # The session hosting Tower itself is not an unnoticed stray — it is
+        # the user, right here. Counting it would put a ⚡ on every project
+        # dir the user actually works in, which is where the mark is least
+        # informative and most alarming.
+        [[ -n "$self_pid" && "$_pid" == "$self_pid" ]] && continue
+        [[ -n "$self_sid" && "$sid" == "$self_sid" ]] && continue
+        # One session can hold several live pids, in several dirs (a resumed
+        # session leaves its old process running). The mark counts SESSIONS
+        # you cannot see, so each id contributes at most one.
+        seen=0
+        for s in "${counted[@]:-}"; do
+            [[ "$s" == "$sid" ]] && seen=1 && break
+        done
+        ((seen)) && continue
+        counted+=("$sid")
         n=$((n + 1))
     done <<<"$table"
     echo "$n"

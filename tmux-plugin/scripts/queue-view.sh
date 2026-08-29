@@ -101,7 +101,7 @@ load_queue() {
 
 _content_width() {
     local w
-    w=$(tput cols 2>/dev/null || echo 80)
+    w=$(_term_cols)
     ((w > Q_MAX_WIDTH)) && w=$Q_MAX_WIDTH
     ((w < Q_MIN_WIDTH)) && w=$Q_MIN_WIDTH
     echo "$w"
@@ -167,8 +167,8 @@ build_queue_frame() {
 
 render_frame() {
     local term_height term_width frame clear_eos
-    term_height=$(tput lines 2>/dev/null || echo 24)
-    term_width=$(tput cols 2>/dev/null || echo 80)
+    term_height=$(_term_lines)
+    term_width=$(_term_cols)
     frame=$(build_queue_frame "$term_height" "$term_width")
     clear_eos=$(tput ed 2>/dev/null || printf '\033[J')
     printf '\033[?25l\033[H%b%s\033[?25h' "$frame" "$clear_eos"

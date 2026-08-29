@@ -81,23 +81,8 @@ readonly NAV_RIGHT_COL=6
 # TOWER_TERM_COLS / TOWER_TERM_LINES let a caller state the size instead of
 # asking, which is what the test helper does. Production leaves them unset and
 # gets tput as before.
-# tput first — it is right whenever it can answer, and tests that stub it
-# keep working. TOWER_TERM_COLS/LINES take over only when it cannot, which is
-# the case bats hits: no controlling terminal, an answer that depends on $TERM
-# and varies run to run. The hardcoded 80x24 remains the last resort.
-_term_cols() {
-    local w
-    w=$(tput cols 2>/dev/null) && [[ -n "$w" ]] && { echo "$w"; return 0; }
-    echo "${TOWER_TERM_COLS:-80}"
-}
-
-_term_lines() {
-    local h
-    h=$(tput lines 2>/dev/null) && [[ -n "$h" ]] && { echo "$h"; return 0; }
-    echo "${TOWER_TERM_LINES:-24}"
-}
-
 # Effective content width: the terminal, clamped to [MIN, MAX].
+# _term_cols/_term_lines live in common.sh — every view needs them.
 #
 # Cached per pass. Every row asks for this two or three times (label budget,
 # row composition, group rule), and each miss forks tput. The terminal cannot
