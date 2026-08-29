@@ -72,12 +72,37 @@ readonly NAV_MIN_WIDTH="${TOWER_LIST_MIN_WIDTH:-50}"
 # line up down the list instead of floating after each title.
 readonly NAV_RIGHT_COL=6
 
+# Terminal geometry, in one place.
+#
+# tput needs a controlling terminal. Without one it answers from $TERM, or not
+# at all, and the answer changes between runs — which made rendering tests
+# nondeterministic: the same file reported 13, 14, 15 and 16 of a declared 17
+# tests across four consecutive runs, tests vanishing rather than failing.
+# TOWER_TERM_COLS / TOWER_TERM_LINES let a caller state the size instead of
+# asking, which is what the test helper does. Production leaves them unset and
+# gets tput as before.
+# tput first — it is right whenever it can answer, and tests that stub it
+# keep working. TOWER_TERM_COLS/LINES take over only when it cannot, which is
+# the case bats hits: no controlling terminal, an answer that depends on $TERM
+# and varies run to run. The hardcoded 80x24 remains the last resort.
+_term_cols() {
+    local w
+    w=$(tput cols 2>/dev/null) && [[ -n "$w" ]] && { echo "$w"; return 0; }
+    echo "${TOWER_TERM_COLS:-80}"
+}
+
+_term_lines() {
+    local h
+    h=$(tput lines 2>/dev/null) && [[ -n "$h" ]] && { echo "$h"; return 0; }
+    echo "${TOWER_TERM_LINES:-24}"
+}
+
 # Effective content width: the terminal, clamped to [MIN, MAX].
 #
 # Cached per pass. Every row asks for this two or three times (label budget,
 # row composition, group rule), and each miss forks tput. The terminal cannot
 # resize midway through one rebuild, so one reading per pass is enough;
-# _reset_width_cache drops it when a new pass starts or SIGWINCH arrives.
+# _reset_width_cache drops it when a new pass starts or the frame redraws.
 _NAV_WIDTH_CACHE=""
 _reset_width_cache() { _NAV_WIDTH_CACHE=""; }
 _content_width() {
@@ -86,7 +111,7 @@ _content_width() {
         return 0
     fi
     local w
-    w=$(tput cols 2>/dev/null || echo 80)
+    w=$(_term_cols)
     ((w > NAV_MAX_WIDTH)) && w=$NAV_MAX_WIDTH
     ((w < NAV_MIN_WIDTH)) && w=$NAV_MIN_WIDTH
     _NAV_WIDTH_CACHE="$w"
@@ -501,7 +526,7 @@ render_list() {
     # it, so a resize is picked up on the next redraw rather than at the next
     # rebuild (which can be seconds away).
     _reset_width_cache
-    term_height=$(tput lines 2>/dev/null || echo 24)
+    term_height=$(_term_lines)
     # Row budget for the body (session rows + group headers + separator).
     # Reserve: header (2) + footer (2). If the frame is even one line
     # taller than the terminal, every redraw scrolls the screen and the
@@ -855,7 +880,7 @@ delete_selected() {
 
     local name="${selected#tower_}"
     local term_height
-    term_height=$(tput lines 2>/dev/null || echo 24)
+    term_height=$(_term_lines)
 
     # Move cursor to bottom of list area and show confirmation UI
     tput cup "$((term_height - 5))" 0 2>/dev/null || true

@@ -8,6 +8,18 @@ PROJECT_ROOT="$(dirname "$TEST_DIR")"
 # Set up test environment
 export CLAUDE_TOWER_METADATA_DIR="${TEST_DIR}/tmp/metadata"
 
+# Pin the terminal geometry every test sees.
+#
+# Rendering code asks tput for the size, and tput needs a controlling
+# terminal. Under bats there isn't one, so the answer depends on $TERM and on
+# how the run was launched — and it varies between runs. That made rendering
+# tests nondeterministic in a way that reads as flakiness rather than failure:
+# test_coverage_gaps_9.bats reported 15, 14, 16 and 13 of a declared 17 tests
+# across four consecutive runs, the missing ones vanishing without a verdict.
+# Fixing the size makes every rendering assertion reproducible.
+export TOWER_TERM_COLS="${TOWER_TERM_COLS:-80}"
+export TOWER_TERM_LINES="${TOWER_TERM_LINES:-24}"
+
 # Source the common library (without strict mode for testing)
 #
 # common.sh installs its own `trap ... EXIT` (spinner cleanup) and
