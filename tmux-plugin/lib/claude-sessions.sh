@@ -666,6 +666,12 @@ str_display_width() {
 # Truncate to at most $2 display cells, appending an ellipsis when cut.
 truncate_display() {
     local s="$1" max="$2" w
+    # _utf8_walk treats a negative max as "measure, don't cut" and returns the
+    # width as a number. Callers here always mean "cut": navigator-list.sh
+    # computes budget - name_w - 3, which goes negative on a long session name
+    # in a narrow pane, and would then have printed the digit count as the row
+    # label. Clamp instead.
+    ((max < 0)) && max=0
     w=$(str_display_width "$s")
     if ((w <= max)); then
         printf '%s\n' "$s"

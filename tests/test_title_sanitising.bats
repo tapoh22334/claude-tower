@@ -86,3 +86,30 @@ setup() {
     [ "$status" -eq 0 ]
     [ "$output" = "before" ]
 }
+
+@test "truncate_display: a negative budget cuts, it does not report a width" {
+    # _utf8_walk uses max<0 as "measure only" and returns a number. Callers
+    # here always mean "cut": navigator-list.sh computes budget - name_w - 3,
+    # which goes negative for a long session name in a narrow pane, and the
+    # row label would have been the digit count.
+    run bash -c '
+        source "'"$PROJECT_ROOT"'/tmux-plugin/lib/claude-sessions.sh" 2>/dev/null
+        truncate_display "abcdefghij" -5
+    '
+    [ "$status" -eq 0 ]
+    [ "$output" != "10" ]
+    [ "$output" = "…" ]
+}
+
+@test "truncate_display: normal budgets are unaffected" {
+    run bash -c '
+        source "'"$PROJECT_ROOT"'/tmux-plugin/lib/claude-sessions.sh" 2>/dev/null
+        truncate_display "abcdefghij" 3
+        truncate_display "abcdefghij" 20
+        truncate_display "セッション一覧" 6
+    '
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "ab…" ]
+    [ "${lines[1]}" = "abcdefghij" ]
+    [ "${lines[2]}" = "セッ…" ]
+}
