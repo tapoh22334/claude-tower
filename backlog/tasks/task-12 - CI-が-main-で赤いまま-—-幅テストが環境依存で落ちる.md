@@ -1,10 +1,10 @@
 ---
 id: TASK-12
 title: CI が main で赤いまま — 幅テストが環境依存で落ちる
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-02 07:46'
-updated_date: '2026-08-29 16:07'
+updated_date: '2026-08-29 16:40'
 labels:
   - bug
   - ci
@@ -50,3 +50,9 @@ ordinal: 12000
 
 副次的に見つかった別件: tests/integration/test_display_snapshot.bats でも not ok 9-12 が出ることがある (Sessions / proj-alpha / unrecoverable の文字列が出力に現れない)。根本原因は同じ tput 依存と見られる。
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+tput 依存を _term_cols/_term_lines に集約し、tput が答えられない環境では TOWER_TERM_COLS/LINES にフォールバックするようにした。test_helper.bash が 80x24 を固定。tput を先に試すので既存のスタブ方式テストはそのまま動く。検証: test_coverage_gaps_9.bats を5回連続実行して全て同一結果 (修正前は 15/14/16/13 と変動し毎回 'Executed N instead of expected 17' が出ていた)。全スイートの実行数が 512→525 に増え (消えていたテストが復活)、未完走警告はゼロ。
+<!-- SECTION:FINAL_SUMMARY:END -->

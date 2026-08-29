@@ -1,9 +1,10 @@
 ---
 id: TASK-15
 title: tower add のヘルプが、実装にない使い方を案内している
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-04 13:36'
+updated_date: '2026-08-29 16:40'
 labels:
   - bug
   - cli
@@ -31,3 +32,9 @@ tower CLI のヘルプ (tmux-plugin/scripts/tower:24, :31-35) は次を謳って
 
 README は今回の書き直しで (b) 相当の記述にし、'takes no path or name yet, despite what its own --help suggests' と注記した。ヘルプ側が直れば README のその注記も外せる。
 <!-- SECTION:DESCRIPTION:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+session-add.sh に位置引数と -n/--name を実装し、tower --help が最初から案内していた 'tower add <path> [-n name]' が実際に動くようにした。従来はパスも名前も黙って捨てられピッカーが開いていた。不明なオプションもエラーにした。検証: tower add <dir> -n my-alias --print-id でセッションが作られ session_name=my-alias がレジストリに記録されることを実機確認、回帰テスト5件を追加。
+<!-- SECTION:FINAL_SUMMARY:END -->
