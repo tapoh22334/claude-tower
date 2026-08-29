@@ -59,9 +59,23 @@ setup() {
     [ "$status" -ne 0 ]
 }
 
-@test "session-add.sh: the worktree prompt calls validate_path_within" {
-    # Guards this from being dropped in a future edit of the prompt flow.
-    run grep -c 'validate_path_within' "$PROJECT_ROOT/tmux-plugin/scripts/session-add.sh"
-    [ "$status" -eq 0 ]
-    [ "$output" -ge 1 ]
+@test "worktree guard: a symlink out of the repo is rejected too" {
+    # realpath resolves the link before comparing, so this cannot be used to
+    # step around the check.
+    ln -s /tmp "$REPO/escape-link"
+    run validate_path_within "$REPO/escape-link/newwt" "$REPO"
+    [ "$status" -ne 0 ]
+}
+
+@test "session-add.sh: the prompt refuses a traversal path end to end" {
+    # Drives prompt_new_directory itself rather than asserting that the source
+    # contains a call: answering "+", the repo, then a path that climbs out
+    # must fail without creating anything.
+    run bash -c '
+        source "'"$PROJECT_ROOT"'/tmux-plugin/scripts/session-add.sh" 2>/dev/null || true
+        printf "+\n%s\n%s\n" "'"$REPO"'" "../escaped-worktree" \
+            | prompt_new_directory "'"$REPO"'" </dev/stdin
+    '
+    [ "$status" -ne 0 ]
+    [ ! -e "$BATS_TEST_TMPDIR/escaped-worktree" ]
 }

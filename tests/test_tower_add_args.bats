@@ -52,8 +52,12 @@ setup() {
 }
 
 @test "tower add: --name is accepted as a long form of -n" {
-    run grep -qE '^\s+-n \| --name\)' "$ADD"
-    [ "$status" -eq 0 ]
+    # Exercised, not grepped: --name must consume its value and leave the
+    # directory to be reported as missing, proving the flag was understood.
+    run bash "$ADD" --name my-alias "$BATS_TEST_TMPDIR/no-such-dir"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Directory not found"* ]]
+    [[ "$output" != *"Unknown option"* ]]
 }
 
 @test "tower add: -n without a name is an error, not a swallowed flag" {
@@ -76,9 +80,23 @@ setup() {
     [[ "$output" == *"Only one directory"* ]]
 }
 
-@test "tower add: no arguments still opens the picker, not the path branch" {
-    # MODE stays "pick" unless a bare path arrives.
-    run grep -c 'MODE="in-dir"' "$ADD"
+@test "tower add: no arguments leaves MODE at pick, so the picker opens" {
+    # Sourcing runs the parser with no arguments; MODE is what decides which
+    # branch main() takes.
+    run bash -c '
+        source "'"$ADD"'" 2>/dev/null || true
+        echo "$MODE"
+    '
     [ "$status" -eq 0 ]
-    [ "$output" -eq 1 ]
+    [[ "$output" == *"pick"* ]]
+}
+
+@test "tower add: a bare path switches MODE to in-dir" {
+    run bash -c '
+        set -- "'"$BATS_TEST_TMPDIR"'"
+        source "'"$ADD"'" 2>/dev/null || true
+        echo "$MODE:$TARGET_DIR"
+    '
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"in-dir:$BATS_TEST_TMPDIR"* ]]
 }

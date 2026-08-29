@@ -22,9 +22,9 @@ teardown() {
 }
 
 _write_live_json() {
-    local pid="$1" sid="$2" cwd="$3"
-    printf '{"pid":%s,"sessionId":"%s","cwd":"%s","status":"idle"}\n' \
-        "$pid" "$sid" "$cwd" > "${CLAUDE_LIVE_SESSIONS_DIR}/${pid}.json"
+    local pid="$1" sid="$2" cwd="$3" kind="${4:-interactive}"
+    printf '{"pid":%s,"sessionId":"%s","cwd":"%s","kind":"%s","status":"idle"}\n' \
+        "$pid" "$sid" "$cwd" "$kind" > "${CLAUDE_LIVE_SESSIONS_DIR}/${pid}.json"
 }
 
 @test "list_live_claude_processes: lists live pids, skips dead ones" {
@@ -53,6 +53,46 @@ _write_live_json() {
     create_mock_metadata "tower_${UUID_A}"
     run count_unregistered_processes_in_dir "/home/x/proj"
     [ "$output" = "0" ]
+}
+
+@test "count_unregistered_processes_in_dir: ignores bg daemon helpers" {
+    # `claude bg-spare` / bg-pty-host carry a sessionId and cwd but are
+    # daemon infrastructure, not sessions a user could ever switch to.
+    _write_live_json "$$" "$UUID_A" "/home/x/proj" "bg"
+    run count_unregistered_processes_in_dir "/home/x/proj"
+    [ "$output" = "0" ]
+}
+
+@test "count_unregistered_processes_in_dir: counts a session once across many pids" {
+    # One session id can hold several live pids in different dirs. The
+    # tally is of sessions, not of processes.
+    sleep 30 &
+    local other=$!
+    _write_live_json "$$" "$UUID_A" "/home/x/proj"
+    _write_live_json "$other" "$UUID_A" "/home/x/proj"
+    run count_unregistered_processes_in_dir "/home/x/proj"
+    kill "$other" 2>/dev/null || true
+    [ "$output" = "1" ]
+}
+
+@test "count_unregistered_processes_in_dir: excludes the navigator's own session" {
+    # The session running Tower is not an unnoticed stray. claude exports
+    # CLAUDE_PID and CLAUDE_CODE_SESSION_ID; either one identifies self.
+    _write_live_json "$$" "$UUID_A" "/home/x/proj"
+
+    CLAUDE_PID="$$" run count_unregistered_processes_in_dir "/home/x/proj"
+    [ "$output" = "0" ]
+
+    CLAUDE_CODE_SESSION_ID="$UUID_A" run count_unregistered_processes_in_dir "/home/x/proj"
+    [ "$output" = "0" ]
+
+    # A different session in the same dir is still a genuine stray.
+    CLAUDE_CODE_SESSION_ID="$UUID_B" run count_unregistered_processes_in_dir "/home/x/proj"
+    [ "$output" = "1" ]
+
+    # With no identity exported the mark must not silently vanish.
+    run count_unregistered_processes_in_dir "/home/x/proj"
+    [ "$output" = "1" ]
 }
 
 @test "get_display_state: registered session with live process is external, not dormant" {
