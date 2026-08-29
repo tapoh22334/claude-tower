@@ -10,8 +10,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/common.sh"
 
 PRINT_ID=0
-MODE="pick"      # pick (default) | fork-dir | new-in-dir
+MODE="pick"      # pick (default) | fork-dir | new-in-dir | in-dir
 FORK_DIR=""
+TARGET_DIR=""
+SESSION_NAME=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --print-id) PRINT_ID=1 ;;
@@ -21,6 +23,22 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --new-in-dir) MODE="new-in-dir" ;;
+        -n | --name)
+            SESSION_NAME="${2:-}"
+            shift
+            ;;
+        -*)
+            handle_error "Unknown option: $1"
+            exit 1
+            ;;
+        *)
+            # A bare path: start a session there without opening the picker.
+            # `tower add .` promised this in its help long before anything
+            # parsed it — the argument was silently dropped and the picker
+            # opened instead.
+            MODE="in-dir"
+            TARGET_DIR="$1"
+            ;;
     esac
     shift
 done
@@ -204,14 +222,14 @@ prompt_new_directory() {
 # Backs both --fork-dir (dir from the caller) and --new-in-dir (dir from
 # the project picker).
 start_session_in_dir() {
-    local dir="$1" uuid
+    local dir="$1" name="${2:-}" uuid
     if [[ -z "$dir" || ! -d "$dir" ]]; then
         handle_error "Directory not found: ${dir:-<empty>}"
         return 1
     fi
     uuid=$(generate_uuid) || return 1
     start_claude_session "tower_${uuid}" "$dir" "new" >&2 || return 1
-    save_metadata "tower_${uuid}"
+    save_metadata "tower_${uuid}" "$name"
     [[ "$PRINT_ID" -eq 1 ]] && echo "tower_${uuid}"
     return 0
 }
@@ -256,6 +274,13 @@ add_existing_session() {
 }
 
 main() {
+    if [[ "$MODE" == "in-dir" ]]; then
+        local dir="${TARGET_DIR/#\~/$HOME}"
+        [[ -d "$dir" ]] || { handle_error "Directory not found: $TARGET_DIR"; return 1; }
+        dir=$(cd "$dir" && pwd) || return 1
+        start_session_in_dir "$dir" "$SESSION_NAME"
+        return $?
+    fi
     if [[ "$MODE" == "fork-dir" ]]; then
         start_session_in_dir "$FORK_DIR"
         return $?

@@ -99,8 +99,10 @@ Tile to choose, Tail to watch, Queue to work through. All return with `Enter`,
 ### Command line
 
 ```bash
-tower add            # open the picker
-tower rm <id>        # unregister; the directory is untouched
+tower add                      # open the picker
+tower add .                    # start a session here, no prompts
+tower add /path/to/project -n api   # ...somewhere else, with a name
+tower rm <id>                  # unregister; the directory is untouched
 ```
 
 `tower` lives at `tmux-plugin/scripts/tower`. Removing a session only drops
