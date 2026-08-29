@@ -70,4 +70,3 @@ removed; they are kept for historical reference only.
 ## Quick Links
 
 - **Getting Started**: See the [top-level README](../README.md)
-- **Contributing**: See [CONTRIBUTING.md](../CONTRIBUTING.md)
