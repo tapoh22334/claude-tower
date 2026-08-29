@@ -520,6 +520,18 @@ _first_meaningful_sentence() {
     s="${s//\\t/ }"
     s="${s//$'\t'/ }"
     s="${s//\\\"/\"}"
+    # Titles come from whatever the user typed at Claude, and rows are drawn
+    # with printf into a width-budgeted frame. An escape sequence in that text
+    # would repaint the list — colour bleeding into later rows, the cursor
+    # moving — and str_display_width counts its bytes as visible cells, so the
+    # row overflows too. Strip CSI runs, then any stray control byte.
+    while [[ "$s" == *$'\033['* ]]; do
+        local head="${s%%$'\033['*}" rest="${s#*$'\033['}"
+        while [[ -n "$rest" && "$rest" != [a-zA-Z]* ]]; do rest="${rest:1}"; done
+        s="${head}${rest:1}"
+    done
+    s="${s//[$'\001'-$'\037']/}"
+    s="${s//$'\177'/}"
     s=$(_strip_command_markup "$s")
     # Leading whitespace, then a bare slash command (with or without args
     # on the same line) is a command invocation, not a description.

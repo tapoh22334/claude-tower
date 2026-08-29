@@ -5,8 +5,16 @@
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$TEST_DIR")"
 
-# Set up test environment
-export CLAUDE_TOWER_METADATA_DIR="${TEST_DIR}/tmp/metadata"
+# Set up test environment.
+#
+# Namespaced per bats run. This used to be a single shared tests/tmp/metadata
+# for every file, so two runs at once — a second developer, an editor task, an
+# agent — deleted each other's fixtures mid-test. The symptom was failures
+# that moved: nine in one run, three completely different ones in the next,
+# none reproducible when the file was run alone.
+export CLAUDE_TOWER_TEST_RUN_ID="${BATS_RUN_TMPDIR:-$$}"
+export CLAUDE_TOWER_TEST_ROOT="${TEST_DIR}/tmp/run-${CLAUDE_TOWER_TEST_RUN_ID##*/}"
+export CLAUDE_TOWER_METADATA_DIR="${CLAUDE_TOWER_TEST_ROOT}/metadata"
 
 # Pin the terminal geometry every test sees.
 #
@@ -56,9 +64,12 @@ setup_test_env() {
     mkdir -p "$CLAUDE_PROJECTS_DIR"
 }
 
-# Clean up test fixtures
+# Clean up test fixtures.
+#
+# Only this run's directory. Removing tests/tmp wholesale would delete the
+# fixtures of any other bats run in flight.
 teardown_test_env() {
-    rm -rf "${TEST_DIR}/tmp"
+    [[ -n "${CLAUDE_TOWER_TEST_ROOT:-}" ]] && rm -rf "$CLAUDE_TOWER_TEST_ROOT"
 }
 
 # Create a mock metadata file (new minimal format)
@@ -78,7 +89,7 @@ mock_tmux() {
 }
 
 # --- claude-sessions fixtures ---
-export CLAUDE_PROJECTS_DIR="${TEST_DIR}/tmp/claude-projects"
+export CLAUDE_PROJECTS_DIR="${CLAUDE_TOWER_TEST_ROOT}/claude-projects"
 
 # Create a fixture transcript.
 # $1 slug dir name, $2 session uuid, $3 cwd value ("" to omit cwd lines entirely)
