@@ -4,7 +4,7 @@ title: CI が main で赤いまま — 幅テストが環境依存で落ちる
 status: To Do
 assignee: []
 created_date: '2026-08-02 07:46'
-updated_date: '2026-08-02 08:52'
+updated_date: '2026-08-29 16:07'
 labels:
   - bug
   - ci
@@ -31,4 +31,22 @@ ordinal: 12000
 
 <!-- SECTION:NOTES:BEGIN -->
 2026-08-02: リポジトリ整理の 4 コミットを push 後も同じ状態を確認 (run 30740544462)。失敗は依然この 1 件のみで、同時に追加した 40 テストは CI 上でも全て通っている。つまりこの失敗は今回の変更とは独立した既存問題。Unit Tests と Docker Tests がこれ 1 件で赤くなり、E2E / Integration / ShellCheck は緑。
+
+2026-08-30 健全性調査で判明: この問題は『CI で 1 件落ちる』より広い。
+
+同じ tput 依存が、ローカルでも実行のたびに結果を変えるフレーキーを起こしている。tests/test_coverage_gaps_9.bats を 4 回連続実行した実測:
+
+  run1: ok=15  run2: ok=14  run3: ok=16  run4: ok=13   (いずれも '1..17' 宣言)
+
+毎回 'bats warning: Executed N instead of expected 17 tests' が出る。not ok (アサーション失敗) ではなく、テストが実行されずに消える。消えるのは render_list を通るテストの直後。
+
+原因の裏付け: TERM=dumb COLUMNS=80 LINES=24 に固定して同じファイルを 3 回走らせると ok=16 で完全に安定した (変動なし)。tput が制御端末の有無で異なる値を返すことが原因と確定。
+
+該当箇所は navigator-list.sh の tput 直接呼び出し 3 箇所 (_content_width の tput cols、render_list の tput lines、tput ed)。tests/test_helper.bash には TERM や tput のスタブ、固定端末サイズの用意が一切ない。
+
+なお全スイート (bats tests/*.bats) では 511/0 で安定するため、この問題は個別ファイル実行時に顕在化する。CI は個別ジョブで走るので影響を受ける。
+
+対処の方向: TASK-12 を『幅テスト 1 件の修正』ではなく『tput 依存をテストから注入可能にする』として扱うべき。test_helper.bash 側で tput をスタブして固定サイズを与えれば、このクラスのフレーキーが一括で消える見込み。
+
+副次的に見つかった別件: tests/integration/test_display_snapshot.bats でも not ok 9-12 が出ることがある (Sessions / proj-alpha / unrecoverable の文字列が出力に現れない)。根本原因は同じ tput 依存と見られる。
 <!-- SECTION:NOTES:END -->
