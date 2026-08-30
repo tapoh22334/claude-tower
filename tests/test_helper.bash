@@ -16,6 +16,19 @@ export CLAUDE_TOWER_TEST_RUN_ID="${BATS_RUN_TMPDIR:-$$}"
 export CLAUDE_TOWER_TEST_ROOT="${TEST_DIR}/tmp/run-${CLAUDE_TOWER_TEST_RUN_ID##*/}"
 export CLAUDE_TOWER_METADATA_DIR="${CLAUDE_TOWER_TEST_ROOT}/metadata"
 
+# Keep tests off the sockets a real Tower is using, and off the real claude.
+#
+# Six test files start sessions without naming a socket. Without these they
+# land on the user's own session server and stay there: a run of
+# test_tower_add_args.bats once left fourteen live claude processes behind,
+# showing up in the Navigator under an "unknown" group because they had
+# sessions but no registry entry. Note the name — CLAUDE_TOWER_PROGRAM is the
+# input; TOWER_PROGRAM is the readonly value derived from it and setting that
+# one does nothing.
+export CLAUDE_TOWER_SESSION_SOCKET="${CLAUDE_TOWER_SESSION_SOCKET:-tower-test-${CLAUDE_TOWER_TEST_RUN_ID##*/}}"
+export CLAUDE_TOWER_NAV_SOCKET="${CLAUDE_TOWER_NAV_SOCKET:-tower-test-nav-${CLAUDE_TOWER_TEST_RUN_ID##*/}}"
+export CLAUDE_TOWER_PROGRAM="${CLAUDE_TOWER_PROGRAM:-sleep 30}"
+
 # Pin the terminal geometry every test sees.
 #
 # Rendering code asks tput for the size, and tput needs a controlling
@@ -70,6 +83,15 @@ setup_test_env() {
 # fixtures of any other bats run in flight.
 teardown_test_env() {
     [[ -n "${CLAUDE_TOWER_TEST_ROOT:-}" ]] && rm -rf "$CLAUDE_TOWER_TEST_ROOT"
+    # Take the run's own tmux servers with it. Anything a test started is on
+    # these sockets and nowhere near the user's.
+    if [[ "${CLAUDE_TOWER_SESSION_SOCKET:-}" == tower-test-* ]]; then
+        TMUX= tmux -L "$CLAUDE_TOWER_SESSION_SOCKET" kill-server 2>/dev/null || true
+    fi
+    if [[ "${CLAUDE_TOWER_NAV_SOCKET:-}" == tower-test-* ]]; then
+        TMUX= tmux -L "$CLAUDE_TOWER_NAV_SOCKET" kill-server 2>/dev/null || true
+    fi
+    return 0
 }
 
 # Create a mock metadata file (new minimal format)

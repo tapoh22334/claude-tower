@@ -108,8 +108,16 @@ setup() {
 # Navigator state management tests (socket separation)
 # ============================================================================
 
-@test "TOWER_NAV_SOCKET: is set to claude-tower" {
-    [ "$TOWER_NAV_SOCKET" = "claude-tower" ]
+@test "TOWER_NAV_SOCKET: defaults to claude-tower" {
+    # The helper overrides the socket for the whole run so tests cannot touch
+    # a real Tower, so assert the default in a shell that has not been told
+    # otherwise rather than reading the exported value.
+    run env -u CLAUDE_TOWER_NAV_SOCKET bash -c '
+        source "'"$PROJECT_ROOT"'/tmux-plugin/lib/common.sh" 2>/dev/null
+        echo "$TOWER_NAV_SOCKET"
+    '
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"claude-tower"* ]]
 }
 
 @test "TOWER_NAV_SESSION: is set to navigator" {

@@ -31,12 +31,16 @@ setup() {
     local tmpdir="$BATS_TEST_TMPDIR/tmux"
     mkdir -p "$tmpdir"
     chmod 700 "$tmpdir"
+    # CLAUDE_TOWER_PROGRAM, not TOWER_PROGRAM: the latter is the readonly
+    # derived name and cannot be overridden, so setting it launches the real
+    # claude. This test did exactly that and left fourteen live sessions
+    # behind on the user's session server.
     run env \
         TMUX_TMPDIR="$tmpdir" \
         CLAUDE_TOWER_SESSION_SOCKET="$socket" \
         CLAUDE_TOWER_NAV_SOCKET="${socket}-nav" \
         CLAUDE_TOWER_METADATA_DIR="$BATS_TEST_TMPDIR/meta" \
-        TOWER_PROGRAM="sleep 30" \
+        CLAUDE_TOWER_PROGRAM="sleep 30" \
         bash "$ADD" "$WORK" -n my-alias --print-id
     TMUX= TMUX_TMPDIR="$tmpdir" tmux -L "$socket" kill-server 2>/dev/null || true
 
