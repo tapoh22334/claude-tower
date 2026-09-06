@@ -20,7 +20,14 @@ setup() {
     REPO="$BATS_TEST_TMPDIR/repo"
     mkdir -p "$REPO"
     git -C "$REPO" init -q
-    git -C "$REPO" commit -q --allow-empty -m init
+    # Identity per-invocation, not from the machine: the unit-test CI job
+    # installs git without configuring a user, and `git commit` there fails
+    # with "Author identity unknown" — which is how these passed locally and
+    # failed in CI.
+    git -C "$REPO" \
+        -c user.email=test@example.invalid \
+        -c user.name=Test \
+        commit -q --allow-empty -m init
 }
 
 @test "worktree guard: a path inside the repo is accepted" {
