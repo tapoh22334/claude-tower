@@ -22,9 +22,15 @@ _run_nav() {
         export CLAUDE_PROJECTS_DIR="'"$CLAUDE_PROJECTS_DIR"'"
         export CLAUDE_TOWER_NAV_SOCKET="col-test-nav-$$"
         export CLAUDE_TOWER_SESSION_SOCKET="col-test-sess-$$"
+        # State the size rather than stubbing tput. _term_cols asks the real
+        # tput first, so on a machine where it can answer (CI runners can) a
+        # function definition here is never consulted and the test measured
+        # the runner terminal instead of the 140 columns it asked for.
+        export TOWER_TERM_COLS='"$cols"'
+        export TOWER_TERM_LINES=40
         source "'"$PROJECT_ROOT"'/tmux-plugin/scripts/navigator-list.sh"
         set +e
-        tput() { case "$1" in cols) echo '"$cols"' ;; lines) echo 40 ;; ed) printf "" ;; *) command tput "$@" 2>/dev/null ;; esac; }
+        tput() { case "$1" in cols) return 1 ;; lines) return 1 ;; ed) printf "" ;; *) command tput "$@" 2>/dev/null ;; esac; }
         '"$snippet"'
     '
 }
