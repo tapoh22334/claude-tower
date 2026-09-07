@@ -215,6 +215,10 @@ _strip_ansi_str() {
 # nothing to say.
 _session_dir() {
     local session_id="$1" claude_id="${1#tower_}" jsonl cwd=""
+    # `local` on the META_* names: load_metadata assigns them unconditionally,
+    # and this runs mid-loop in build_session_list, so leaking them would let
+    # one row's directory lookup overwrite another row's loaded name.
+    local META_SESSION_NAME="" META_CREATED_AT="" META_LAUNCH_DIR=""
     if jsonl=$(find_session_jsonl "$claude_id" 2>/dev/null); then
         cwd=$(get_session_cwd "$jsonl" 2>/dev/null) || cwd=""
     fi
@@ -286,7 +290,7 @@ build_session_list() {
                 # Claude is launching and has written nothing yet, so there is
                 # no title to show. Say so rather than showing a bare short id
                 # that looks like an ordinary row.
-                icon="${NAV_C_DIM}◐${NAV_C_NORMAL}"
+                icon="${NAV_C_DIM}${ICON_STATE_STARTING}${NAV_C_NORMAL}"
                 label="${NAV_C_DIM}${label} — starting…${NAV_C_NORMAL}"
                 ;;
             newmsg)  icon="${NAV_C_ACCENT}✱${NAV_C_NORMAL}" ;;
@@ -598,7 +602,7 @@ _mark_session_deleting() {
         if [[ "${SESSION_IDS[$i]}" == "$target" ]]; then
             MARKED_ROW_BEFORE="${SESSION_DISPLAYS[$i]}"
             SESSION_DISPLAYS[i]=$(_compose_row \
-                "${NAV_C_DIM}⌫${NAV_C_NORMAL}" \
+                "${NAV_C_DIM}${ICON_STATE_DELETING}${NAV_C_NORMAL}" \
                 "${NAV_C_DIM}$(_session_label "$target") — deleting…${NAV_C_NORMAL}" \
                 "")
             return 0
@@ -1045,6 +1049,10 @@ confirm_delete_selected() {
     echo ""
 
     if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
+        # Close the box here too: the caller repaints the list next, and
+        # leaving the frame open would strand a dangling edge on screen for
+        # anyone whose terminal draws it before the repaint lands.
+        echo -e "${NAV_C_HEADER}└─────────────────────────┘${NAV_C_NORMAL}"
         return 0
     fi
     echo -e "│ ${NAV_C_DIM}Cancelled${NAV_C_NORMAL}"
@@ -1052,10 +1060,20 @@ confirm_delete_selected() {
     return 1
 }
 
-# Run the delete for an already-confirmed session.
+# Run the delete for an already-confirmed session, reporting the outcome in a
+# box of its own.
+#
+# It draws its own box rather than closing the confirmation one, because the
+# caller repaints the list in between (to show the row as deleting) and that
+# repaint runs over whatever the confirmation left on screen. Positioning from
+# scratch here is what keeps the result legible either way.
 execute_delete() {
     local selected="$1"
+    local term_height
+    term_height=$(_term_lines)
+    tput cup "$((term_height - 3))" 0 2>/dev/null || true
     if TOWER_QUIET_ERRORS=1 "$SCRIPT_DIR/session-delete.sh" "$selected" --force 2>/dev/null; then
+        echo -e "${NAV_C_HEADER}┌─────────────────────────┐${NAV_C_NORMAL}"
         echo -e "│ ${NAV_C_ACCENT}✓${NAV_C_NORMAL} Deleted"
         echo -e "${NAV_C_HEADER}└─────────────────────────┘${NAV_C_NORMAL}"
         # No pause on the success path — the row vanishing from the list is
@@ -1064,6 +1082,7 @@ execute_delete() {
     fi
     # Hold this one: a failure the user misses leaves them thinking the
     # session went away when it did not.
+    echo -e "${NAV_C_HEADER}┌─────────────────────────┐${NAV_C_NORMAL}"
     echo -e "│ ${NAV_C_ERROR}✗${NAV_C_NORMAL} Delete failed"
     echo -e "${NAV_C_HEADER}└─────────────────────────┘${NAV_C_NORMAL}"
     sleep 0.8

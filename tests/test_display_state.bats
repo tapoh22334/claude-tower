@@ -107,3 +107,26 @@ teardown() {
     run get_display_state "tower_${UUID_A}"
     [ "$output" = "lost" ]
 }
+
+# "starting" has to expire. A session whose transcript Claude has since
+# garbage-collected still has its tmux session, and so does one where claude
+# failed to launch at all — both would otherwise sit at "starting…" forever,
+# which is a worse lie than the plain "active" this replaced.
+
+@test "get_display_state: starting expires into active for an old session" {
+    MOCK_TMUX_HAS=1
+    cat > "${CLAUDE_TOWER_METADATA_DIR}/tower_${UUID_A}.meta" << 'META'
+created_at=2020-01-01T00:00:00+00:00
+META
+    run get_display_state "tower_${UUID_A}"
+    [ "$output" = "active" ]
+}
+
+@test "get_display_state: starting survives when created_at is unreadable" {
+    MOCK_TMUX_HAS=1
+    cat > "${CLAUDE_TOWER_METADATA_DIR}/tower_${UUID_A}.meta" << 'META'
+created_at=not-a-date
+META
+    run get_display_state "tower_${UUID_A}"
+    [ "$output" = "starting" ]
+}

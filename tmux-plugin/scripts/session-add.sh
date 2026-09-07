@@ -283,10 +283,10 @@ add_existing_session() {
         return 1
     fi
     start_claude_session "tower_${claude_id}" "$cwd" "resume" >&2 || return 1
-    # This session already has a transcript — that is how it was found — so
-    # the launch dir is only ever a redundant copy here. Recorded anyway to
-    # keep every registration shaped the same.
-    save_metadata "tower_${claude_id}" "" "$cwd"
+    # No launch_dir: this session was found *via* its transcript, so the
+    # fallback can never be needed. Recording one anyway would only leave a
+    # stale copy to be believed later, if that transcript is ever cleaned up.
+    save_metadata "tower_${claude_id}"
     [[ "$PRINT_ID" -eq 1 ]] && echo "tower_${claude_id}"
     return 0
 }
