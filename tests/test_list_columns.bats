@@ -120,6 +120,7 @@ _visible_width() {
     # "alpha" (5) + space + rule, capped at the 80-cell content width, not
     # 140. The rule glyph (─) is 3 bytes, so byte length far exceeds the
     # cell width; assert it is bounded well under a 140-wide rule.
+    echo "measured header byte length: $output" >&3
     [ "$output" -gt 80 ]    # multibyte rule, so > 80 bytes
     [ "$output" -lt 260 ]   # 80-cap rule ~228 bytes; a 140 rule would be ~410
 }
