@@ -146,12 +146,59 @@ get_session_activity() {
     echo "$latest"
 }
 
-# Activity within TOWER_BUSY_WINDOW seconds?
-# Known limits (documented in spec): session start touches the jsonl
-# (45s false-busy), and tool runs longer than the window read as idle.
+# Is Claude's own working indicator on screen?
+#
+# While Claude works it prints a status line carrying an elapsed timer and a
+# token counter — "✻ Pontificating… (1m 19s · ↓ 3.8k tokens)". The verb and
+# the spinner glyph both rotate, and past a minute the timer switches from
+# "45s" to "1m 19s", so neither is safe to match on. The stable part is the
+# parenthesised "(<timer> · <arrow> <n> tokens)" tail, which only ever
+# appears while a turn is in flight.
+#
+# Deliberately NOT keyed on "esc to interrupt": current Claude shows that
+# hint only intermittently, and it matches this very source file whenever a
+# transcript quoting it is on screen (a false positive we hit in testing).
+#
+# The line sits a few rows above the prompt box, so look wider than the 8
+# lines capture_pane_signature keeps. Isolated for stubbing, like its
+# sibling above: capture-pane needs a live tmux server, absent under bats.
+pane_shows_working() {
+    local session_id="$1"
+    local text="${2-}"
+    if [[ -z "${2+set}" ]]; then
+        text=$(session_tmux capture-pane -t "$session_id" -p 2>/dev/null |
+            grep -v '^$' | tail -n 12) || return 1
+    fi
+    printf '%s' "$text" | grep -qE '\(([0-9]+m )?[0-9]+s · .*tokens\)'
+}
+
+# Is the session working?
+#
+# Two independent signals, because each is blind on its own:
+#
+#   pane   - authoritative while a turn runs, but needs a live tmux pane.
+#   mtime  - works for unmanaged/dormant rows, but only sees COMPLETED
+#            messages. Claude writes the transcript when a message lands,
+#            so a long tool call, a slow turn, or a thinking subagent
+#            writes nothing at all and the mtime ages out mid-work. Measured
+#            on this machine: 91 mid-work silences over 45s, worst 650s —
+#            i.e. ~11 minutes of real work reading as idle.
+#
+# So ask the pane first and fall back to mtime. Raising TOWER_BUSY_WINDOW
+# instead would only trade this false-idle for a longer false-busy at
+# session start (see the window's own note above).
+#
+# $2 (optional): pre-fetched pane text, for callers that already captured
+# it or tests that cannot reach a tmux server.
 is_session_busy() {
     local jsonl="$1"
+    local session_id="${2-}"
     local activity now
+
+    if [[ -n "$session_id" ]] && pane_shows_working "$session_id" "${3-}"; then
+        return 0
+    fi
+
     activity=$(get_session_activity "$jsonl")
     now=$(date +%s)
     ((now - activity <= TOWER_BUSY_WINDOW))
@@ -170,7 +217,7 @@ get_display_state() {
     local jsonl
 
     if session_tmux has-session -t "$session_id" 2>/dev/null; then
-        if jsonl=$(find_session_jsonl "$claude_id") && is_session_busy "$jsonl"; then
+        if jsonl=$(find_session_jsonl "$claude_id") && is_session_busy "$jsonl" "$session_id"; then
             echo "busy"
         else
             echo "active"
@@ -330,7 +377,7 @@ get_wait_state() {
 
     if session_tmux has-session -t "$session_id" 2>/dev/null; then
         # Managed: a real pane exists. Working sessions are not waiting.
-        if jsonl=$(find_session_jsonl "$claude_id") && is_session_busy "$jsonl"; then
+        if jsonl=$(find_session_jsonl "$claude_id") && is_session_busy "$jsonl" "$session_id"; then
             echo ""
             return 0
         fi

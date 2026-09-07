@@ -125,6 +125,41 @@ teardown() {
     [ "$status" -eq 1 ]
 }
 
+@test "is_session_busy: pane timer wins over a stale transcript" {
+    # The regression this guards: Claude writes the transcript only when a
+    # message completes, so a long tool call ages the mtime out while the
+    # session is plainly still working.
+    local f
+    f=$(create_mock_jsonl "-home-user-proj" "$UUID_A" "/home/user/proj")
+    touch -d "2020-01-01 00:00:00" "$f"
+    run is_session_busy "$f" "tower_${UUID_A}" '✻ Pontificating… (12s · ↓ 1.4k tokens)'
+    [ "$status" -eq 0 ]
+}
+
+@test "is_session_busy: pane timer past a minute still reads as working" {
+    # The timer switches from "45s" to "1m 19s"; matching only [0-9]+s
+    # would drop exactly the long turns this fix exists for.
+    local f
+    f=$(create_mock_jsonl "-home-user-proj" "$UUID_A" "/home/user/proj")
+    touch -d "2020-01-01 00:00:00" "$f"
+    run is_session_busy "$f" "tower_${UUID_A}" '· Pontificating… (1m 19s · ↓ 3.8k tokens)'
+    [ "$status" -eq 0 ]
+}
+
+@test "is_session_busy: idle pane falls back to the transcript verdict" {
+    local f
+    f=$(create_mock_jsonl "-home-user-proj" "$UUID_A" "/home/user/proj")
+    touch -d "2020-01-01 00:00:00" "$f"
+    run is_session_busy "$f" "tower_${UUID_A}" '❯ '
+    [ "$status" -eq 1 ]
+}
+
+@test "pane_shows_working: quoted 'esc to interrupt' is not a working signal" {
+    # A transcript discussing the old heuristic used to match itself.
+    run pane_shows_working "tower_${UUID_A}" 'the esc to interrupt hint'
+    [ "$status" -eq 1 ]
+}
+
 @test "list_addable_sessions: lists unregistered real sessions newest first" {
     local old new
     old=$(create_mock_jsonl "-home-user-proj" "$UUID_A" "$HOME")
