@@ -939,6 +939,13 @@ get_session_state() {
 }
 
 # Get state icon
+#
+# Used by the static views (tile, tail, session-list). The Navigator does NOT
+# call this: its busy rows carry a placeholder that the render loop swaps for
+# the current spinner frame every tick, so it composes icons inline instead.
+# ICON_STATE_BUSY is therefore the still-frame form of busy, seen only where
+# nothing is animating.
+#
 # Arguments:
 #   $1 - State string
 # Returns:

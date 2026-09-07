@@ -170,3 +170,55 @@ _lengths() {
     [ "$taken" = "row b" ]
     [ "${SESSION_DISPLAYS[1]}" != "row b" ]
 }
+
+# ---------------------------------------------------------------------------
+# Adding a row optimistically
+#
+# n/f/N used to select the new session and then hand the index back through
+# get_selection_index, which searches the arrays. The new row was not in them
+# yet, so the search fell through to its "not found" default of 0 and the
+# cursor jumped to the top of the list — away from the session the user had
+# just created. Putting the row in first is what keeps the selection where the
+# user is looking.
+
+@test "remember row: a new session lands in the list immediately" {
+    _remember_session_row tower_new "/p/three"
+    [[ " ${SESSION_IDS[*]} " == *" tower_new "* ]]
+    [ "${#SESSION_IDS[@]}" -eq 5 ]
+}
+
+@test "remember row: the four arrays stay the same length" {
+    _remember_session_row tower_new "/p/three"
+    [ "$(_lengths)" = "5 5 5 5" ]
+}
+
+@test "remember row: an id already present is not duplicated" {
+    run _remember_session_row tower_b "/p/one"
+    [ "$status" -ne 0 ]
+    [ "${#SESSION_IDS[@]}" -eq 4 ]
+}
+
+@test "remember row: the new row can be found by the selection lookup" {
+    _remember_session_row tower_new "/p/three"
+    set_nav_selected tower_new
+    local idx
+    idx=$(get_selection_index)
+    [ "${SESSION_IDS[$idx]}" = "tower_new" ]
+}
+
+# The bug this pins: without the row present, get_selection_index returns its
+# not-found default and the cursor silently moves to row 0.
+@test "remember row: without it the selection lookup loses the new session" {
+    set_nav_selected tower_never_added
+    local idx
+    idx=$(get_selection_index)
+    [ "$idx" -eq 0 ]
+    [ "${SESSION_IDS[$idx]}" != "tower_never_added" ]
+}
+
+@test "optimistic edits bump the generation so a racing rebuild is dropped" {
+    local before="$LIST_GENERATION"
+    _forget_session_row tower_b
+    _bump_list_generation
+    [ "$LIST_GENERATION" -ne "$before" ]
+}

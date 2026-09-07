@@ -63,7 +63,7 @@ highlighted session, `Escape` comes back.
 | `j` / `k` | Move down / up |
 | `g` / `G` | First / last |
 | `Enter` / `i` | Type into the session |
-| `Escape` | Back to the list |
+| `Escape` | Back to the list (from the right pane) |
 | `n` | Add a session — pick a running one, or start a new one |
 | `f` | Another session in the same directory (fresh conversation) |
 | `N` | New session in a directory you pick |
@@ -76,16 +76,23 @@ highlighted session, `Escape` comes back.
 
 | | | |
 |---|---|---|
-| `⠹` | Busy | Claude is working |
+| `⠋⠙⠹…` | Busy | Claude is working (an animated spinner, not one glyph) |
 | `▶` | Active | Running, waiting for you |
 | `○` | Dormant | Not running — press `r` |
 | `◇` | External | Live outside Tower; use its own terminal |
 | `✗` | Dead | Working directory is gone |
 | `?` | Lost | Transcript is gone — press `D` |
 | `✱` | Unread | New output since you last looked |
+| `◐` | Starting | Just launched; no transcript to read yet |
+| `⌫` | Deleting | A delete is running against this row |
 
 `⚙N` counts active subagents. Busy is inferred from transcript activity in a
-45-second window, so a new session looks busy and a long tool call looks idle.
+45-second window, so a long tool call looks idle.
+
+The last two are transient, and they exist so an action never looks like it
+did nothing. `◐` appears the instant you press `n`, `f`, `N` or `r` — before
+Claude has written anything to read a real state from — and `⌫` marks the row
+you are deleting while the delete runs.
 
 ### The three multi-session views
 

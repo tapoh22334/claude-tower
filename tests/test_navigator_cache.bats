@@ -16,10 +16,12 @@ setup() {
     # is not test-isolated; clear it before and after each test.
     mkdir -p "$TOWER_NAV_STATE_DIR" 2>/dev/null || true
     rm -f "$TOWER_NAV_STATE_DIR/session-list.cache" 2>/dev/null || true
+    rm -f "$TOWER_NAV_STATE_DIR/session-list.generation" 2>/dev/null || true
 }
 
 teardown() {
     rm -f "$TOWER_NAV_STATE_DIR/session-list.cache" 2>/dev/null || true
+    rm -f "$TOWER_NAV_STATE_DIR/session-list.generation" 2>/dev/null || true
     teardown_test_env
 }
 
@@ -87,4 +89,84 @@ source_navigator_list_functions() {
     rm -f "$(_session_cache_file)"
     run _load_session_state
     [ "$status" -ne 0 ]
+}
+
+# ---------------------------------------------------------------------------
+# Generation guard
+#
+# The refresh tick reloads the whole list from the cache, so a rebuild that
+# started BEFORE an optimistic edit will happily write a pre-edit snapshot
+# over it. The next tick then reads that snapshot back and the edit is undone:
+# a deleted row reappears seconds after it vanished. Bumping a generation on
+# every optimistic edit, and refusing to publish a rebuild whose generation is
+# stale, is what keeps the edit from being resurrected.
+
+@test "generation: an optimistic edit invalidates a rebuild already in flight" {
+    source_navigator_list_functions
+
+    SESSION_IDS=("tower_a" "tower_b")
+    SESSION_DISPLAYS=("row a" "row b")
+    SESSION_DIRS=("/p" "/p")
+    SESSION_HEADERS=("" "")
+    BROKEN_START=-1
+
+    # A rebuild starts and captures the generation it began with.
+    local started_at="$LIST_GENERATION"
+
+    # The user deletes tower_b while that rebuild is still running.
+    _forget_session_row tower_b
+    _bump_list_generation
+
+    # The in-flight rebuild now tries to publish its pre-delete snapshot.
+    run _generation_is_current "$started_at"
+    [ "$status" -ne 0 ]
+}
+
+@test "generation: a rebuild that raced nothing is still allowed to publish" {
+    source_navigator_list_functions
+    local started_at="$LIST_GENERATION"
+    run _generation_is_current "$started_at"
+    [ "$status" -eq 0 ]
+}
+
+@test "generation: a stale rebuild leaves the cache alone" {
+    source_navigator_list_functions
+    local cache
+    cache=$(_session_cache_file)
+
+    # The list as the user now sees it: tower_b already deleted.
+    SESSION_IDS=("tower_a"); SESSION_DISPLAYS=("row a")
+    SESSION_DIRS=("/p"); SESSION_HEADERS=(""); BROKEN_START=-1
+    _serialize_session_state >"$cache"
+
+    local stale_gen="$LIST_GENERATION"
+    _bump_list_generation
+
+    # A rebuild from before the delete tries to publish two rows.
+    SESSION_IDS=("tower_a" "tower_b"); SESSION_DISPLAYS=("row a" "row b")
+    SESSION_DIRS=("/p" "/p"); SESSION_HEADERS=("" ""); BROKEN_START=-1
+    run _publish_rebuild "$stale_gen"
+    [ "$status" -ne 0 ]   # refused as stale
+
+    # Reading the cache back must NOT bring tower_b home.
+    SESSION_IDS=(); SESSION_DISPLAYS=(); SESSION_DIRS=(); SESSION_HEADERS=()
+    _load_session_state
+    [ "${#SESSION_IDS[@]}" -eq 1 ]
+    [ "${SESSION_IDS[0]}" = "tower_a" ]
+}
+
+@test "generation: a current rebuild does publish" {
+    source_navigator_list_functions
+    local cache
+    cache=$(_session_cache_file)
+    rm -f "$cache"
+
+    local gen="$LIST_GENERATION"
+    SESSION_IDS=("tower_a" "tower_b"); SESSION_DISPLAYS=("row a" "row b")
+    SESSION_DIRS=("/p" "/p"); SESSION_HEADERS=("" ""); BROKEN_START=-1
+    _publish_rebuild "$gen"
+
+    SESSION_IDS=(); SESSION_DISPLAYS=(); SESSION_DIRS=(); SESSION_HEADERS=()
+    _load_session_state
+    [ "${#SESSION_IDS[@]}" -eq 2 ]
 }
