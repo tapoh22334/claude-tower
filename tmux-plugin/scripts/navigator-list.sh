@@ -290,9 +290,10 @@ build_session_list() {
         raw_displays+=("$(_compose_row "$icon" "$label" "$marks")")
     done < <(list_all_sessions)
 
-    # Regroup by project dir: groups in first-appearance order, original
-    # order kept within a group. Headers are precomputed here so spinner
-    # ticks can re-render without touching the process table.
+    # Regroup by project dir: groups sorted by project name so the order is
+    # stable across refreshes, with the unknown-dir group pinned last.
+    # Original order is kept within a group. Headers are precomputed here so
+    # spinner ticks can re-render without touching the process table.
     local -a dirs_seen=()
     local d seen_d found i j header extern
     for ((i = 0; i < ${#raw_ids[@]}; i++)); do
@@ -303,6 +304,29 @@ build_session_list() {
         done
         if [[ $found -eq 1 ]]; then continue; fi
         dirs_seen+=("$d")
+    done
+
+    # Sort key: "0<basename>\t<dir>" for real dirs, "1" for the unknown group,
+    # so unknown sorts to the bottom whatever it is called. Ties on basename
+    # fall back to the full path, keeping two same-named projects apart.
+    if [[ ${#dirs_seen[@]} -gt 0 ]]; then
+        local -a sort_keys=()
+        local base
+        for seen_d in "${dirs_seen[@]}"; do
+            if [[ -z "$seen_d" ]]; then
+                sort_keys+=($'1\t')
+                continue
+            fi
+            base="${seen_d%/}"
+            base="${base##*/}"
+            [[ -z "$base" ]] && base="/"
+            sort_keys+=("0${base}"$'\t'"${seen_d}")
+        done
+        mapfile -t dirs_seen < <(printf '%s\n' "${sort_keys[@]}" | LC_ALL=C sort -f | cut -f2-)
+    fi
+
+    for ((i = 0; i < ${#dirs_seen[@]}; i++)); do
+        d="${dirs_seen[$i]}"
 
         # The project name is the one thing that must be findable at a
         # glance, so it gets the strongest treatment on screen: bold cyan
@@ -331,7 +355,7 @@ build_session_list() {
             header+=" ${NAV_C_DIM}${rule}${NAV_C_NORMAL}"
         fi
 
-        for ((j = i; j < ${#raw_ids[@]}; j++)); do
+        for ((j = 0; j < ${#raw_ids[@]}; j++)); do
             if [[ "${raw_dirs[$j]}" == "$d" ]]; then
                 SESSION_IDS+=("${raw_ids[$j]}")
                 SESSION_DISPLAYS+=("${raw_displays[$j]}")

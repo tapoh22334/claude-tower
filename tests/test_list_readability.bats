@@ -215,3 +215,55 @@ _run_nav() {
     # The old dim "▍dirname" treatment is gone
     [[ "$output" != *"▍"* ]]
 }
+
+@test "build_session_list: project groups come out in name order, not arrival order" {
+    _run_nav '
+        list_all_sessions() {
+            printf "%s\n" "tower_z:active" "tower_a:active" "tower_m:active"
+        }
+        _session_label() { echo "x"; }
+        _session_dir() {
+            case "$1" in
+                tower_z) echo "/proj/zulu" ;;
+                tower_a) echo "/proj/alpha" ;;
+                tower_m) echo "/proj/mike" ;;
+            esac
+        }
+        mark_session_seen() { :; }
+        init_session_seen() { :; }
+        is_session_unread() { return 1; }
+        count_unregistered_processes_in_dir() { echo 0; }
+        build_session_list
+        printf "%s\n" "${SESSION_DIRS[@]}"
+    '
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "/proj/alpha" ]
+    [ "${lines[1]}" = "/proj/mike" ]
+    [ "${lines[2]}" = "/proj/zulu" ]
+}
+
+@test "build_session_list: the unknown-dir group sinks below the named projects" {
+    _run_nav '
+        list_all_sessions() {
+            printf "%s\n" "tower_u:active" "tower_z:active" "tower_a:active"
+        }
+        _session_label() { echo "x"; }
+        _session_dir() {
+            case "$1" in
+                tower_u) echo "" ;;
+                tower_z) echo "/proj/zulu" ;;
+                tower_a) echo "/proj/alpha" ;;
+            esac
+        }
+        mark_session_seen() { :; }
+        init_session_seen() { :; }
+        is_session_unread() { return 1; }
+        count_unregistered_processes_in_dir() { echo 0; }
+        build_session_list
+        printf "%s\n" "${SESSION_DIRS[@]}"
+    '
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "/proj/alpha" ]
+    [ "${lines[1]}" = "/proj/zulu" ]
+    [ "${#lines[@]}" -eq 2 ]  # the empty third dir prints as a blank line
+}
