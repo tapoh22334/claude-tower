@@ -578,12 +578,20 @@ ensure_metadata_dir() {
 
 # Save session metadata (minimal registry: which sessions Tower manages).
 # All session facts (cwd, activity) are derived from Claude's transcripts.
+#
+# launch_dir is the one exception, and it is a hint rather than a fact: the
+# transcript stays authoritative, but it does not exist for the first seconds
+# after `claude --session-id` is sent. Without something to fall back on the
+# Navigator files a brand-new row under the unknown group and then moves it,
+# which is jarring at exactly the moment the user is watching for it.
 # Arguments:
 #   $1 - Session ID (with tower_ prefix)
 #   $2 - Optional display name
+#   $3 - Optional directory the session was started in
 save_metadata() {
     local session_id="$1"
     local session_name="${2:-}"
+    local launch_dir="${3:-}"
 
     ensure_metadata_dir
 
@@ -593,24 +601,31 @@ save_metadata() {
         if [[ -n "$session_name" ]]; then
             echo "session_name=${session_name}"
         fi
+        if [[ -n "$launch_dir" ]]; then
+            echo "launch_dir=${launch_dir}"
+        fi
         echo "created_at=$(date -Iseconds)"
     } >"$metadata_file"
 }
 
 # Load session metadata from file
-# Sets: META_SESSION_NAME, META_CREATED_AT. Unknown keys (old format) ignored.
+# Sets: META_SESSION_NAME, META_CREATED_AT, META_LAUNCH_DIR. Unknown keys
+# (old format) ignored; a file written before launch_dir existed simply leaves
+# META_LAUNCH_DIR empty.
 load_metadata() {
     local session_id="$1"
     local metadata_file="${TOWER_METADATA_DIR}/${session_id}.meta"
 
     META_SESSION_NAME=""
     META_CREATED_AT=""
+    META_LAUNCH_DIR=""
 
     if [[ -f "$metadata_file" ]]; then
         while IFS='=' read -r key value; do
             case "$key" in
                 session_name) META_SESSION_NAME="$value" ;;
                 created_at) META_CREATED_AT="$value" ;;
+                launch_dir) META_LAUNCH_DIR="$value" ;;
             esac
         done <"$metadata_file"
         return 0
@@ -878,6 +893,13 @@ readonly STATE_EXTERNAL="external"
 # of its own, not a separate mark: the left icon says all of dormant /
 # waiting / processing / new-message in one place.
 readonly STATE_NEWMSG="newmsg"
+# Transitional states. Neither is a property of the session so much as of an
+# operation in flight over it, and both exist so the list can say what is
+# happening instead of silently rearranging itself.
+#   starting - launched, but Claude has not written a transcript yet
+#   deleting - a delete is running against this row right now
+readonly STATE_STARTING="starting"
+readonly STATE_DELETING="deleting"
 
 readonly ICON_STATE_ACTIVE="▶"
 readonly ICON_STATE_DORMANT="○"
@@ -886,6 +908,8 @@ readonly ICON_STATE_DEAD="✗"
 readonly ICON_STATE_LOST="?"
 readonly ICON_STATE_EXTERNAL="◇"
 readonly ICON_STATE_NEWMSG="✱"
+readonly ICON_STATE_STARTING="◐"
+readonly ICON_STATE_DELETING="⌫"
 
 # Cheap 2-state check (active/dormant), for callers that don't need
 # busy-granularity. See get_display_state (claude-sessions.sh) for the
@@ -929,6 +953,8 @@ get_state_icon() {
         "lost") echo "$ICON_STATE_LOST" ;;
         "$STATE_EXTERNAL") echo "$ICON_STATE_EXTERNAL" ;;
         "$STATE_NEWMSG") echo "$ICON_STATE_NEWMSG" ;;
+        "$STATE_STARTING") echo "$ICON_STATE_STARTING" ;;
+        "$STATE_DELETING") echo "$ICON_STATE_DELETING" ;;
         *) echo "?" ;;
     esac
 }

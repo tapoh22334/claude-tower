@@ -322,3 +322,50 @@ EOF
     [[ "${SESSION_DISPLAYS[0]}" == *"▶"* ]]
     [[ "${SESSION_DISPLAYS[0]}" != *"✱"* ]]
 }
+
+# ============================================================================
+# _session_dir() — navigator-list.sh
+# The transcript is the authority for a session's directory, but it does not
+# exist for the first seconds after Claude is launched. Without a fallback the
+# row is filed under the unknown group and then jumps to its real project.
+# ============================================================================
+
+@test "_session_dir: uses the transcript cwd when there is one" {
+    source "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh" 2>/dev/null || true
+
+    local uuid="55555555-5555-4555-8555-555555555555"
+    create_mock_jsonl "myproj" "$uuid" "/home/user/projects/myproj"
+
+    run _session_dir "tower_${uuid}"
+    [ "$output" = "/home/user/projects/myproj" ]
+}
+
+@test "_session_dir: falls back to the recorded launch dir before a transcript" {
+    source "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh" 2>/dev/null || true
+
+    local uuid="66666666-6666-4666-8666-666666666666"
+    # No transcript yet — exactly the state right after `claude --session-id`.
+    save_metadata "tower_${uuid}" "" "/home/user/projects/fresh"
+
+    run _session_dir "tower_${uuid}"
+    [ "$output" = "/home/user/projects/fresh" ]
+}
+
+@test "_session_dir: the transcript wins over a stale launch dir" {
+    source "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh" 2>/dev/null || true
+
+    local uuid="77777777-7777-4777-8777-777777777777"
+    create_mock_jsonl "myproj" "$uuid" "/home/user/projects/real"
+    save_metadata "tower_${uuid}" "" "/home/user/projects/stale"
+
+    run _session_dir "tower_${uuid}"
+    [ "$output" = "/home/user/projects/real" ]
+}
+
+@test "_session_dir: still empty when neither source knows" {
+    source "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh" 2>/dev/null || true
+
+    run _session_dir "tower_88888888-8888-4888-8888-888888888888"
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+}

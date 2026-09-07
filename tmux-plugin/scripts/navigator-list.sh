@@ -204,11 +204,24 @@ _strip_ansi_str() {
     printf '%s' "$out$s"
 }
 
-# Project dir of a session ("" when unknown)
+# Project dir of a session ("" when unknown).
+#
+# The transcript is the authority — it is where the session actually is, and
+# it keeps up if the session outlives the directory it was launched from. But
+# it does not exist for the first seconds of a new session, and a row with no
+# directory lands in the unknown group at the bottom of the list only to jump
+# to its real project once the transcript appears. So fall back to the launch
+# dir recorded at registration, and only for as long as the transcript has
+# nothing to say.
 _session_dir() {
-    local claude_id="${1#tower_}" jsonl
-    jsonl=$(find_session_jsonl "$claude_id" 2>/dev/null) || { echo ""; return 0; }
-    get_session_cwd "$jsonl" 2>/dev/null || echo ""
+    local session_id="$1" claude_id="${1#tower_}" jsonl cwd=""
+    if jsonl=$(find_session_jsonl "$claude_id" 2>/dev/null); then
+        cwd=$(get_session_cwd "$jsonl" 2>/dev/null) || cwd=""
+    fi
+    if [[ -z "$cwd" ]] && load_metadata "$session_id" 2>/dev/null; then
+        cwd="$META_LAUNCH_DIR"
+    fi
+    echo "$cwd"
 }
 
 # Build session list: normal states first, broken (dead/lost) last.
@@ -269,6 +282,13 @@ build_session_list() {
         dir=$(_session_dir "$session_id")
         case "$state" in
             busy)    icon="${NAV_C_ACCENT}${SPIN_PLACEHOLDER}${NAV_C_NORMAL}" ;;
+            starting)
+                # Claude is launching and has written nothing yet, so there is
+                # no title to show. Say so rather than showing a bare short id
+                # that looks like an ordinary row.
+                icon="${NAV_C_DIM}◐${NAV_C_NORMAL}"
+                label="${NAV_C_DIM}${label} — starting…${NAV_C_NORMAL}"
+                ;;
             newmsg)  icon="${NAV_C_ACCENT}✱${NAV_C_NORMAL}" ;;
             active)  icon="${NAV_C_ACTIVE}▶${NAV_C_NORMAL}" ;;
             external) icon="${NAV_C_EXTERNAL}◇${NAV_C_NORMAL}" ;;
@@ -555,6 +575,45 @@ _forget_session_row() {
     SESSION_HEADERS=("${heads[@]+"${heads[@]}"}")
     BROKEN_START=$broken
     return 0
+}
+
+# Replace the row for $1 with a dimmed "deleting" version, leaving it in
+# place. The delete is fast, but "fast" and "instant" are not the same thing:
+# dropping the row the moment D is pressed left nothing on screen to say a
+# delete had happened at all, so a delete and a mis-keyed cursor move looked
+# identical. Only the display changes — the id, dir and header stay put, so
+# the row can be restored if the delete fails.
+# Echoes the previous display text so the caller can undo it. Returns 1 if the
+# id isn't present.
+_mark_session_deleting() {
+    local target="$1"
+    local i
+    for ((i = 0; i < ${#SESSION_IDS[@]}; i++)); do
+        if [[ "${SESSION_IDS[$i]}" == "$target" ]]; then
+            local before="${SESSION_DISPLAYS[$i]}"
+            SESSION_DISPLAYS[i]=$(_compose_row \
+                "${NAV_C_DIM}⌫${NAV_C_NORMAL}" \
+                "${NAV_C_DIM}$(_session_label "$target") — deleting…${NAV_C_NORMAL}" \
+                "")
+            echo "$before"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Put back the display text _mark_session_deleting replaced, for when the
+# delete fails and the session is still there.
+_restore_session_row() {
+    local target="$1" before="$2"
+    local i
+    for ((i = 0; i < ${#SESSION_IDS[@]}; i++)); do
+        if [[ "${SESSION_IDS[$i]}" == "$target" ]]; then
+            SESSION_DISPLAYS[i]="$before"
+            return 0
+        fi
+    done
+    return 1
 }
 
 # Redraw now, then let the background rebuild reconcile. Callers pass the
@@ -955,15 +1014,11 @@ get_caller_cwd() {
     echo "${cwd:-$HOME}"
 }
 
-# Delete selected session
-delete_selected() {
-    local selected
-    selected=$(get_nav_selected)
-
-    if [[ -z "$selected" ]]; then
-        return
-    fi
-
+# Ask whether to delete the selected session. Prompt only — no deletion
+# happens here, so the caller can mark the row as deleting and repaint before
+# committing to it. 0 = go ahead, 1 = cancelled (declined or timed out).
+confirm_delete_selected() {
+    local selected="$1"
     local name="${selected#tower_}"
     local term_height
     term_height=$(_term_lines)
@@ -980,31 +1035,43 @@ delete_selected() {
         echo -e "│ ${NAV_C_DIM}Cancelled (timeout)${NAV_C_NORMAL}"
         echo -e "${NAV_C_HEADER}└─────────────────────────┘${NAV_C_NORMAL}"
         sleep 0.5
-        return
+        return 1
     fi
     echo ""
 
-    local rc=1
     if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
-        echo -e "│ ${NAV_C_DIM}Deleting...${NAV_C_NORMAL}"
-        if TOWER_QUIET_ERRORS=1 "$SCRIPT_DIR/session-delete.sh" "$selected" --force 2>/dev/null; then
-            echo -e "│ ${NAV_C_ACCENT}✓${NAV_C_NORMAL} Deleted"
-            rc=0
-        else
-            # Hold this one: a failure the user misses leaves them thinking
-            # the session went away when it did not.
-            echo -e "│ ${NAV_C_ERROR}✗${NAV_C_NORMAL} Delete failed"
-            echo -e "${NAV_C_HEADER}└─────────────────────────┘${NAV_C_NORMAL}"
-            sleep 0.8
-            return 1
-        fi
-    else
-        echo -e "│ ${NAV_C_DIM}Cancelled${NAV_C_NORMAL}"
+        return 0
     fi
+    echo -e "│ ${NAV_C_DIM}Cancelled${NAV_C_NORMAL}"
     echo -e "${NAV_C_HEADER}└─────────────────────────┘${NAV_C_NORMAL}"
-    # No pause on the success path — the row is about to vanish from the list,
-    # which is the confirmation. Waiting here only delays the next keystroke.
-    return $rc
+    return 1
+}
+
+# Run the delete for an already-confirmed session.
+execute_delete() {
+    local selected="$1"
+    if TOWER_QUIET_ERRORS=1 "$SCRIPT_DIR/session-delete.sh" "$selected" --force 2>/dev/null; then
+        echo -e "│ ${NAV_C_ACCENT}✓${NAV_C_NORMAL} Deleted"
+        echo -e "${NAV_C_HEADER}└─────────────────────────┘${NAV_C_NORMAL}"
+        # No pause on the success path — the row vanishing from the list is
+        # the confirmation. Waiting only delays the next keystroke.
+        return 0
+    fi
+    # Hold this one: a failure the user misses leaves them thinking the
+    # session went away when it did not.
+    echo -e "│ ${NAV_C_ERROR}✗${NAV_C_NORMAL} Delete failed"
+    echo -e "${NAV_C_HEADER}└─────────────────────────┘${NAV_C_NORMAL}"
+    sleep 0.8
+    return 1
+}
+
+# Confirm and delete in one step, for callers with no list to mark up.
+delete_selected() {
+    local selected
+    selected=$(get_nav_selected)
+    [[ -n "$selected" ]] || return 1
+    confirm_delete_selected "$selected" || return 1
+    execute_delete "$selected"
 }
 
 # Restore selected session (idempotent)
@@ -1231,7 +1298,7 @@ main_loop() {
         # Wait for input with timeout (short tick so the spinner turns).
         # nav_read_key guards against the orphaned-terminal busy-loop: rc 2
         # means the pane is gone and we must exit rather than spin forever.
-        local key="" read_rc=0 doomed=""
+        local key="" read_rc=0 doomed="" doomed_row=""
         nav_read_key key "$TICK_INTERVAL" || read_rc=$?
         [[ $read_rc -eq 2 ]] && exit 0
         if [[ $read_rc -eq 0 ]]; then
@@ -1307,11 +1374,20 @@ main_loop() {
                     ;;
                 D)
                     doomed=$(get_nav_selected)
-                    if delete_selected; then
-                        # Take the row out of the list we already have instead
-                        # of rebuilding: the rebuild costs over a second, and
-                        # for a delete we know exactly what changed.
-                        _forget_session_row "$doomed" || true
+                    if [[ -n "$doomed" ]] && confirm_delete_selected "$doomed"; then
+                        # Show the row as deleting before running the delete,
+                        # so the list says what is happening rather than the
+                        # row simply ceasing to exist.
+                        doomed_row=$(_mark_session_deleting "$doomed") || doomed_row=""
+                        render_list "$selected_index"
+                        if execute_delete "$doomed"; then
+                            # Take the row out of the list we already have
+                            # instead of rebuilding: the rebuild costs over a
+                            # second, and for a delete we know what changed.
+                            _forget_session_row "$doomed" || true
+                        elif [[ -n "$doomed_row" ]]; then
+                            _restore_session_row "$doomed" "$doomed_row" || true
+                        fi
                         selected_index=$(_settle_after_change "$selected_index")
                     fi
                     # Flush input buffer and restore terminal state

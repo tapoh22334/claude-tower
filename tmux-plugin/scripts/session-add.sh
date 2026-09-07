@@ -244,7 +244,7 @@ start_session_in_dir() {
     fi
     uuid=$(generate_uuid) || return 1
     start_claude_session "tower_${uuid}" "$dir" "new" >&2 || return 1
-    save_metadata "tower_${uuid}" "$name"
+    save_metadata "tower_${uuid}" "$name" "$dir"
     [[ "$PRINT_ID" -eq 1 ]] && echo "tower_${uuid}"
     return 0
 }
@@ -261,7 +261,7 @@ start_new_session() {
     read -r name </dev/tty || name=""
     uuid=$(generate_uuid) || return 1
     start_claude_session "tower_${uuid}" "$dir" "new" >&2 || return 1
-    save_metadata "tower_${uuid}" "$name"
+    save_metadata "tower_${uuid}" "$name" "$dir"
     [[ "$PRINT_ID" -eq 1 ]] && echo "tower_${uuid}"
     return 0
 }
@@ -283,7 +283,10 @@ add_existing_session() {
         return 1
     fi
     start_claude_session "tower_${claude_id}" "$cwd" "resume" >&2 || return 1
-    save_metadata "tower_${claude_id}"
+    # This session already has a transcript — that is how it was found — so
+    # the launch dir is only ever a redundant copy here. Recorded anyway to
+    # keep every registration shaped the same.
+    save_metadata "tower_${claude_id}" "" "$cwd"
     [[ "$PRINT_ID" -eq 1 ]] && echo "tower_${claude_id}"
     return 0
 }

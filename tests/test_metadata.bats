@@ -73,3 +73,39 @@ EOF
     delete_metadata "tower_test"
     ! has_metadata "tower_test"
 }
+
+# launch_dir: the directory a session was started in, recorded so the
+# Navigator can group a brand-new session before Claude's transcript
+# (the authoritative source) exists.
+
+@test "save_metadata: stores launch_dir when given" {
+    save_metadata "tower_test" "" "/home/user/proj"
+    grep -q "^launch_dir=/home/user/proj$" "${CLAUDE_TOWER_METADATA_DIR}/tower_test.meta"
+}
+
+@test "save_metadata: omits launch_dir when not given" {
+    save_metadata "tower_test" "name"
+    ! grep -q "^launch_dir=" "${CLAUDE_TOWER_METADATA_DIR}/tower_test.meta"
+}
+
+@test "load_metadata: sets META_LAUNCH_DIR" {
+    save_metadata "tower_test" "n" "/home/user/proj"
+    load_metadata "tower_test"
+    [ "$META_LAUNCH_DIR" = "/home/user/proj" ]
+}
+
+@test "load_metadata: META_LAUNCH_DIR is empty for a file without it" {
+    save_metadata "tower_test" "n"
+    load_metadata "tower_test"
+    [ -z "$META_LAUNCH_DIR" ]
+}
+
+@test "load_metadata: a launch_dir-less legacy file still loads" {
+    cat > "${CLAUDE_TOWER_METADATA_DIR}/tower_old.meta" << 'META'
+session_name=legacy
+created_at=2025-01-01T00:00:00
+META
+    load_metadata "tower_old"
+    [ "$META_SESSION_NAME" = "legacy" ]
+    [ -z "$META_LAUNCH_DIR" ]
+}

@@ -110,3 +110,47 @@ _lengths() {
     [ "$status" -eq 0 ]
     [ "$(get_nav_selected)" = "" ]
 }
+
+# ----------------------------------------------------------------------------
+# Marking a row as deleting, rather than dropping it the instant D is pressed.
+# The delete itself is synchronous, but the row vanishing with no trace left
+# the user unable to tell a delete from a mis-keyed cursor move.
+# ----------------------------------------------------------------------------
+
+@test "mark deleting: replaces the row's display, keeps it in the list" {
+    _mark_session_deleting tower_b
+    [ "${#SESSION_IDS[@]}" -eq 4 ]
+    [ "${SESSION_IDS[1]}" = "tower_b" ]
+    [ "${SESSION_DISPLAYS[1]}" != "row b" ]
+}
+
+@test "mark deleting: the four arrays stay the same length" {
+    _mark_session_deleting tower_c
+    [ "$(_lengths)" = "4 4 4 4" ]
+}
+
+@test "mark deleting: leaves the row's directory and header alone" {
+    _mark_session_deleting tower_c
+    [ "${SESSION_DIRS[2]}" = "/p/two" ]
+    [ "${SESSION_HEADERS[2]}" = "two ───" ]
+}
+
+@test "mark deleting: other rows are untouched" {
+    _mark_session_deleting tower_b
+    [ "${SESSION_DISPLAYS[0]}" = "row a" ]
+    [ "${SESSION_DISPLAYS[2]}" = "row c" ]
+    [ "${SESSION_DISPLAYS[3]}" = "row d" ]
+}
+
+@test "mark deleting: an unknown id changes nothing and reports failure" {
+    run _mark_session_deleting tower_nope
+    [ "$status" -ne 0 ]
+}
+
+@test "mark deleting: a failed delete can restore the original row" {
+    local before="${SESSION_DISPLAYS[1]}"
+    _mark_session_deleting tower_b
+    _restore_session_row tower_b "$before"
+    [ "${SESSION_DISPLAYS[1]}" = "row b" ]
+    [ "${#SESSION_IDS[@]}" -eq 4 ]
+}

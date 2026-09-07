@@ -205,6 +205,7 @@ is_session_busy() {
 }
 
 # Display state for the Navigator list.
+#   starting - tmux session exists but Claude has written no transcript yet
 #   busy    - tmux session exists, activity within window
 #   active  - tmux session exists
 #   dormant - registered, resumable (jsonl + cwd exist)
@@ -217,7 +218,17 @@ get_display_state() {
     local jsonl
 
     if session_tmux has-session -t "$session_id" 2>/dev/null; then
-        if jsonl=$(find_session_jsonl "$claude_id") && is_session_busy "$jsonl" "$session_id"; then
+        if ! jsonl=$(find_session_jsonl "$claude_id"); then
+            # A tmux session with no transcript behind it is one Claude has
+            # only just been launched into. Distinguishing this from "active"
+            # is what lets the list show it as a placeholder instead of a
+            # fully-fledged row whose directory it cannot yet name.
+            #
+            # The same shape without tmux means the opposite (a registered
+            # session whose transcript Claude has since cleaned up), and that
+            # is handled as "lost" below — hence the check living in here.
+            echo "starting"
+        elif is_session_busy "$jsonl" "$session_id"; then
             echo "busy"
         else
             echo "active"
