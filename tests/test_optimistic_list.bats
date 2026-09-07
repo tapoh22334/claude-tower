@@ -147,10 +147,26 @@ _lengths() {
     [ "$status" -ne 0 ]
 }
 
-@test "mark deleting: a failed delete can restore the original row" {
-    local before="${SESSION_DISPLAYS[1]}"
+@test "mark deleting: hands back the previous display in a global" {
     _mark_session_deleting tower_b
-    _restore_session_row tower_b "$before"
+    [ "$MARKED_ROW_BEFORE" = "row b" ]
+}
+
+@test "mark deleting: a failed delete can restore the original row" {
+    _mark_session_deleting tower_b
+    _restore_session_row tower_b "$MARKED_ROW_BEFORE"
     [ "${SESSION_DISPLAYS[1]}" = "row b" ]
     [ "${#SESSION_IDS[@]}" -eq 4 ]
+}
+
+# The mark must survive being taken the way the key handler takes it. An
+# earlier version echoed the previous display instead, which forced the caller
+# into $(...) — a subshell, so the array edit was discarded and the row never
+# rendered as deleting at all. The unit tests above all passed regardless,
+# because they call the function directly.
+@test "mark deleting: the edit survives how the D handler reads it back" {
+    _mark_session_deleting tower_b || true
+    local taken="$MARKED_ROW_BEFORE"
+    [ "$taken" = "row b" ]
+    [ "${SESSION_DISPLAYS[1]}" != "row b" ]
 }

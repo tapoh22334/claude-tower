@@ -583,19 +583,24 @@ _forget_session_row() {
 # delete had happened at all, so a delete and a mis-keyed cursor move looked
 # identical. Only the display changes — the id, dir and header stay put, so
 # the row can be restored if the delete fails.
-# Echoes the previous display text so the caller can undo it. Returns 1 if the
-# id isn't present.
+#
+# The previous display text is handed back in the global MARKED_ROW_BEFORE
+# rather than echoed. Echoing would force the caller into `$(...)`, and a
+# command substitution runs in a subshell: the array edit would be thrown away
+# with it and the row would never actually render as deleting. Returns 1 if
+# the id isn't present.
+MARKED_ROW_BEFORE=""
 _mark_session_deleting() {
     local target="$1"
     local i
+    MARKED_ROW_BEFORE=""
     for ((i = 0; i < ${#SESSION_IDS[@]}; i++)); do
         if [[ "${SESSION_IDS[$i]}" == "$target" ]]; then
-            local before="${SESSION_DISPLAYS[$i]}"
+            MARKED_ROW_BEFORE="${SESSION_DISPLAYS[$i]}"
             SESSION_DISPLAYS[i]=$(_compose_row \
                 "${NAV_C_DIM}⌫${NAV_C_NORMAL}" \
                 "${NAV_C_DIM}$(_session_label "$target") — deleting…${NAV_C_NORMAL}" \
                 "")
-            echo "$before"
             return 0
         fi
     done
@@ -1378,7 +1383,8 @@ main_loop() {
                         # Show the row as deleting before running the delete,
                         # so the list says what is happening rather than the
                         # row simply ceasing to exist.
-                        doomed_row=$(_mark_session_deleting "$doomed") || doomed_row=""
+                        _mark_session_deleting "$doomed" || true
+                        doomed_row="$MARKED_ROW_BEFORE"
                         render_list "$selected_index"
                         if execute_delete "$doomed"; then
                             # Take the row out of the list we already have
