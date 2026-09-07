@@ -1,10 +1,10 @@
 ---
 id: TASK-12
 title: CI が main で赤いまま — 幅テストが環境依存で落ちる
-status: Done
+status: To Do
 assignee: []
 created_date: '2026-08-02 07:46'
-updated_date: '2026-08-29 16:40'
+updated_date: '2026-09-07 06:16'
 labels:
   - bug
   - ci
@@ -49,6 +49,20 @@ ordinal: 12000
 対処の方向: TASK-12 を『幅テスト 1 件の修正』ではなく『tput 依存をテストから注入可能にする』として扱うべき。test_helper.bash 側で tput をスタブして固定サイズを与えれば、このクラスのフレーキーが一括で消える見込み。
 
 副次的に見つかった別件: tests/integration/test_display_snapshot.bats でも not ok 9-12 が出ることがある (Sessions / proj-alpha / unrecoverable の文字列が出力に現れない)。根本原因は同じ tput 依存と見られる。
+
+2026-09-07 再発。CI の Unit Tests ジョブでのみ 'build_session_list: header rule fills to the cap' が落ち続けている。Docker Tests は同じテストで通る。
+
+計測用の出力を仕込んで実値を取った (コミット 27600d8):
+  Unit Tests  : measured header byte length = 77   → 80 未満で失敗
+  Docker Tests: measured header byte length = 219  → 正常 (ローカルと同じ)
+
+つまり Unit Tests ジョブだけ content_width が小さく解決されている。TOWER_TERM_COLS=140 を渡すよう _run_nav を直したが (c87c56e)、それでも 77 のままなので、幅の決定が期待どおりに効いていない。
+
+77 バイトから逆算すると content_width は 32〜33 相当で、NAV_MIN_WIDTH=50 を下回る。50 のフロアが効いていれば最低でも 50 になるはずなので、SESSION_HEADERS[0] が罫線付きヘッダではなく別の内容になっている可能性が高い (グループ化の結果が Unit ジョブでだけ違う、など)。
+
+次にやること: テスト本体で content_width と SESSION_HEADERS[0] の中身そのものを CI に出力させ、77 の正体を確定させる。今回スニペット内に診断を差し込もうとしたが、bats のクォート入れ子で構文エラーになり断念した。別ファイルの一時テストとして書くのが確実。
+
+Docker で通ることから、実装ではなく Unit Tests ジョブの環境 (bats のバージョン、TERM、端末の有無) に依存する問題と見られる。
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
