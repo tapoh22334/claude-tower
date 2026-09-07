@@ -1,9 +1,10 @@
 ---
 id: TASK-19
 title: 新規セッションが、生成中も本来のプロジェクトグループに表示されるようにする
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-07 08:22'
+updated_date: '2026-09-07 08:39'
 labels: []
 dependencies: []
 ordinal: 19000

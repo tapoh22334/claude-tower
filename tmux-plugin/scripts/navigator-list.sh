@@ -268,6 +268,11 @@ build_session_list() {
         # produced output since it was last viewed becomes newmsg, shown by
         # the ✱ left icon like any other state. The right column is left to
         # the subagent count alone.
+        #
+        # busy and starting are deliberately not on this list. Neither can
+        # have unread output to report: busy is still producing it, and
+        # starting has no transcript to have produced any. starting also
+        # expires on its own, so it cannot strand a row that never updates.
         if [[ "$state" == "active" || "$state" == "dormant" || "$state" == "external" ]] &&
             is_session_unread "$session_id"; then
             state="newmsg"

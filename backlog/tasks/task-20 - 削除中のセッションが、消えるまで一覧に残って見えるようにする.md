@@ -1,9 +1,10 @@
 ---
 id: TASK-20
 title: 削除中のセッションが、消えるまで一覧に残って見えるようにする
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-09-07 08:22'
+updated_date: '2026-09-07 08:39'
 labels: []
 dependencies: []
 ordinal: 20000
