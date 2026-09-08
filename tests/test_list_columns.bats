@@ -114,6 +114,7 @@ _visible_width() {
         is_session_unread() { return 1; }
         count_unregistered_processes_in_dir() { echo 0; }
         build_session_list
+        echo "DIAG cw=$(_content_width) sdw=$(str_display_width alpha) max=$NAV_MAX_WIDTH cols=$(_term_cols) n=${#SESSION_HEADERS[@]}" >&2
         printf "%s" "${SESSION_HEADERS[0]}" | sed -E "s/\x1b\[[0-9;?]*[a-zA-Z]//g" | awk "{print length}"
     '
     [ "$status" -eq 0 ]
