@@ -34,16 +34,35 @@ readonly TOWER_LOG_FILE="${TOWER_LOG_DIR}/tower.log"
 # made rendering tests nondeterministic in a way that reads as flakiness
 # rather than failure: tests vanished mid-file instead of reporting a verdict.
 # TOWER_TERM_COLS/TOWER_TERM_LINES cover that case; 80x24 is the last resort.
+# A stated size wins over a measured one.
+#
+# These used to ask tput first and fall back to the variable only when it
+# could not answer, which made the override useless exactly where it matters:
+# on a machine where tput CAN answer, a caller that states its width is
+# silently overruled. That is why the header-rule test passed under Docker
+# (no tty, so the fallback applied) and failed on the GitHub runner (tty
+# present, so the stated 140 was ignored and the runner's own width measured)
+# — one commit, green and red at the same time, which reads as flakiness
+# rather than the bug it is. Production sets neither variable and still gets
+# tput; only a caller that has explicitly stated a size overrides it.
 _term_cols() {
+    if [[ -n "${TOWER_TERM_COLS:-}" ]]; then
+        echo "$TOWER_TERM_COLS"
+        return 0
+    fi
     local w
     w=$(tput cols 2>/dev/null) && [[ -n "$w" ]] && { echo "$w"; return 0; }
-    echo "${TOWER_TERM_COLS:-80}"
+    echo 80
 }
 
 _term_lines() {
+    if [[ -n "${TOWER_TERM_LINES:-}" ]]; then
+        echo "$TOWER_TERM_LINES"
+        return 0
+    fi
     local h
     h=$(tput lines 2>/dev/null) && [[ -n "$h" ]] && { echo "$h"; return 0; }
-    echo "${TOWER_TERM_LINES:-24}"
+    echo 24
 }
 
 # Store the calling script name for error messages
@@ -578,12 +597,20 @@ ensure_metadata_dir() {
 
 # Save session metadata (minimal registry: which sessions Tower manages).
 # All session facts (cwd, activity) are derived from Claude's transcripts.
+#
+# launch_dir is the one exception, and it is a hint rather than a fact: the
+# transcript stays authoritative, but it does not exist for the first seconds
+# after `claude --session-id` is sent. Without something to fall back on the
+# Navigator files a brand-new row under the unknown group and then moves it,
+# which is jarring at exactly the moment the user is watching for it.
 # Arguments:
 #   $1 - Session ID (with tower_ prefix)
 #   $2 - Optional display name
+#   $3 - Optional directory the session was started in
 save_metadata() {
     local session_id="$1"
     local session_name="${2:-}"
+    local launch_dir="${3:-}"
 
     ensure_metadata_dir
 
@@ -593,24 +620,31 @@ save_metadata() {
         if [[ -n "$session_name" ]]; then
             echo "session_name=${session_name}"
         fi
+        if [[ -n "$launch_dir" ]]; then
+            echo "launch_dir=${launch_dir}"
+        fi
         echo "created_at=$(date -Iseconds)"
     } >"$metadata_file"
 }
 
 # Load session metadata from file
-# Sets: META_SESSION_NAME, META_CREATED_AT. Unknown keys (old format) ignored.
+# Sets: META_SESSION_NAME, META_CREATED_AT, META_LAUNCH_DIR. Unknown keys
+# (old format) ignored; a file written before launch_dir existed simply leaves
+# META_LAUNCH_DIR empty.
 load_metadata() {
     local session_id="$1"
     local metadata_file="${TOWER_METADATA_DIR}/${session_id}.meta"
 
     META_SESSION_NAME=""
     META_CREATED_AT=""
+    META_LAUNCH_DIR=""
 
     if [[ -f "$metadata_file" ]]; then
         while IFS='=' read -r key value; do
             case "$key" in
                 session_name) META_SESSION_NAME="$value" ;;
                 created_at) META_CREATED_AT="$value" ;;
+                launch_dir) META_LAUNCH_DIR="$value" ;;
             esac
         done <"$metadata_file"
         return 0
@@ -878,6 +912,13 @@ readonly STATE_EXTERNAL="external"
 # of its own, not a separate mark: the left icon says all of dormant /
 # waiting / processing / new-message in one place.
 readonly STATE_NEWMSG="newmsg"
+# Transitional states. Neither is a property of the session so much as of an
+# operation in flight over it, and both exist so the list can say what is
+# happening instead of silently rearranging itself.
+#   starting - launched, but Claude has not written a transcript yet
+#   deleting - a delete is running against this row right now
+readonly STATE_STARTING="starting"
+readonly STATE_DELETING="deleting"
 
 readonly ICON_STATE_ACTIVE="▶"
 readonly ICON_STATE_DORMANT="○"
@@ -886,6 +927,8 @@ readonly ICON_STATE_DEAD="✗"
 readonly ICON_STATE_LOST="?"
 readonly ICON_STATE_EXTERNAL="◇"
 readonly ICON_STATE_NEWMSG="✱"
+readonly ICON_STATE_STARTING="◐"
+readonly ICON_STATE_DELETING="⌫"
 
 # Cheap 2-state check (active/dormant), for callers that don't need
 # busy-granularity. See get_display_state (claude-sessions.sh) for the
@@ -915,6 +958,13 @@ get_session_state() {
 }
 
 # Get state icon
+#
+# Used by the static views (tile, tail, session-list). The Navigator does NOT
+# call this: its busy rows carry a placeholder that the render loop swaps for
+# the current spinner frame every tick, so it composes icons inline instead.
+# ICON_STATE_BUSY is therefore the still-frame form of busy, seen only where
+# nothing is animating.
+#
 # Arguments:
 #   $1 - State string
 # Returns:
@@ -929,6 +979,8 @@ get_state_icon() {
         "lost") echo "$ICON_STATE_LOST" ;;
         "$STATE_EXTERNAL") echo "$ICON_STATE_EXTERNAL" ;;
         "$STATE_NEWMSG") echo "$ICON_STATE_NEWMSG" ;;
+        "$STATE_STARTING") echo "$ICON_STATE_STARTING" ;;
+        "$STATE_DELETING") echo "$ICON_STATE_DELETING" ;;
         *) echo "?" ;;
     esac
 }

@@ -81,3 +81,52 @@ teardown() {
     run start_claude_session "tower_${UUID_A}" "/nonexistent/dir/xyz" "new"
     [ "$status" -eq 1 ]
 }
+
+# A session Claude has been launched into but which has not yet written a
+# transcript. Without this it reads as plain "active", and its directory is
+# unknown, so the Navigator files the row under the unknown group and then
+# moves it once the transcript lands.
+
+@test "get_display_state: starting when tmux exists but transcript does not" {
+    MOCK_TMUX_HAS=1
+    create_mock_metadata "tower_${UUID_A}"
+    run get_display_state "tower_${UUID_A}"
+    [ "$output" = "starting" ]
+}
+
+@test "get_display_state: starting does not outlive the transcript" {
+    MOCK_TMUX_HAS=1
+    create_mock_jsonl "-home-user-proj" "$UUID_A" "$HOME" > /dev/null
+    create_mock_metadata "tower_${UUID_A}"
+    run get_display_state "tower_${UUID_A}"
+    [ "$output" != "starting" ]
+}
+
+@test "get_display_state: no tmux and no transcript is still lost, not starting" {
+    create_mock_metadata "tower_${UUID_A}"
+    run get_display_state "tower_${UUID_A}"
+    [ "$output" = "lost" ]
+}
+
+# "starting" has to expire. A session whose transcript Claude has since
+# garbage-collected still has its tmux session, and so does one where claude
+# failed to launch at all — both would otherwise sit at "starting…" forever,
+# which is a worse lie than the plain "active" this replaced.
+
+@test "get_display_state: starting expires into active for an old session" {
+    MOCK_TMUX_HAS=1
+    cat > "${CLAUDE_TOWER_METADATA_DIR}/tower_${UUID_A}.meta" << 'META'
+created_at=2020-01-01T00:00:00+00:00
+META
+    run get_display_state "tower_${UUID_A}"
+    [ "$output" = "active" ]
+}
+
+@test "get_display_state: starting survives when created_at is unreadable" {
+    MOCK_TMUX_HAS=1
+    cat > "${CLAUDE_TOWER_METADATA_DIR}/tower_${UUID_A}.meta" << 'META'
+created_at=not-a-date
+META
+    run get_display_state "tower_${UUID_A}"
+    [ "$output" = "starting" ]
+}

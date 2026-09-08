@@ -110,3 +110,115 @@ _lengths() {
     [ "$status" -eq 0 ]
     [ "$(get_nav_selected)" = "" ]
 }
+
+# ----------------------------------------------------------------------------
+# Marking a row as deleting, rather than dropping it the instant D is pressed.
+# The delete itself is synchronous, but the row vanishing with no trace left
+# the user unable to tell a delete from a mis-keyed cursor move.
+# ----------------------------------------------------------------------------
+
+@test "mark deleting: replaces the row's display, keeps it in the list" {
+    _mark_session_deleting tower_b
+    [ "${#SESSION_IDS[@]}" -eq 4 ]
+    [ "${SESSION_IDS[1]}" = "tower_b" ]
+    [ "${SESSION_DISPLAYS[1]}" != "row b" ]
+}
+
+@test "mark deleting: the four arrays stay the same length" {
+    _mark_session_deleting tower_c
+    [ "$(_lengths)" = "4 4 4 4" ]
+}
+
+@test "mark deleting: leaves the row's directory and header alone" {
+    _mark_session_deleting tower_c
+    [ "${SESSION_DIRS[2]}" = "/p/two" ]
+    [ "${SESSION_HEADERS[2]}" = "two ───" ]
+}
+
+@test "mark deleting: other rows are untouched" {
+    _mark_session_deleting tower_b
+    [ "${SESSION_DISPLAYS[0]}" = "row a" ]
+    [ "${SESSION_DISPLAYS[2]}" = "row c" ]
+    [ "${SESSION_DISPLAYS[3]}" = "row d" ]
+}
+
+@test "mark deleting: an unknown id changes nothing and reports failure" {
+    run _mark_session_deleting tower_nope
+    [ "$status" -ne 0 ]
+}
+
+@test "mark deleting: hands back the previous display in a global" {
+    _mark_session_deleting tower_b
+    [ "$MARKED_ROW_BEFORE" = "row b" ]
+}
+
+@test "mark deleting: a failed delete can restore the original row" {
+    _mark_session_deleting tower_b
+    _restore_session_row tower_b "$MARKED_ROW_BEFORE"
+    [ "${SESSION_DISPLAYS[1]}" = "row b" ]
+    [ "${#SESSION_IDS[@]}" -eq 4 ]
+}
+
+# The mark must survive being taken the way the key handler takes it. An
+# earlier version echoed the previous display instead, which forced the caller
+# into $(...) — a subshell, so the array edit was discarded and the row never
+# rendered as deleting at all. The unit tests above all passed regardless,
+# because they call the function directly.
+@test "mark deleting: the edit survives how the D handler reads it back" {
+    _mark_session_deleting tower_b || true
+    local taken="$MARKED_ROW_BEFORE"
+    [ "$taken" = "row b" ]
+    [ "${SESSION_DISPLAYS[1]}" != "row b" ]
+}
+
+# ---------------------------------------------------------------------------
+# Adding a row optimistically
+#
+# n/f/N used to select the new session and then hand the index back through
+# get_selection_index, which searches the arrays. The new row was not in them
+# yet, so the search fell through to its "not found" default of 0 and the
+# cursor jumped to the top of the list — away from the session the user had
+# just created. Putting the row in first is what keeps the selection where the
+# user is looking.
+
+@test "remember row: a new session lands in the list immediately" {
+    _remember_session_row tower_new "/p/three"
+    [[ " ${SESSION_IDS[*]} " == *" tower_new "* ]]
+    [ "${#SESSION_IDS[@]}" -eq 5 ]
+}
+
+@test "remember row: the four arrays stay the same length" {
+    _remember_session_row tower_new "/p/three"
+    [ "$(_lengths)" = "5 5 5 5" ]
+}
+
+@test "remember row: an id already present is not duplicated" {
+    run _remember_session_row tower_b "/p/one"
+    [ "$status" -ne 0 ]
+    [ "${#SESSION_IDS[@]}" -eq 4 ]
+}
+
+@test "remember row: the new row can be found by the selection lookup" {
+    _remember_session_row tower_new "/p/three"
+    set_nav_selected tower_new
+    local idx
+    idx=$(get_selection_index)
+    [ "${SESSION_IDS[$idx]}" = "tower_new" ]
+}
+
+# The bug this pins: without the row present, get_selection_index returns its
+# not-found default and the cursor silently moves to row 0.
+@test "remember row: without it the selection lookup loses the new session" {
+    set_nav_selected tower_never_added
+    local idx
+    idx=$(get_selection_index)
+    [ "$idx" -eq 0 ]
+    [ "${SESSION_IDS[$idx]}" != "tower_never_added" ]
+}
+
+@test "optimistic edits bump the generation so a racing rebuild is dropped" {
+    local before="$LIST_GENERATION"
+    _forget_session_row tower_b
+    _bump_list_generation
+    [ "$LIST_GENERATION" -ne "$before" ]
+}

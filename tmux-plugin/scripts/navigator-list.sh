@@ -204,11 +204,28 @@ _strip_ansi_str() {
     printf '%s' "$out$s"
 }
 
-# Project dir of a session ("" when unknown)
+# Project dir of a session ("" when unknown).
+#
+# The transcript is the authority — it is where the session actually is, and
+# it keeps up if the session outlives the directory it was launched from. But
+# it does not exist for the first seconds of a new session, and a row with no
+# directory lands in the unknown group at the bottom of the list only to jump
+# to its real project once the transcript appears. So fall back to the launch
+# dir recorded at registration, and only for as long as the transcript has
+# nothing to say.
 _session_dir() {
-    local claude_id="${1#tower_}" jsonl
-    jsonl=$(find_session_jsonl "$claude_id" 2>/dev/null) || { echo ""; return 0; }
-    get_session_cwd "$jsonl" 2>/dev/null || echo ""
+    local session_id="$1" claude_id="${1#tower_}" jsonl cwd=""
+    # `local` on the META_* names: load_metadata assigns them unconditionally,
+    # and this runs mid-loop in build_session_list, so leaking them would let
+    # one row's directory lookup overwrite another row's loaded name.
+    local META_SESSION_NAME="" META_CREATED_AT="" META_LAUNCH_DIR=""
+    if jsonl=$(find_session_jsonl "$claude_id" 2>/dev/null); then
+        cwd=$(get_session_cwd "$jsonl" 2>/dev/null) || cwd=""
+    fi
+    if [[ -z "$cwd" ]] && load_metadata "$session_id" 2>/dev/null; then
+        cwd="$META_LAUNCH_DIR"
+    fi
+    echo "$cwd"
 }
 
 # Build session list: normal states first, broken (dead/lost) last.
@@ -251,6 +268,11 @@ build_session_list() {
         # produced output since it was last viewed becomes newmsg, shown by
         # the ✱ left icon like any other state. The right column is left to
         # the subagent count alone.
+        #
+        # busy and starting are deliberately not on this list. Neither can
+        # have unread output to report: busy is still producing it, and
+        # starting has no transcript to have produced any. starting also
+        # expires on its own, so it cannot strand a row that never updates.
         if [[ "$state" == "active" || "$state" == "dormant" || "$state" == "external" ]] &&
             is_session_unread "$session_id"; then
             state="newmsg"
@@ -269,6 +291,13 @@ build_session_list() {
         dir=$(_session_dir "$session_id")
         case "$state" in
             busy)    icon="${NAV_C_ACCENT}${SPIN_PLACEHOLDER}${NAV_C_NORMAL}" ;;
+            starting)
+                # Claude is launching and has written nothing yet, so there is
+                # no title to show. Say so rather than showing a bare short id
+                # that looks like an ordinary row.
+                icon="${NAV_C_DIM}${ICON_STATE_STARTING}${NAV_C_NORMAL}"
+                label="${NAV_C_DIM}${label} — starting…${NAV_C_NORMAL}"
+                ;;
             newmsg)  icon="${NAV_C_ACCENT}✱${NAV_C_NORMAL}" ;;
             active)  icon="${NAV_C_ACTIVE}▶${NAV_C_NORMAL}" ;;
             external) icon="${NAV_C_EXTERNAL}◇${NAV_C_NORMAL}" ;;
@@ -395,6 +424,70 @@ _session_cache_file() {
     echo "${TOWER_NAV_STATE_DIR:-/tmp/claude-tower}/session-list.cache"
 }
 
+# Generation guard for optimistic edits.
+#
+# A rebuild runs in a subshell for seconds, then publishes what it found. If
+# the user deleted a row while it was running, that snapshot still contains
+# the row — publishing it puts the row back into the cache, and the next
+# refresh tick loads it into the arrays. The row the user watched disappear
+# returns a couple of seconds later, then leaves again once a newer rebuild
+# lands. From the outside the list simply lies.
+#
+# Every optimistic edit bumps the generation. A rebuild carries the generation
+# it began with and may only publish while that is still current. A rebuild
+# that raced an edit is dropped: the optimistic arrays already hold the right
+# answer, and the forced rebuild that _settle_after_change kicks off will
+# produce a fresh snapshot shortly.
+# The counter lives in a file, not just a variable: the rebuild runs in a
+# background subshell, which gets a frozen copy of every variable at fork
+# time. A bump in the parent would be invisible to it, which is precisely the
+# race being closed. The file is read fresh at publish time instead.
+LIST_GENERATION=0
+
+_generation_file() {
+    echo "${TOWER_NAV_STATE_DIR:-/tmp/claude-tower}/session-list.generation"
+}
+
+_bump_list_generation() {
+    LIST_GENERATION=$((LIST_GENERATION + 1))
+    local f
+    f=$(_generation_file)
+    mkdir -p "$(dirname "$f")" 2>/dev/null || true
+    printf '%s\n' "$LIST_GENERATION" >"$f" 2>/dev/null || true
+}
+
+# The generation as it stands on disk, which is what a forked rebuild must
+# compare against. Falls back to the in-process value when the file is not
+# readable, so a broken state dir degrades to the old behaviour rather than
+# refusing every publish.
+_current_generation() {
+    local f val
+    f=$(_generation_file)
+    if [[ -r "$f" ]] && read -r val <"$f" 2>/dev/null && [[ -n "$val" ]]; then
+        echo "$val"
+        return
+    fi
+    echo "$LIST_GENERATION"
+}
+
+# 0 if $1 is still the current generation (nothing changed underneath).
+_generation_is_current() {
+    [[ "${1:-}" == "$(_current_generation)" ]]
+}
+
+# Write the current arrays to the cache, but only if generation $1 still
+# holds. Returns 1 when the write was refused as stale.
+_publish_rebuild() {
+    local started_at="${1:-}"
+    _generation_is_current "$started_at" || return 1
+    local cache tmp
+    cache=$(_session_cache_file)
+    tmp="${cache}.$$"
+    _serialize_session_state >"$tmp" 2>/dev/null && mv -f "$tmp" "$cache" 2>/dev/null
+    rm -f "$tmp" 2>/dev/null
+    return 0
+}
+
 # Serialize the current arrays to stdout. One row per line, fields quoted with
 # printf %q so ANSI escapes, spaces and the em-dash survive a round-trip. A
 # leading meta line carries BROKEN_START; each row line is idx-agnostic.
@@ -488,14 +581,14 @@ _spawn_background_rebuild() {
         return
     fi
     _REBUILD_DONE_AT=0
-    local cache tmp
-    cache=$(_session_cache_file)
-    tmp="${cache}.$$"
+    local started_at
+    started_at=$(_current_generation)
     (
         # Subshell: build_session_list mutates only this copy of the arrays.
+        # The publish is refused if an optimistic edit landed while we built,
+        # so a pre-edit snapshot can never overwrite what the user just saw.
         build_session_list
-        _serialize_session_state >"$tmp" 2>/dev/null && mv -f "$tmp" "$cache" 2>/dev/null
-        rm -f "$tmp" 2>/dev/null
+        _publish_rebuild "$started_at"
     ) >/dev/null 2>&1 &
     _REBUILD_PID=$!
 }
@@ -557,11 +650,110 @@ _forget_session_row() {
     return 0
 }
 
+# Replace the row for $1 with a dimmed "deleting" version, leaving it in
+# place. The delete is fast, but "fast" and "instant" are not the same thing:
+# dropping the row the moment D is pressed left nothing on screen to say a
+# delete had happened at all, so a delete and a mis-keyed cursor move looked
+# identical. Only the display changes — the id, dir and header stay put, so
+# the row can be restored if the delete fails.
+#
+# The previous display text is handed back in the global MARKED_ROW_BEFORE
+# rather than echoed. Echoing would force the caller into `$(...)`, and a
+# command substitution runs in a subshell: the array edit would be thrown away
+# with it and the row would never actually render as deleting. Returns 1 if
+# the id isn't present.
+MARKED_ROW_BEFORE=""
+_mark_session_deleting() {
+    local target="$1"
+    local i
+    MARKED_ROW_BEFORE=""
+    for ((i = 0; i < ${#SESSION_IDS[@]}; i++)); do
+        if [[ "${SESSION_IDS[$i]}" == "$target" ]]; then
+            MARKED_ROW_BEFORE="${SESSION_DISPLAYS[$i]}"
+            SESSION_DISPLAYS[i]=$(_compose_row \
+                "${NAV_C_DIM}${ICON_STATE_DELETING}${NAV_C_NORMAL}" \
+                "${NAV_C_DIM}$(_session_label "$target") — deleting…${NAV_C_NORMAL}" \
+                "")
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Put a freshly created session into the list right away, as a "starting"
+# row. n/f/N register a session and select it, but the arrays are only
+# refreshed by the background rebuild — so for a second or two the list did
+# not contain the row at all. Two things went wrong from that. The row the
+# user just made was invisible, and worse, get_selection_index could not find
+# the selected id and fell back to its not-found default of 0, so the cursor
+# silently jumped to the top of the list.
+#
+# The row is appended rather than sorted into its project group: the rebuild
+# that follows places it properly, and guessing the group here would need the
+# same expensive scan the rebuild is already doing. Starting (◐) is the honest
+# icon — the session exists but has not written a transcript yet, so its real
+# state is not knowable at this instant.
+#
+# Returns 1 if the id is already present, so a caller cannot double-add.
+_remember_session_row() {
+    local id="$1" dir="${2:-}"
+    local i
+    for ((i = 0; i < ${#SESSION_IDS[@]}; i++)); do
+        [[ "${SESSION_IDS[$i]}" == "$id" ]] && return 1
+    done
+    SESSION_IDS+=("$id")
+    SESSION_DISPLAYS+=("$(_compose_row \
+        "${NAV_C_DIM}${ICON_STATE_STARTING}${NAV_C_NORMAL}" \
+        "$(_session_label "$id")" \
+        "")")
+    SESSION_DIRS+=("$dir")
+    SESSION_HEADERS+=("")
+    return 0
+}
+
+# Re-draw an existing row as "starting" (◐). Restoring a session used to show
+# nothing at all until the next rebuild landed, so pressing r looked like it
+# had done nothing for a second or two. The session is genuinely starting at
+# this point — it has been launched but has not written a transcript yet — so
+# this is the same honest state a brand-new session gets. Returns 1 if the id
+# isn't present.
+_mark_session_starting() {
+    local target="$1"
+    local i
+    for ((i = 0; i < ${#SESSION_IDS[@]}; i++)); do
+        if [[ "${SESSION_IDS[$i]}" == "$target" ]]; then
+            SESSION_DISPLAYS[i]=$(_compose_row \
+                "${NAV_C_DIM}${ICON_STATE_STARTING}${NAV_C_NORMAL}" \
+                "$(_session_label "$target")" \
+                "")
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Put back the display text _mark_session_deleting replaced, for when the
+# delete fails and the session is still there.
+_restore_session_row() {
+    local target="$1" before="$2"
+    local i
+    for ((i = 0; i < ${#SESSION_IDS[@]}; i++)); do
+        if [[ "${SESSION_IDS[$i]}" == "$target" ]]; then
+            SESSION_DISPLAYS[i]="$before"
+            return 0
+        fi
+    done
+    return 1
+}
+
 # Redraw now, then let the background rebuild reconcile. Callers pass the
 # index they want the cursor left on; it is clamped to the list.
 _settle_after_change() {
     local want="${1:-0}"
     local n=${#SESSION_IDS[@]}
+    # Every caller has just changed the list optimistically. Bump first, so a
+    # rebuild that started before the change cannot publish over it.
+    _bump_list_generation
     ((want < 0)) && want=0
     ((n > 0 && want >= n)) && want=$((n - 1))
     if ((n > 0)); then
@@ -906,6 +1098,10 @@ add_session_inline() {
     if [[ -n "$new_id" ]]; then
         set_nav_selected "$new_id"
         signal_view_update
+        # Seat the row now: without it the list has no entry for the session
+        # the user just made, so it stays invisible until the next rebuild and
+        # the selection lookup cannot find it.
+        _remember_session_row "$new_id" "$(get_caller_cwd)" || true
     fi
 }
 
@@ -929,6 +1125,7 @@ fork_session_here() {
     if [[ -n "$new_id" ]]; then
         set_nav_selected "$new_id"
         signal_view_update
+        _remember_session_row "$new_id" "$dir" || true
     fi
 }
 
@@ -940,6 +1137,9 @@ new_session_pick_dir() {
     if [[ -n "$new_id" ]]; then
         set_nav_selected "$new_id"
         signal_view_update
+        # The picker chose the directory; the rebuild will fill in the real
+        # one, so an empty dir here only costs this row its group for a tick.
+        _remember_session_row "$new_id" "" || true
     fi
 }
 
@@ -955,15 +1155,11 @@ get_caller_cwd() {
     echo "${cwd:-$HOME}"
 }
 
-# Delete selected session
-delete_selected() {
-    local selected
-    selected=$(get_nav_selected)
-
-    if [[ -z "$selected" ]]; then
-        return
-    fi
-
+# Ask whether to delete the selected session. Prompt only — no deletion
+# happens here, so the caller can mark the row as deleting and repaint before
+# committing to it. 0 = go ahead, 1 = cancelled (declined or timed out).
+confirm_delete_selected() {
+    local selected="$1"
     local name="${selected#tower_}"
     local term_height
     term_height=$(_term_lines)
@@ -980,31 +1176,58 @@ delete_selected() {
         echo -e "│ ${NAV_C_DIM}Cancelled (timeout)${NAV_C_NORMAL}"
         echo -e "${NAV_C_HEADER}└─────────────────────────┘${NAV_C_NORMAL}"
         sleep 0.5
-        return
+        return 1
     fi
     echo ""
 
-    local rc=1
     if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
-        echo -e "│ ${NAV_C_DIM}Deleting...${NAV_C_NORMAL}"
-        if TOWER_QUIET_ERRORS=1 "$SCRIPT_DIR/session-delete.sh" "$selected" --force 2>/dev/null; then
-            echo -e "│ ${NAV_C_ACCENT}✓${NAV_C_NORMAL} Deleted"
-            rc=0
-        else
-            # Hold this one: a failure the user misses leaves them thinking
-            # the session went away when it did not.
-            echo -e "│ ${NAV_C_ERROR}✗${NAV_C_NORMAL} Delete failed"
-            echo -e "${NAV_C_HEADER}└─────────────────────────┘${NAV_C_NORMAL}"
-            sleep 0.8
-            return 1
-        fi
-    else
-        echo -e "│ ${NAV_C_DIM}Cancelled${NAV_C_NORMAL}"
+        # Close the box here too: the caller repaints the list next, and
+        # leaving the frame open would strand a dangling edge on screen for
+        # anyone whose terminal draws it before the repaint lands.
+        echo -e "${NAV_C_HEADER}└─────────────────────────┘${NAV_C_NORMAL}"
+        return 0
     fi
+    echo -e "│ ${NAV_C_DIM}Cancelled${NAV_C_NORMAL}"
     echo -e "${NAV_C_HEADER}└─────────────────────────┘${NAV_C_NORMAL}"
-    # No pause on the success path — the row is about to vanish from the list,
-    # which is the confirmation. Waiting here only delays the next keystroke.
-    return $rc
+    return 1
+}
+
+# Run the delete for an already-confirmed session, reporting the outcome in a
+# box of its own.
+#
+# It draws its own box rather than closing the confirmation one, because the
+# caller repaints the list in between (to show the row as deleting) and that
+# repaint runs over whatever the confirmation left on screen. Positioning from
+# scratch here is what keeps the result legible either way.
+execute_delete() {
+    local selected="$1"
+    local term_height
+    term_height=$(_term_lines)
+    tput cup "$((term_height - 3))" 0 2>/dev/null || true
+    if TOWER_QUIET_ERRORS=1 "$SCRIPT_DIR/session-delete.sh" "$selected" --force 2>/dev/null; then
+        echo -e "${NAV_C_HEADER}┌─────────────────────────┐${NAV_C_NORMAL}"
+        echo -e "│ ${NAV_C_ACCENT}✓${NAV_C_NORMAL} Deleted"
+        echo -e "${NAV_C_HEADER}└─────────────────────────┘${NAV_C_NORMAL}"
+        # No pause on the success path — the row vanishing from the list is
+        # the confirmation. Waiting only delays the next keystroke.
+        return 0
+    fi
+    # Hold this one: a failure the user misses leaves them thinking the
+    # session went away when it did not.
+    echo -e "${NAV_C_HEADER}┌─────────────────────────┐${NAV_C_NORMAL}"
+    echo -e "│ ${NAV_C_ERROR}✗${NAV_C_NORMAL} Delete failed"
+    echo -e "${NAV_C_HEADER}└─────────────────────────┘${NAV_C_NORMAL}"
+    sleep 0.8
+    return 1
+}
+
+# Confirm and delete in one step, for callers with no list to mark up.
+delete_selected() {
+    local selected
+    selected=$(get_nav_selected)
+    [[ -n "$selected" ]] || return 1
+    confirm_delete_selected "$selected" || return 1
+    execute_delete "$selected"
 }
 
 # Restore selected session (idempotent)
@@ -1053,8 +1276,11 @@ restore_selected() {
     if "$SCRIPT_DIR/session-restore.sh" "$selected" 2>/dev/null; then
         echo "  ${NAV_C_ACCENT}✓${NAV_C_NORMAL} Restored: ${selected#tower_}"
         signal_view_update
-        # No pause: the row turning from ○ to ▶ is the confirmation, and it
-        # arrives on the next tick without holding the key loop here.
+        # Show it as starting straight away rather than leaving the row at ○
+        # until the rebuild lands: every other action answers immediately, and
+        # a restore that looks inert is the one most likely to be pressed
+        # twice. No pause — the mark is the confirmation.
+        _mark_session_starting "$selected" || true
         return 0
     fi
     echo "  ${NAV_C_ERROR}✗${NAV_C_NORMAL} Failed to restore"
@@ -1157,15 +1383,28 @@ quit_navigator() {
 
 # Hand the screen back to the list after an interactive sub-flow (fzf, a
 # y/n prompt, session-add) has drawn over it.
+# The full return-from-sub-flow sequence, in the one order that is correct.
 #
-# This used to be `clear`, which blanks the whole screen and leaves it blank
-# until the next render_list — a visible flash on every n/f/N/D/r. It isn't
-# needed: render_list homes the cursor, writes every line with a clear-to-
-# end-of-line, and finishes with clear-to-end-of-screen, so it overwrites
-# whatever the sub-flow left behind. All that's required is to invalidate
-# the cached width (the sub-flow may have resized things) and let the loop
-# draw the next frame.
-_repaint_after_subflow() {
+# Every interactive sub-flow (a picker, a y/n prompt, the help screen) leaves
+# three things wrong behind it: keys the user typed while it was busy are
+# sitting in the input buffer, echo is back on because the sub-flow re-enabled
+# it, and the terminal may have been resized while another program owned the
+# screen. Each handler used to fix some subset of those in its own order — the
+# restore key flushed nothing, so a stray keypress during a restore was acted
+# on afterwards, and the help screen never dropped the width cache. Doing all
+# three in one place is what stops the next sub-flow from inheriting a
+# different set of leftovers.
+#
+# Note there is no `clear` here. Clearing blanks the screen until the next
+# render_list — a visible flash on every n/f/N/D/r — and is not needed:
+# render_list homes the cursor, writes every line with a clear-to-end-of-line
+# and finishes with clear-to-end-of-screen, so it overwrites whatever the
+# sub-flow left behind. Dropping the cached width is all the redraw needs.
+_return_from_subflow() {
+    # Drop anything typed while the sub-flow held the screen. -t 0.01 makes
+    # this a drain, not a wait.
+    read -rsn100 -t 0.01 _ 2>/dev/null || true
+    nav_echo_off
     _reset_width_cache
 }
 
@@ -1231,7 +1470,7 @@ main_loop() {
         # Wait for input with timeout (short tick so the spinner turns).
         # nav_read_key guards against the orphaned-terminal busy-loop: rc 2
         # means the pane is gone and we must exit rather than spin forever.
-        local key="" read_rc=0 doomed=""
+        local key="" read_rc=0 doomed="" doomed_row=""
         nav_read_key key "$TICK_INTERVAL" || read_rc=$?
         [[ $read_rc -eq 2 ]] && exit 0
         if [[ $read_rc -eq 0 ]]; then
@@ -1271,59 +1510,57 @@ main_loop() {
                     ;;
                 n)
                     add_session_inline
-                    # Flush input buffer and restore terminal state
-                    read -rsn100 -t 0.01 _ 2>/dev/null || true
-                    nav_echo_off
-                    # Draw from what we have and let the background rebuild
-                    # bring the new row in on the next tick. Rebuilding here
-                    # would hold the key loop for over a second right after a
-                    # picker already took the screen.
+                    _return_from_subflow
+                    # The row is already in the arrays (the sub-flow seated
+                    # it), so the selection lookup finds the new session and
+                    # the cursor stays on it. The background rebuild replaces
+                    # the placeholder row with the real one.
                     selected_index=$(_settle_after_change "$(get_selection_index)")
-                    _repaint_after_subflow
                     ;;
                 f)
                     fork_session_here
-                    # Flush input buffer and restore terminal state
-                    read -rsn100 -t 0.01 _ 2>/dev/null || true
-                    nav_echo_off
-                    # Draw from what we have and let the background rebuild
-                    # bring the new row in on the next tick. Rebuilding here
-                    # would hold the key loop for over a second right after a
-                    # picker already took the screen.
+                    _return_from_subflow
+                    # The row is already in the arrays (the sub-flow seated
+                    # it), so the selection lookup finds the new session and
+                    # the cursor stays on it. The background rebuild replaces
+                    # the placeholder row with the real one.
                     selected_index=$(_settle_after_change "$(get_selection_index)")
-                    _repaint_after_subflow
                     ;;
                 N)
                     new_session_pick_dir
-                    # Flush input buffer and restore terminal state
-                    read -rsn100 -t 0.01 _ 2>/dev/null || true
-                    nav_echo_off
-                    # Draw from what we have and let the background rebuild
-                    # bring the new row in on the next tick. Rebuilding here
-                    # would hold the key loop for over a second right after a
-                    # picker already took the screen.
+                    _return_from_subflow
+                    # The row is already in the arrays (the sub-flow seated
+                    # it), so the selection lookup finds the new session and
+                    # the cursor stays on it. The background rebuild replaces
+                    # the placeholder row with the real one.
                     selected_index=$(_settle_after_change "$(get_selection_index)")
-                    _repaint_after_subflow
                     ;;
                 D)
                     doomed=$(get_nav_selected)
-                    if delete_selected; then
-                        # Take the row out of the list we already have instead
-                        # of rebuilding: the rebuild costs over a second, and
-                        # for a delete we know exactly what changed.
-                        _forget_session_row "$doomed" || true
+                    if [[ -n "$doomed" ]] && confirm_delete_selected "$doomed"; then
+                        # Show the row as deleting before running the delete,
+                        # so the list says what is happening rather than the
+                        # row simply ceasing to exist.
+                        _mark_session_deleting "$doomed" || true
+                        doomed_row="$MARKED_ROW_BEFORE"
+                        render_list "$selected_index"
+                        if execute_delete "$doomed"; then
+                            # Take the row out of the list we already have
+                            # instead of rebuilding: the rebuild costs over a
+                            # second, and for a delete we know what changed.
+                            _forget_session_row "$doomed" || true
+                        elif [[ -n "$doomed_row" ]]; then
+                            _restore_session_row "$doomed" "$doomed_row" || true
+                        fi
                         selected_index=$(_settle_after_change "$selected_index")
                     fi
-                    # Flush input buffer and restore terminal state
-                    read -rsn100 -t 0.01 _ 2>/dev/null || true
-                    nav_echo_off
-                    _repaint_after_subflow
+                    _return_from_subflow
                     ;;
                 r)
                     # Restore selected dormant session
                     restore_selected || true
+                    _return_from_subflow
                     selected_index=$(_settle_after_change "$selected_index")
-                    _repaint_after_subflow
                     ;;
                 $'\t') # Tab key
                     switch_to_tile
@@ -1336,8 +1573,7 @@ main_loop() {
                     ;;
                 '?')
                     show_help
-                    # Flush input buffer after help
-                    read -rsn100 -t 0.01 _ 2>/dev/null || true
+                    _return_from_subflow
                     ;;
                 q | Q)
                     quit_navigator

@@ -37,7 +37,6 @@ tmux the user was already working in.
 │     │ ─────────────   │                                     │  │
 │     │ j/k: navigate   │ Input directly to session           │  │
 │     │ i: focus right  │ Esc: back to list                   │  │
-│     │ a: full attach  │                                     │  │
 │     │ q: quit         │                                     │  │
 │     └─────────────────┴─────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
@@ -158,26 +157,6 @@ User presses: i (input mode)
 │    - prefix + arrow to list     │
 │    - j/k triggers focus:list    │
 │    - View re-attaches with -r   │
-└─────────────────────────────────┘
-```
-
-### Full Attach (a key)
-
-```
-User presses: a (full attach)
-         │
-         ▼
-┌─────────────────────────────────┐
-│ 1. Kill Navigator session       │
-│    tmux -L claude-tower         │
-│    kill-session -t navigator    │
-└─────────────────────────────────┘
-         │
-         ▼
-┌─────────────────────────────────┐
-│ 2. Attach to selected session   │
-│    on the session server         │
-│    tmux attach -t tower_api     │
 └─────────────────────────────────┘
 ```
 

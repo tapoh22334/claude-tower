@@ -59,9 +59,14 @@ teardown() {
 
 # The mock transcript's user line carries no content and the test history
 # has no entry, so the title falls back to the short id in the two tests
-# below — the point is the " (name)" suffix behavior.
+# below — the point is how a registry name is combined with it.
+#
+# The name leads: it is the user's own words for the session, so the label
+# reads "name — title" rather than hanging the name off the end in parens.
+# This pinned the old parenthesised form until 93242dc changed the format and
+# left the test behind.
 
-@test "_session_label: appends registry name in parens when metadata has one" {
+@test "_session_label: leads with the registry name when metadata has one" {
     source "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh" 2>/dev/null || true
 
     local uuid="55555555-5555-4555-8555-555555555555"
@@ -70,7 +75,7 @@ teardown() {
 
     run _session_label "tower_${uuid}"
     [ "$status" -eq 0 ]
-    [ "$output" = "${uuid:0:7} (my-alias)" ]
+    [ "$output" = "my-alias — ${uuid:0:7}" ]
 }
 
 @test "_session_label: no name suffix when metadata exists but has no session_name" {
@@ -94,11 +99,12 @@ teardown() {
 @test "render_list: frame with separator and truncation fits terminal height" {
     source "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh" 2>/dev/null || true
 
-    # Stub terminal: 12 lines tall; fail other capability queries so
-    # render_list takes its printf fallbacks.
-    tput() {
-        if [[ "$1" == "lines" ]]; then echo 12; else return 1; fi
-    }
+    # State the terminal as 12 lines tall, and fail other capability queries
+    # so render_list takes its printf fallbacks. The height goes through
+    # TOWER_TERM_LINES rather than a tput stub: a stated size is what
+    # _term_lines honours, and a stub is only consulted when none is stated.
+    TOWER_TERM_LINES=12
+    tput() { return 1; }
 
     SESSION_IDS=()
     SESSION_DISPLAYS=()
@@ -297,9 +303,18 @@ EOF
 
     build_session_list
 
-    [[ "${SESSION_DISPLAYS[0]}" == *"$SPIN_PLACEHOLDER"* ]]
+    # Match by session, not by row index: the rows are grouped and sorted by
+    # project, so pinning [0] and [1] here made this test a hostage to the
+    # ordering rules rather than to the icons it means to check.
+    local busy_row="" done_row="" row
+    for row in "${SESSION_DISPLAYS[@]}"; do
+        [[ "$row" == *"${uuid_busy:0:7}"* ]] && busy_row="$row"
+        [[ "$row" == *"${uuid_done:0:7}"* ]] && done_row="$row"
+    done
+
+    [[ "$busy_row" == *"$SPIN_PLACEHOLDER"* ]]
     # Unread is now a state (✱ left icon), not a right-column mark.
-    [[ "${SESSION_DISPLAYS[1]}" == *"✱"* ]]
+    [[ "$done_row" == *"✱"* ]]
 }
 
 @test "build_session_list: selected session is marked seen, so it stays active not newmsg" {
@@ -321,4 +336,51 @@ EOF
     # Seen -> stays ▶ active, never promoted to the ✱ newmsg state.
     [[ "${SESSION_DISPLAYS[0]}" == *"▶"* ]]
     [[ "${SESSION_DISPLAYS[0]}" != *"✱"* ]]
+}
+
+# ============================================================================
+# _session_dir() — navigator-list.sh
+# The transcript is the authority for a session's directory, but it does not
+# exist for the first seconds after Claude is launched. Without a fallback the
+# row is filed under the unknown group and then jumps to its real project.
+# ============================================================================
+
+@test "_session_dir: uses the transcript cwd when there is one" {
+    source "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh" 2>/dev/null || true
+
+    local uuid="55555555-5555-4555-8555-555555555555"
+    create_mock_jsonl "myproj" "$uuid" "/home/user/projects/myproj"
+
+    run _session_dir "tower_${uuid}"
+    [ "$output" = "/home/user/projects/myproj" ]
+}
+
+@test "_session_dir: falls back to the recorded launch dir before a transcript" {
+    source "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh" 2>/dev/null || true
+
+    local uuid="66666666-6666-4666-8666-666666666666"
+    # No transcript yet — exactly the state right after `claude --session-id`.
+    save_metadata "tower_${uuid}" "" "/home/user/projects/fresh"
+
+    run _session_dir "tower_${uuid}"
+    [ "$output" = "/home/user/projects/fresh" ]
+}
+
+@test "_session_dir: the transcript wins over a stale launch dir" {
+    source "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh" 2>/dev/null || true
+
+    local uuid="77777777-7777-4777-8777-777777777777"
+    create_mock_jsonl "myproj" "$uuid" "/home/user/projects/real"
+    save_metadata "tower_${uuid}" "" "/home/user/projects/stale"
+
+    run _session_dir "tower_${uuid}"
+    [ "$output" = "/home/user/projects/real" ]
+}
+
+@test "_session_dir: still empty when neither source knows" {
+    source "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh" 2>/dev/null || true
+
+    run _session_dir "tower_88888888-8888-4888-8888-888888888888"
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
 }

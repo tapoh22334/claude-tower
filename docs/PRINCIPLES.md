@@ -23,8 +23,8 @@ breaking change and belongs in the README.
 ### V. Simplicity and Performance
 Start simple, YAGNI principles. ShellCheck and shfmt compliance enforced.
 
-Keep files under 500 lines. Four exceed it today — `navigator-list.sh` (1245),
-`common.sh` (1164), `claude-sessions.sh` (707), `error-recovery.sh` (507) —
+Keep files under 500 lines. Four exceed it today — `navigator-list.sh` (1619),
+`common.sh` (1221), `claude-sessions.sh` (820), `error-recovery.sh` (507) —
 and that is a debt, not a dispensation: each has grown to hold several
 concerns. Do not add to them without splitting something out.
 

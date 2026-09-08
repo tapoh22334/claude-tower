@@ -210,7 +210,8 @@ _run_nav() {
 
 @test "render_list: frame with headers never exceeds terminal height" {
     _run_nav '
-        tput() { case "$1" in lines) echo 12 ;; cols) echo 80 ;; ed) printf "" ;; *) command tput "$@" 2>/dev/null ;; esac; }
+        export TOWER_TERM_LINES=12 TOWER_TERM_COLS=80
+        tput() { case "$1" in ed) printf "" ;; *) command tput "$@" 2>/dev/null ;; esac; }
         get_nav_focus() { echo "list"; }
         SESSION_IDS=(); SESSION_DISPLAYS=(); SESSION_DIRS=(); SESSION_HEADERS=()
         for ((i = 0; i < 15; i++)); do
@@ -232,7 +233,8 @@ _run_nav() {
 
 @test "render_list: hidden count in +N more counts sessions, not header lines" {
     _run_nav '
-        tput() { case "$1" in lines) echo 10 ;; cols) echo 80 ;; ed) printf "" ;; *) command tput "$@" 2>/dev/null ;; esac; }
+        export TOWER_TERM_LINES=10 TOWER_TERM_COLS=80
+        tput() { case "$1" in ed) printf "" ;; *) command tput "$@" 2>/dev/null ;; esac; }
         get_nav_focus() { echo "list"; }
         SESSION_IDS=(); SESSION_DISPLAYS=(); SESSION_DIRS=(); SESSION_HEADERS=()
         for ((i = 0; i < 20; i++)); do

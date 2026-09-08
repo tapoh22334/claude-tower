@@ -230,7 +230,7 @@ export CLAUDE_TOWER_PREFIX='s'
   - Pro: No additional dependencies
   - Con: Manual serialization/parsing required
 
-#### DR-003: Session States (seven, derived from the transcript)
+#### DR-003: Session States (derived from the transcript, plus two transient marks)
 
 - **Context**: Users need to understand session status at a glance
 - **Options Considered**:
@@ -241,6 +241,15 @@ export CLAUDE_TOWER_PREFIX='s'
   `lost`, plus the `unread` mark. See `get_display_state` in
   `lib/claude-sessions.sh`; the README's state table is the user-facing
   version.
+
+  Two further states — `starting` (◐) and `deleting` (⌫) — were added later
+  and are not derived from the transcript at all. They describe what the
+  *Navigator* is doing, not what Claude is doing, and exist because the
+  transcript cannot answer during the window that matters: a session that has
+  just been launched has not written one yet, and a session being deleted is
+  about to stop having one. Without them an action had nothing to show for
+  itself until the next rebuild landed, so pressing a key looked like it had
+  done nothing. Both are transient and always replaced by a real state.
 - **Rationale**: v3.2 did settle on binary states, on the reasoning that
   Claude's running state belongs inside the session rather than in the
   Navigator. Reversed once Tower started reading the transcripts directly:
@@ -279,6 +288,59 @@ export CLAUDE_TOWER_PREFIX='s'
   - Pro: Full terminal capability (colors, cursor, etc.)
   - Pro: Instant session switching with switch-client (no flicker)
   - Pro: Simple implementation without mode tracking
+
+#### DR-005: Every action answers immediately, and never takes it back
+
+- **Context**: Building the session list is expensive — per-session state
+  detection, per-row transcript greps, per-directory process scans, measured
+  well over a second on a real list. Running it on the key loop stalls `read`,
+  so keystrokes queue and arrive in a burst: the Navigator appears frozen
+  right after the one action the user is most likely to follow up on.
+- **Options Considered**:
+  1. Rebuild inline after every action (correct, but freezes the UI)
+  2. Rebuild in the background and let the list catch up on the next tick
+  3. Apply the known outcome to the in-memory list, then let a background
+     rebuild confirm it
+- **Decision**: Option 3, applied uniformly to `n`, `f`, `N`, `D` and `r`.
+  Each handler edits the arrays it already has, redraws, and bumps a
+  generation counter. A background rebuild carries the generation it began
+  with and may only publish its snapshot while that generation still holds.
+- **Rationale**: Option 2 was tried first and is what shipped before this
+  decision, but it was only applied to the delete path, and it left two
+  distinct ways for the list to lie about itself.
+
+  A rebuild that started *before* an action finishes *after* it, still
+  holding a pre-action snapshot. Publishing that snapshot put a deleted row
+  back into the cache, and the next refresh tick loaded it into the arrays:
+  the row the user had watched disappear returned a couple of seconds later,
+  then left again once a newer rebuild landed. The generation guard is what
+  closes this — an edit invalidates every rebuild already in flight.
+
+  In the other direction, the add paths registered a session and selected it
+  without putting a row in the list. The new session was invisible until the
+  next rebuild, and because the selection lookup searches the arrays, it could
+  not find the id it had just been given and fell through to its not-found
+  default of row 0. Creating a session silently moved the cursor to the top of
+  the list, away from the thing the user had just made.
+- **Implementation**:
+  - `_bump_list_generation` / `_publish_rebuild` — the guard. The counter
+    lives in a file, because the rebuild runs in a forked subshell and would
+    otherwise compare against a frozen copy of the parent's variables.
+  - `_remember_session_row` seats a new row as `starting` (◐);
+    `_mark_session_starting` re-marks a restored one; `_forget_session_row`
+    and `_mark_session_deleting` (⌫) cover the delete path.
+  - `_return_from_subflow` is the single return-from-sub-flow sequence:
+    drain the input buffer, restore echo, drop the cached width. Handlers
+    used to each fix some subset of those in their own order.
+- **Consequences**:
+  - Pro: Every action is visible the instant it is taken
+  - Pro: An optimistic edit cannot be resurrected by an older rebuild
+  - Pro: The cursor stays on the session the user acted on
+  - Con: A row can be briefly wrong — a `starting` row shows no project group
+    until the rebuild places it, since guessing one would cost the same scan
+    the rebuild is already doing
+  - Con: A rebuild that races an edit is discarded, so its work is wasted;
+    the forced rebuild that follows the edit pays for it again
 
 ---
 

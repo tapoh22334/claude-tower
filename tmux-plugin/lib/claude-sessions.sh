@@ -204,7 +204,32 @@ is_session_busy() {
     ((now - activity <= TOWER_BUSY_WINDOW))
 }
 
+# How long a transcript-less session may still claim to be starting up.
+# Generous: Claude can take a while to write its first line on a cold start,
+# and the cost of being wrong is only that a placeholder row lingers.
+readonly TOWER_STARTING_WINDOW="${TOWER_STARTING_WINDOW:-120}"
+
+# Was this session registered within the starting window?
+# An unreadable or absent created_at counts as fresh: a session with no usable
+# timestamp is far more likely to be one just created than a stale one, and
+# showing a placeholder briefly beats mislabelling a genuinely new session.
+_session_is_fresh() {
+    local session_id="$1" created epoch now
+    # `local` on the META_* names first: load_metadata assigns them
+    # unconditionally, and without this a read here would overwrite whatever
+    # the caller had loaded for a different session.
+    local META_SESSION_NAME="" META_CREATED_AT="" META_LAUNCH_DIR=""
+    load_metadata "$session_id" 2>/dev/null || return 0
+    created="$META_CREATED_AT"
+    [[ -n "$created" ]] || return 0
+    epoch=$(date -d "$created" +%s 2>/dev/null) || return 0
+    [[ -n "$epoch" ]] || return 0
+    now=$(date +%s)
+    ((now - epoch <= TOWER_STARTING_WINDOW))
+}
+
 # Display state for the Navigator list.
+#   starting - tmux session exists but Claude has written no transcript yet
 #   busy    - tmux session exists, activity within window
 #   active  - tmux session exists
 #   dormant - registered, resumable (jsonl + cwd exist)
@@ -217,7 +242,21 @@ get_display_state() {
     local jsonl
 
     if session_tmux has-session -t "$session_id" 2>/dev/null; then
-        if jsonl=$(find_session_jsonl "$claude_id") && is_session_busy "$jsonl" "$session_id"; then
+        if ! jsonl=$(find_session_jsonl "$claude_id") && _session_is_fresh "$session_id"; then
+            # A tmux session with no transcript behind it is one Claude has
+            # only just been launched into. Distinguishing this from "active"
+            # is what lets the list show it as a placeholder instead of a
+            # fully-fledged row whose directory it cannot yet name.
+            #
+            # Only while it is actually new, though. The same shape holds for
+            # a long-lived session whose transcript Claude has since garbage
+            # collected, and for one where claude never launched at all (the
+            # tmux shell outlives a crash). Left unbounded, both would read
+            # "starting…" forever — worse than the "active" this replaced.
+            echo "starting"
+        elif [[ -z "${jsonl:-}" ]]; then
+            echo "active"
+        elif is_session_busy "$jsonl" "$session_id"; then
             echo "busy"
         else
             echo "active"

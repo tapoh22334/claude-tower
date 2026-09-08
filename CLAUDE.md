@@ -56,12 +56,15 @@ make status        # Show servers, sessions, state files
 ## Key API
 
 - `start_claude_session(session_id, dir, mode)` -- mode is `new` or `resume`
-- `save_metadata(session_id, session_name)` -- name is optional; the registry
-  stores nothing else
-- `load_metadata(session_id)` sets `META_SESSION_NAME`, `META_CREATED_AT`
-- A session's directory is **not** stored. It is always derived from the
-  Claude transcript via `get_session_cwd` (lib/claude-sessions.sh), which is
-  why a moved or deleted directory shows up as the `✗` dead state.
+- `save_metadata(session_id, session_name, launch_dir)` -- both optional
+- `load_metadata(session_id)` sets `META_SESSION_NAME`, `META_CREATED_AT`,
+  `META_LAUNCH_DIR`
+- A session's directory is derived from the Claude transcript via
+  `get_session_cwd` (lib/claude-sessions.sh), which is why a moved or deleted
+  directory shows up as the `✗` dead state. The transcript stays the
+  authority; `launch_dir` in the registry is only a fallback for the first
+  seconds of a new session, before Claude has written a transcript at all
+  (the `◐ starting` state). Never use it to decide dead/lost.
 
 ## Recent Changes
 
