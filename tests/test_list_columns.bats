@@ -114,6 +114,7 @@ _visible_width() {
         is_session_unread() { return 1; }
         count_unregistered_processes_in_dir() { echo 0; }
         build_session_list
+        printf "%s" "${SESSION_HEADERS[0]}" | sed -E "s/\x1b\[[0-9;?]*[a-zA-Z]//g" | od -c | head -4 >&3
         printf "%s" "${SESSION_HEADERS[0]}" | sed -E "s/\x1b\[[0-9;?]*[a-zA-Z]//g" | awk "{print length}"
     '
     [ "$status" -eq 0 ]
