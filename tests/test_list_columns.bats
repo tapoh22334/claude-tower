@@ -114,16 +114,22 @@ _visible_width() {
         is_session_unread() { return 1; }
         count_unregistered_processes_in_dir() { echo 0; }
         build_session_list
-        echo "DIAG cw=$(_content_width) sdw=$(str_display_width alpha) max=$NAV_MAX_WIDTH cols=$(_term_cols) n=${#SESSION_HEADERS[@]}" >&2
         printf "%s" "${SESSION_HEADERS[0]}" | sed -E "s/\x1b\[[0-9;?]*[a-zA-Z]//g" | awk "{print length}"
     '
     [ "$status" -eq 0 ]
     # "alpha" (5) + space + rule, capped at the 80-cell content width, not
     # 140. The rule glyph (─) is 3 bytes, so byte length far exceeds the
     # cell width; assert it is bounded well under a 140-wide rule.
-    echo "measured header byte length: $output" >&3
-    [ "$output" -gt 80 ]    # multibyte rule, so > 80 bytes
-    [ "$output" -lt 260 ]   # 80-cap rule ~228 bytes; a 140 rule would be ~410
+    #
+    # Read the last line, not all of $output: bats folds the sub-shell's
+    # stderr into it, so anything the sourced scripts warn about lands ahead
+    # of the number and turns the comparison into a string test. That is what
+    # made this fail on CI while the geometry it measures (cw=80, name=5) was
+    # identical to a local run.
+    local measured="${lines[${#lines[@]}-1]}"
+    echo "measured header byte length: $measured (of ${#lines[@]} line(s): $output)" >&3
+    [ "$measured" -gt 80 ]    # multibyte rule, so > 80 bytes
+    [ "$measured" -lt 260 ]   # 80-cap rule ~228 bytes; a 140 rule would be ~410
 }
 
 # ---------------------------------------------------------------------------
