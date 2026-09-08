@@ -124,3 +124,47 @@ _visible_width() {
     [ "$output" -gt 80 ]    # multibyte rule, so > 80 bytes
     [ "$output" -lt 260 ]   # 80-cap rule ~228 bytes; a 140 rule would be ~410
 }
+
+# ---------------------------------------------------------------------------
+# Terminal geometry: an explicit size wins over whatever tput can answer.
+#
+# _term_cols used to ask tput first and treat TOWER_TERM_COLS as a fallback
+# for when it could not answer. That makes the override useless precisely
+# where it is needed: on a machine where tput CAN answer, a test that states
+# its width is silently overruled and measures the runner's terminal instead.
+# It is why "header rule fills to the cap" passed in Docker (no tty, fallback
+# used) and failed on the GitHub runner (tty present, 140 ignored) — the same
+# commit, green and red at once, which reads as flakiness rather than a bug.
+
+@test "_term_cols: an explicit TOWER_TERM_COLS beats what tput reports" {
+    run bash -c '
+        export TOWER_TERM_COLS=140
+        source "'"$PROJECT_ROOT"'/tmux-plugin/lib/common.sh" 2>/dev/null
+        tput() { case "$1" in cols) echo 37 ;; lines) echo 11 ;; *) : ;; esac; }
+        _term_cols
+    '
+    [ "$status" -eq 0 ]
+    [ "$output" = "140" ]
+}
+
+@test "_term_lines: an explicit TOWER_TERM_LINES beats what tput reports" {
+    run bash -c '
+        export TOWER_TERM_LINES=40
+        source "'"$PROJECT_ROOT"'/tmux-plugin/lib/common.sh" 2>/dev/null
+        tput() { case "$1" in cols) echo 37 ;; lines) echo 11 ;; *) : ;; esac; }
+        _term_lines
+    '
+    [ "$status" -eq 0 ]
+    [ "$output" = "40" ]
+}
+
+@test "_term_cols: falls back to tput when no size is stated" {
+    run bash -c '
+        unset TOWER_TERM_COLS
+        source "'"$PROJECT_ROOT"'/tmux-plugin/lib/common.sh" 2>/dev/null
+        tput() { case "$1" in cols) echo 37 ;; *) : ;; esac; }
+        _term_cols
+    '
+    [ "$status" -eq 0 ]
+    [ "$output" = "37" ]
+}

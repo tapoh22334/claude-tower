@@ -34,16 +34,35 @@ readonly TOWER_LOG_FILE="${TOWER_LOG_DIR}/tower.log"
 # made rendering tests nondeterministic in a way that reads as flakiness
 # rather than failure: tests vanished mid-file instead of reporting a verdict.
 # TOWER_TERM_COLS/TOWER_TERM_LINES cover that case; 80x24 is the last resort.
+# A stated size wins over a measured one.
+#
+# These used to ask tput first and fall back to the variable only when it
+# could not answer, which made the override useless exactly where it matters:
+# on a machine where tput CAN answer, a caller that states its width is
+# silently overruled. That is why the header-rule test passed under Docker
+# (no tty, so the fallback applied) and failed on the GitHub runner (tty
+# present, so the stated 140 was ignored and the runner's own width measured)
+# — one commit, green and red at the same time, which reads as flakiness
+# rather than the bug it is. Production sets neither variable and still gets
+# tput; only a caller that has explicitly stated a size overrides it.
 _term_cols() {
+    if [[ -n "${TOWER_TERM_COLS:-}" ]]; then
+        echo "$TOWER_TERM_COLS"
+        return 0
+    fi
     local w
     w=$(tput cols 2>/dev/null) && [[ -n "$w" ]] && { echo "$w"; return 0; }
-    echo "${TOWER_TERM_COLS:-80}"
+    echo 80
 }
 
 _term_lines() {
+    if [[ -n "${TOWER_TERM_LINES:-}" ]]; then
+        echo "$TOWER_TERM_LINES"
+        return 0
+    fi
     local h
     h=$(tput lines 2>/dev/null) && [[ -n "$h" ]] && { echo "$h"; return 0; }
-    echo "${TOWER_TERM_LINES:-24}"
+    echo 24
 }
 
 # Store the calling script name for error messages
