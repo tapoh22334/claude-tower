@@ -1,10 +1,10 @@
 ---
 id: TASK-12
 title: CI が main で赤いまま — 幅テストが環境依存で落ちる
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-08-02 07:46'
-updated_date: '2026-09-07 06:16'
+updated_date: '2026-09-08 11:55'
 labels:
   - bug
   - ci
@@ -30,39 +30,17 @@ ordinal: 12000
 ## Implementation Notes
 
 <!-- SECTION:NOTES:BEGIN -->
-2026-08-02: リポジトリ整理の 4 コミットを push 後も同じ状態を確認 (run 30740544462)。失敗は依然この 1 件のみで、同時に追加した 40 テストは CI 上でも全て通っている。つまりこの失敗は今回の変更とは独立した既存問題。Unit Tests と Docker Tests がこれ 1 件で赤くなり、E2E / Integration / ShellCheck は緑。
+2026-09-08 解決。CI の3件の失敗は、いずれもテスト側の欠陥だった。
 
-2026-08-30 健全性調査で判明: この問題は『CI で 1 件落ちる』より広い。
+(1) awk の length() は UTF-8 ロケールで文字数、C でバイト数を返す。同一のヘッダがローカルで219、runner で77 と測れていた。CI 上で od を取り、バイト列は両環境で同一(342 224 200 の罫線)と確認。測られる側ではなく物差しの問題だったので、LC_ALL=C wc -c で明示的にバイトを数えるようにした。
 
-同じ tput 依存が、ローカルでも実行のたびに結果を変えるフレーキーを起こしている。tests/test_coverage_gaps_9.bats を 4 回連続実行した実測:
+(2) _term_cols/_term_lines が tput を先に見て TOWER_TERM_COLS をフォールバック扱いにしていた。tput が答えられる環境(runner)では、テストが宣言したサイズが黙って無視される。宣言されたサイズを優先し、未宣言のときだけ tput に落ちる形へ。これが Docker で緑・runner で赤という『同一コミットが同時に両方』の正体。
 
-  run1: ok=15  run2: ok=14  run3: ok=16  run4: ok=13   (いずれも '1..17' 宣言)
+(3) 積み残しの2件は仕様変更に追随していない古いテスト。_session_label は 93242dc 以降 'name — title' 形式だが括弧形式を検査していた。スピナーのテストは行を index で固定しており、d66c386 のグループソートで並びが変わって落ちていた。session id で照合する形に変更。
 
-毎回 'bats warning: Executed N instead of expected 17 tests' が出る。not ok (アサーション失敗) ではなく、テストが実行されずに消える。消えるのは render_list を通るテストの直後。
+付随して、tput スタブで高さを注入していた3件を TOWER_TERM_LINES 経由に統一。TASK-12 が『tput 依存をテストから注入可能にする』として記していた方向に揃えた。
 
-原因の裏付け: TERM=dumb COLUMNS=80 LINES=24 に固定して同じファイルを 3 回走らせると ok=16 で完全に安定した (変動なし)。tput が制御端末の有無で異なる値を返すことが原因と確定。
-
-該当箇所は navigator-list.sh の tput 直接呼び出し 3 箇所 (_content_width の tput cols、render_list の tput lines、tput ed)。tests/test_helper.bash には TERM や tput のスタブ、固定端末サイズの用意が一切ない。
-
-なお全スイート (bats tests/*.bats) では 511/0 で安定するため、この問題は個別ファイル実行時に顕在化する。CI は個別ジョブで走るので影響を受ける。
-
-対処の方向: TASK-12 を『幅テスト 1 件の修正』ではなく『tput 依存をテストから注入可能にする』として扱うべき。test_helper.bash 側で tput をスタブして固定サイズを与えれば、このクラスのフレーキーが一括で消える見込み。
-
-副次的に見つかった別件: tests/integration/test_display_snapshot.bats でも not ok 9-12 が出ることがある (Sessions / proj-alpha / unrecoverable の文字列が出力に現れない)。根本原因は同じ tput 依存と見られる。
-
-2026-09-07 再発。CI の Unit Tests ジョブでのみ 'build_session_list: header rule fills to the cap' が落ち続けている。Docker Tests は同じテストで通る。
-
-計測用の出力を仕込んで実値を取った (コミット 27600d8):
-  Unit Tests  : measured header byte length = 77   → 80 未満で失敗
-  Docker Tests: measured header byte length = 219  → 正常 (ローカルと同じ)
-
-つまり Unit Tests ジョブだけ content_width が小さく解決されている。TOWER_TERM_COLS=140 を渡すよう _run_nav を直したが (c87c56e)、それでも 77 のままなので、幅の決定が期待どおりに効いていない。
-
-77 バイトから逆算すると content_width は 32〜33 相当で、NAV_MIN_WIDTH=50 を下回る。50 のフロアが効いていれば最低でも 50 になるはずなので、SESSION_HEADERS[0] が罫線付きヘッダではなく別の内容になっている可能性が高い (グループ化の結果が Unit ジョブでだけ違う、など)。
-
-次にやること: テスト本体で content_width と SESSION_HEADERS[0] の中身そのものを CI に出力させ、77 の正体を確定させる。今回スニペット内に診断を差し込もうとしたが、bats のクォート入れ子で構文エラーになり断念した。別ファイルの一時テストとして書くのが確実。
-
-Docker で通ることから、実装ではなく Unit Tests ジョブの環境 (bats のバージョン、TERM、端末の有無) に依存する問題と見られる。
+結果: 591 pass / 0 fail。PR #21 で main にマージ済み、main の CI も緑を確認。
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
