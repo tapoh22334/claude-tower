@@ -114,13 +114,19 @@ _visible_width() {
         is_session_unread() { return 1; }
         count_unregistered_processes_in_dir() { echo 0; }
         build_session_list
-        printf "%s" "${SESSION_HEADERS[0]}" | sed -E "s/\x1b\[[0-9;?]*[a-zA-Z]//g" | od -c | head -4 >&3
-        printf "%s" "${SESSION_HEADERS[0]}" | sed -E "s/\x1b\[[0-9;?]*[a-zA-Z]//g" | awk "{print length}"
+        printf "%s" "${SESSION_HEADERS[0]}" | sed -E "s/\x1b\[[0-9;?]*[a-zA-Z]//g" | LC_ALL=C wc -c
     '
     [ "$status" -eq 0 ]
     # "alpha" (5) + space + rule, capped at the 80-cell content width, not
     # 140. The rule glyph (─) is 3 bytes, so byte length far exceeds the
     # cell width; assert it is bounded well under a 140-wide rule.
+    #
+    # Count with `LC_ALL=C wc -c`, not awk's length(): in a UTF-8 locale awk
+    # counts characters, so the same correct header measured 219 locally and
+    # 77 on the runner. The bytes were identical both times — an od dump on
+    # CI showed the expected 342 224 200 rule glyphs — and only the ruler
+    # disagreed. This assertion is about byte length, so it must ask for
+    # bytes rather than inherit whatever the environment's locale implies.
     #
     # Read the last line, not all of $output: bats folds the sub-shell's
     # stderr into it, so anything the sourced scripts warn about lands ahead
@@ -128,7 +134,7 @@ _visible_width() {
     # made this fail on CI while the geometry it measures (cw=80, name=5) was
     # identical to a local run.
     local measured="${lines[${#lines[@]}-1]}"
-    echo "measured header byte length: $measured (of ${#lines[@]} line(s): $output)" >&3
+    echo "measured header byte length: $measured" >&3
     [ "$measured" -gt 80 ]    # multibyte rule, so > 80 bytes
     [ "$measured" -lt 260 ]   # 80-cap rule ~228 bytes; a 140 rule would be ~410
 }
