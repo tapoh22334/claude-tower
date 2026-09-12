@@ -78,11 +78,15 @@ setup() {
     # Drives prompt_new_directory itself rather than asserting that the source
     # contains a call: answering "+", the repo, then a path that climbs out
     # must fail without creating anything.
+    # TOWER_TTY points the prompts at stdin; a non-fzf TOWER_FINDER keeps the
+    # directory picker out of the way so "+" reaches the plain prompt.
     run bash -c '
-        source "'"$PROJECT_ROOT"'/tmux-plugin/scripts/session-add.sh" 2>/dev/null || true
+        export TOWER_TTY=/dev/stdin TOWER_FINDER="head -n1"
+        source "'"$PROJECT_ROOT"'/tmux-plugin/scripts/session-add.sh"
         printf "+\n%s\n%s\n" "'"$REPO"'" "../escaped-worktree" \
-            | prompt_new_directory "'"$REPO"'" </dev/stdin
+            | prompt_new_directory "'"$REPO"'"
     '
+    [[ "$output" == *"must stay inside"* ]]
     [ "$status" -ne 0 ]
     [ ! -e "$BATS_TEST_TMPDIR/escaped-worktree" ]
 }

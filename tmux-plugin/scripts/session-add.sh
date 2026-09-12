@@ -67,6 +67,48 @@ generate_uuid() {
     fi
 }
 
+# ---------------------------------------------------------------------------
+# Terminal prompts
+#
+# Navigator runs its key loop with `stty -echo` so j/k never paint the list,
+# and it hands the terminal to this script in that state. fzf does not undo
+# it: it restores the termios it found, which is echo-off. Every line prompt
+# therefore turns echo back on itself, or the user types blind. Navigator
+# re-disables echo when the sub-flow returns (_return_from_subflow).
+#
+# read -e routes the line through readline, which is what makes Tab complete
+# file names in the Directory prompt. Bash only uses readline when stdin is a
+# terminal, so under a pipe (tests) it degrades to a plain read.
+#
+# TOWER_TTY: where prompts read from. /dev/tty in real use; tests point it at
+# /dev/stdin to drive the prompts from a heredoc.
+# ---------------------------------------------------------------------------
+TOWER_TTY="${TOWER_TTY:-/dev/tty}"
+
+tty_echo_on() {
+    [[ "$TOWER_TTY" == /dev/tty ]] || return 0
+    stty echo <"$TOWER_TTY" 2>/dev/null || true
+}
+
+# read_line VAR PROMPT — prompt on stderr, one line into VAR. Fails at EOF.
+read_line() {
+    local __var="$1" __prompt="${2:-}"
+    tty_echo_on
+    # shellcheck disable=SC2229
+    read -e -r -p "$__prompt" "$__var" <"$TOWER_TTY"
+}
+
+have_fzf() {
+    # A user-set TOWER_FINDER other than fzf means "not the fzf UI", so the
+    # directory picker (which relies on fzf-only flags) steps aside too.
+    # And fzf needs a terminal to draw on: with no tty (a pipe-driven run)
+    # it exits with an error that must not be mistaken for a pick.
+    local finder="${TOWER_FINDER:-fzf}"
+    [[ "${finder%% *}" == fzf ]] || return 1
+    command -v fzf >/dev/null 2>&1 || return 1
+    { : <"$TOWER_TTY"; } 2>/dev/null
+}
+
 # stdin: id \t mtime \t cwd  ->  "abcd  dirname  first prompt…  (2m ago)"
 # The title (first user prompt, via get_session_title) is what tells apart
 # sessions sharing a directory; the short id is only for resolution.
@@ -98,9 +140,8 @@ pick_with_numbers() {
     for i in "${!lines[@]}"; do
         printf '%2d) %s\n' "$((i + 1))" "${lines[$i]}" >&2
     done
-    printf 'Select [1-%d], empty to cancel (install fzf for fuzzy search): ' "${#lines[@]}" >&2
     local choice
-    read -r choice </dev/tty || return 1
+    read_line choice "$(printf 'Select [1-%d], empty to cancel (install fzf for fuzzy search): ' "${#lines[@]}")" || return 1
     [[ "$choice" =~ ^[0-9]+$ ]] || return 1
     ((choice >= 1 && choice <= ${#lines[@]})) || return 1
     echo "${lines[$((choice - 1))]}"
@@ -155,63 +196,102 @@ resolve_picked_id() {
     echo "$match"
 }
 
-# Prompt for the new-session directory. Default: caller pane cwd (or $PWD).
-# A path that doesn't exist is offered for creation (mkdir -p). "+" enters
-# the worktree helper (a plain `git worktree add` wrapper — Tower does not
-# track or clean up worktrees).
-prompt_new_directory() {
-    local default_dir="${1:-$PWD}"
-    local dir
-    printf 'Directory [%s] ("+" = new git worktree, new path = create): ' "$default_dir" >&2
-    read -r dir </dev/tty || return 1
+# ---------------------------------------------------------------------------
+# New-session directory
+#
+# prompt_new_directory DEFAULT  ->  chosen directory on stdout
+#   = ask (fzf picker, or a readline prompt without fzf)
+#   + resolve_directory_choice (default / "+" worktree / ~ / relative /
+#     create-if-missing)
+# ---------------------------------------------------------------------------
+
+# Candidate directories for the picker, most likely first: the default (the
+# caller's cwd), its immediate subdirectories, then every directory a Claude
+# session has been seen in. Deduped, hidden entries skipped.
+dir_candidates() {
+    local default_dir="$1" d
+    {
+        printf '%s\n' "$default_dir"
+        for d in "$default_dir"/*/; do
+            [[ -d "$d" ]] || continue
+            printf '%s\n' "${d%/}"
+        done
+        list_project_dirs 2>/dev/null || true
+    } | awk 'NF && !seen[$0]++'
+}
+
+# Preview command for the picker: a shallow tree of the highlighted
+# directory, with whatever tool is around.
+_dir_preview_cmd() {
+    if command -v tree >/dev/null 2>&1; then
+        echo 'tree -C -L 2 --noreport {} 2>/dev/null | head -200'
+    elif command -v eza >/dev/null 2>&1; then
+        echo 'eza --tree -L 2 --color=always {} 2>/dev/null | head -200'
+    else
+        echo 'ls -1Fp --color=always {} 2>/dev/null | head -200'
+    fi
+}
+
+# Interpret fzf --print-query output. Line 1 is the query, line 2 the
+# selection (absent when nothing matched, or after the print-query action).
+# A selection wins; otherwise the typed text is the answer — that is how a
+# brand-new path gets in. Exit 130 is Esc/Ctrl-C; 0 (match) and 1 (no
+# match) both carry an answer; anything else is fzf failing (2 = error)
+# and must not be read as "take the default".
+finder_choice() {
+    local status="$1" out="$2" query selection
+    case "$status" in
+        0 | 1) ;;
+        *) return 1 ;;
+    esac
+    query="${out%%$'\n'*}"
+    if [[ "$out" == *$'\n'* ]]; then
+        selection="${out#*$'\n'}"
+        selection="${selection%%$'\n'*}"
+    else
+        selection=""
+    fi
+    if [[ -n "$selection" ]]; then
+        echo "$selection"
+    else
+        echo "$query"
+    fi
+}
+
+# fzf over dir_candidates. Enter takes the highlighted directory; typing a
+# path that matches nothing and pressing Enter (or Ctrl-N at any time) uses
+# the typed text as a new path. "+" typed as the query enters the worktree
+# helper, exactly as in the plain prompt.
+pick_directory_fzf() {
+    local default_dir="$1" out status
+    tty_echo_on
+    out=$(dir_candidates "$default_dir" | fzf --height=80% --reverse --no-multi \
+        --print-query \
+        --prompt='Directory> ' \
+        --header="$(printf 'Enter: use highlighted   Ctrl-N / no match + Enter: create typed path   "+": git worktree   Esc: cancel\nDefault: %s' "$default_dir")" \
+        --bind 'ctrl-n:print-query' \
+        --preview "$(_dir_preview_cmd)" --preview-window='right,50%,border-left')
+    status=$?
+    finder_choice "$status" "$out"
+}
+
+# Turn what the user typed or picked into a directory. Relative paths are
+# taken against the default dir (the caller's cwd), not this script's $PWD,
+# which inside Navigator is nowhere the user is thinking of.
+resolve_directory_choice() {
+    local dir="$1" default_dir="$2"
     if [[ -z "$dir" ]]; then
         echo "$default_dir"
         return 0
     fi
     if [[ "$dir" == "+" ]]; then
-        local repo wt_path branch
-        printf 'Repository [%s]: ' "$default_dir" >&2
-        read -r repo </dev/tty || return 1
-        repo="${repo:-$default_dir}"
-        if ! git -C "$repo" rev-parse --git-dir >/dev/null 2>&1; then
-            handle_error "Not a git repository: $repo"
-            return 1
-        fi
-        printf 'Worktree path: ' >&2
-        read -r wt_path </dev/tty || return 1
-        [[ -n "$wt_path" ]] || return 1
-        wt_path="${wt_path/#\~/$HOME}"
-        # A relative path here is taken against the repo, not the caller's cwd,
-        # and "../.." must not walk out of it: `git worktree add` will happily
-        # create a tree anywhere on disk, which is not what "make me a worktree
-        # of this repo" means to the person typing it.
-        [[ "$wt_path" == /* ]] || wt_path="${repo%/}/$wt_path"
-        if ! validate_path_within "$wt_path" "$repo"; then
-            handle_error "Worktree path must stay inside $repo"
-            return 1
-        fi
-        printf 'Branch [tower/%s]: ' "${wt_path##*/}" >&2
-        read -r branch </dev/tty || return 1
-        branch="${branch:-tower/${wt_path##*/}}"
-        # Branch names go to `git worktree add -b`; git rejects a bad one, but
-        # it also treats a leading dash as an option, so refuse those outright.
-        if [[ "$branch" == -* ]]; then
-            handle_error "Branch name cannot start with '-' (git would read it as an option): $branch"
-            return 1
-        fi
-        if ! git check-ref-format --branch "$branch" >/dev/null 2>&1; then
-            handle_error "Not a valid git branch name: $branch (no spaces, '..', '~', '^', ':' or a trailing '.')"
-            return 1
-        fi
-        if ! git -C "$repo" worktree add -b "$branch" "$wt_path" >&2; then
-            handle_error "git worktree add failed"
-            return 1
-        fi
-        echo "$wt_path"
-        return 0
+        _new_worktree "$default_dir"
+        return $?
     fi
-    # Expand leading ~
     dir="${dir/#\~/$HOME}"
+    [[ "$dir" == /* ]] || dir="${default_dir%/}/$dir"
+    # Tab completion leaves "childA/"; keep the registry free of that noise.
+    while [[ "$dir" == */ && "$dir" != / ]]; do dir="${dir%/}"; done
 
     # A path that doesn't exist yet is the common "start a brand-new
     # project" case. Offer to create it (mkdir -p is non-destructive: it
@@ -219,8 +299,7 @@ prompt_new_directory() {
     # $dir non-existent so start_new_session's own check aborts cleanly.
     if [[ ! -d "$dir" ]]; then
         local reply
-        printf 'Directory does not exist. Create %s? [y/N]: ' "$dir" >&2
-        read -r reply </dev/tty || return 1
+        read_line reply "Directory does not exist. Create $dir? [y/N]: " || return 1
         case "$reply" in
             y | Y | yes | Yes)
                 if ! mkdir -p -- "$dir" 2>/dev/null; then
@@ -231,6 +310,66 @@ prompt_new_directory() {
         esac
     fi
     echo "$dir"
+}
+
+# "+" flow: a plain `git worktree add` wrapper — Tower does not track or
+# clean up worktrees.
+_new_worktree() {
+    local default_dir="$1" repo wt_path branch
+    read_line repo "Repository [$default_dir]: " || return 1
+    repo="${repo:-$default_dir}"
+    if ! git -C "$repo" rev-parse --git-dir >/dev/null 2>&1; then
+        handle_error "Not a git repository: $repo"
+        return 1
+    fi
+    read_line wt_path "Worktree path: " || return 1
+    [[ -n "$wt_path" ]] || return 1
+    wt_path="${wt_path/#\~/$HOME}"
+    # A relative path here is taken against the repo, not the caller's cwd,
+    # and "../.." must not walk out of it: `git worktree add` will happily
+    # create a tree anywhere on disk, which is not what "make me a worktree
+    # of this repo" means to the person typing it.
+    [[ "$wt_path" == /* ]] || wt_path="${repo%/}/$wt_path"
+    if ! validate_path_within "$wt_path" "$repo"; then
+        handle_error "Worktree path must stay inside $repo"
+        return 1
+    fi
+    read_line branch "Branch [tower/${wt_path##*/}]: " || return 1
+    branch="${branch:-tower/${wt_path##*/}}"
+    # Branch names go to `git worktree add -b`; git rejects a bad one, but
+    # it also treats a leading dash as an option, so refuse those outright.
+    if [[ "$branch" == -* ]]; then
+        handle_error "Branch name cannot start with '-' (git would read it as an option): $branch"
+        return 1
+    fi
+    if ! git check-ref-format --branch "$branch" >/dev/null 2>&1; then
+        handle_error "Not a valid git branch name: $branch (no spaces, '..', '~', '^', ':' or a trailing '.')"
+        return 1
+    fi
+    if ! git -C "$repo" worktree add -b "$branch" "$wt_path" >&2; then
+        handle_error "git worktree add failed"
+        return 1
+    fi
+    echo "$wt_path"
+}
+
+# Prompt for the new-session directory. Default: caller pane cwd (or $PWD).
+prompt_new_directory() {
+    local default_dir="${1:-$PWD}"
+    local raw
+    if have_fzf; then
+        raw=$(pick_directory_fzf "$default_dir") || return 1
+    else
+        # Readline completes against the process cwd, and a relative answer
+        # is resolved against the default dir — so complete from there too,
+        # or Tab would offer paths the answer is not going to mean.
+        raw=$(
+            cd -- "$default_dir" 2>/dev/null || true
+            read_line raw "Directory [$default_dir] (Tab completes; \"+\" = new git worktree, new path = create): " || exit 1
+            printf '%s\n' "$raw"
+        ) || return 1
+    fi
+    resolve_directory_choice "$raw" "$default_dir"
 }
 
 # Start a brand-new session in an explicit directory, no prompts.
@@ -257,8 +396,7 @@ start_new_session() {
         handle_error "Directory not found: $dir"
         return 1
     fi
-    printf 'Name (optional): ' >&2
-    read -r name </dev/tty || name=""
+    read_line name "Name (optional): " || name=""
     uuid=$(generate_uuid) || return 1
     start_claude_session "tower_${uuid}" "$dir" "new" >&2 || return 1
     save_metadata "tower_${uuid}" "$name" "$dir"
@@ -344,4 +482,7 @@ main() {
     fi
 }
 
-main "$@"
+# Guarded so tests can source the functions without running the flow.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

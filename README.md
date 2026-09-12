@@ -34,7 +34,9 @@ that directory Tower does not manage yet; `✱` marks output you have not seen.
 
 - tmux 3.2+
 - Claude Code CLI (`claude`)
-- fzf — recommended; the add flow falls back to a numbered prompt without it
+- fzf — recommended; the add flow falls back to a numbered prompt without it,
+  and the new-session directory picker (candidates with a tree preview, or type
+  a new path) falls back to a readline prompt with Tab completion
 
 ## Installation
 

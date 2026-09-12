@@ -279,10 +279,12 @@ _source_resolver() {
 # prompt_new_directory(): session-add.sh:102 — default dir / worktree flow
 # ============================================================================
 
-# Extract prompt_new_directory with its /dev/tty reads redirected to stdin,
-# so bats can drive the prompts. common.sh is already loaded by setup().
+# Source the script (main is guarded) with prompts reading from stdin, and
+# force the plain readline path so fzf never opens under bats.
 _source_prompt_new_directory() {
-    eval "$(sed -n '/^prompt_new_directory()/,/^}/p' "$SESSION_ADD" | sed 's# </dev/tty##g')"
+    TOWER_TTY=/dev/stdin
+    source "$SESSION_ADD"
+    have_fzf() { return 1; }
 }
 
 @test "prompt_new_directory: creates a nonexistent path after y confirmation" {
@@ -388,6 +390,9 @@ export PATH="$PATH"
 export CLAUDE_TOWER_METADATA_DIR="$CLAUDE_TOWER_METADATA_DIR"
 export CLAUDE_PROJECTS_DIR="$CLAUDE_PROJECTS_DIR"
 export TOWER_ADD_DEFAULT_DIR="$dir"
+# Not fzf: the directory prompt must be the plain readline prompt here, so
+# the blank line below means "take the default" instead of driving fzf.
+export TOWER_FINDER="head -n1"
 source "$PROJECT_ROOT/tmux-plugin/lib/common.sh"
 # Anchor on function boundaries, not line numbers: everything from the
 # sentinel down to (excluding) main(), so edits above don't shift the range.
@@ -512,4 +517,163 @@ EOF
 
 @test "integration: '+' worktree flow creates a real worktree and registers a new tower session" {
     skip "needs a disposable git repo fixture under \$BATS_TEST_TMPDIR, full /dev/tty stdin script, and a live tmux server — exercises session-add.sh:111-131 + :138-152 together"
+}
+
+# ============================================================================
+# Directory prompt from inside Navigator (TASK-23)
+#
+# Navigator runs with `stty -echo` so its own j/k keys never paint the list.
+# session-add.sh's prompts inherit that: everything the user typed into
+# "Directory:" / "Name:" / "Create? [y/N]" was invisible. fzf does not help —
+# it restores the termios it found, which is echo-off. And `read -r` has no
+# completion, so a new path had to be typed blind AND from memory.
+# ============================================================================
+
+# Source the script's functions without running main. TOWER_TTY lets the
+# prompts read from a file/heredoc instead of /dev/tty under bats.
+_source_session_add() {
+    TOWER_TTY=/dev/stdin
+    source "$SESSION_ADD"
+}
+
+@test "session-add.sh: can be sourced without running main" {
+    run bash -c "source '$SESSION_ADD' && declare -F read_line >/dev/null && echo sourced-ok"
+    [ "$status" -eq 0 ]
+    [ "$output" = "sourced-ok" ]
+}
+
+@test "read_line: turns terminal echo back on before reading (Navigator leaves it off)" {
+    command -v script >/dev/null || skip "util-linux script(1) not available"
+    # A pty via script(1): disable echo the way Navigator does, run one
+    # prompt, then report the echo flag. `stty -a` prints "echo" when on and
+    # "-echo" when off.
+    local inner="source '$SESSION_ADD'; stty -echo; read_line v 'p: '; stty -a | tr ' ;' '\n\n' | grep -x -- '-\?echo'"
+    run script -qfec "bash -c \"$inner\"" /dev/null <<<"typed"
+    # The pty speaks CRLF and readline leaves a bracketed-paste escape on the
+    # same line; the flag is the tail of the last non-empty line.
+    local flag
+    flag=$(printf '%s' "$output" | tr -d '\r' | awk 'NF{l=$0} END{print l}')
+    [[ "$flag" == *echo ]]
+    [[ "$flag" != *-echo ]]
+    # And what was typed is visible on screen (readline echoed it).
+    [[ "$output" == *"p: typed"* ]]
+}
+
+@test "read_line: stores the typed line in the named variable" {
+    _source_session_add
+    run bash -c "TOWER_TTY=/dev/stdin; source '$SESSION_ADD'; read_line v 'Dir: ' && printf '%s' \"\$v\"" <<<"hello world"
+    [ "$status" -eq 0 ]
+    [ "$output" = "hello world" ]
+}
+
+@test "read_line: fails at EOF so a closed prompt cancels the flow" {
+    run bash -c "TOWER_TTY=/dev/stdin; source '$SESSION_ADD'; read_line v 'Dir: '" </dev/null
+    [ "$status" -ne 0 ]
+}
+
+@test "read_line: uses readline (read -e) so Tab completes file names" {
+    # The completion itself needs a real terminal; what we can pin is that
+    # the read goes through readline, which is what makes Tab work.
+    grep -qE 'read[^#]* -[a-z]*e[a-z]* ' "$SESSION_ADD" || grep -qE 'read -e' "$SESSION_ADD"
+}
+
+@test "finder_choice: a selected line wins over the typed query" {
+    _source_session_add
+    run finder_choice 0 $'proj\n/home/u/projects/proj'
+    [ "$status" -eq 0 ]
+    [ "$output" = "/home/u/projects/proj" ]
+}
+
+@test "finder_choice: with no match the typed query becomes the path (new directory)" {
+    _source_session_add
+    run finder_choice 1 $'~/working/brand-new'
+    [ "$status" -eq 0 ]
+    [ "$output" = "~/working/brand-new" ]
+}
+
+@test "finder_choice: print-query binding returns the query even when a match exists" {
+    _source_session_add
+    # fzf's print-query action exits 0 with only the query line.
+    run finder_choice 0 $'proj-2'
+    [ "$status" -eq 0 ]
+    [ "$output" = "proj-2" ]
+}
+
+@test "finder_choice: an fzf error (exit 2) is a failure, not 'take the default'" {
+    _source_session_add
+    run finder_choice 2 ""
+    [ "$status" -ne 0 ]
+}
+
+@test "finder_choice: Esc (exit 130) cancels" {
+    _source_session_add
+    run finder_choice 130 ""
+    [ "$status" -ne 0 ]
+}
+
+@test "finder_choice: empty query and no selection means 'take the default'" {
+    _source_session_add
+    run finder_choice 1 ""
+    [ "$status" -eq 0 ]
+    [ "$output" = "" ]
+}
+
+@test "dir_candidates: default dir first, then its children, then known project dirs, deduped" {
+    _source_session_add
+    local base="$BATS_TEST_TMPDIR/cands"
+    mkdir -p "$base/default/alpha" "$base/default/beta" "$base/default/.hidden" "$base/other"
+    touch "$base/default/afile"
+    list_project_dirs() { printf '%s\n' "$base/other" "$base/default/alpha" "$base/default"; }
+    run dir_candidates "$base/default"
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "$base/default" ]
+    [ "${lines[1]}" = "$base/default/alpha" ]
+    [ "${lines[2]}" = "$base/default/beta" ]
+    [ "${lines[3]}" = "$base/other" ]
+    [ "${#lines[@]}" -eq 4 ]
+    [[ "$output" != *".hidden"* ]]
+    [[ "$output" != *"afile"* ]]
+}
+
+@test "resolve_directory_choice: a relative path is taken against the default dir, not \$PWD" {
+    _source_session_add
+    local base="$BATS_TEST_TMPDIR/rel"
+    mkdir -p "$base/default/sub"
+    cd "$BATS_TEST_TMPDIR"
+    run --separate-stderr resolve_directory_choice "sub" "$base/default"
+    [ "$status" -eq 0 ]
+    [ "$output" = "$base/default/sub" ]
+}
+
+@test "resolve_directory_choice: a trailing slash left by Tab completion is dropped" {
+    _source_session_add
+    local base="$BATS_TEST_TMPDIR/slash"
+    mkdir -p "$base/default/sub"
+    run --separate-stderr resolve_directory_choice "sub/" "$base/default"
+    [ "$status" -eq 0 ]
+    [ "$output" = "$base/default/sub" ]
+}
+
+@test "resolve_directory_choice: a relative new path is created under the default dir after y" {
+    _source_session_add
+    local base="$BATS_TEST_TMPDIR/relnew"
+    mkdir -p "$base/default"
+    run --separate-stderr resolve_directory_choice "fresh" "$base/default" <<<"y"
+    [ "$status" -eq 0 ]
+    [ "$output" = "$base/default/fresh" ]
+    [ -d "$base/default/fresh" ]
+}
+
+@test "prompt_new_directory: falls back to a readline prompt when fzf is not available" {
+    _source_session_add
+    command -v fzf >/dev/null 2>&1 || skip "fzf not installed; fallback is the only path anyway"
+    # Hide fzf: the prompt must then read the path from the tty directly.
+    local shadow="$BATS_TEST_TMPDIR/nofzf"
+    mkdir -p "$shadow"
+    printf '#!/usr/bin/env bash\nexit 127\n' >"$shadow/fzf"; chmod +x "$shadow/fzf"
+    local existing="$BATS_TEST_TMPDIR/plain"
+    mkdir -p "$existing"
+    run --separate-stderr env PATH="$shadow:$PATH" bash -c "TOWER_TTY=/dev/stdin; source '$SESSION_ADD'; have_fzf() { return 1; }; prompt_new_directory '$HOME'" <<<"$existing"
+    [ "$status" -eq 0 ]
+    [ "$output" = "$existing" ]
 }
