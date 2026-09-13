@@ -190,10 +190,17 @@ readonly TOWER_NAV_WIDTH="${CLAUDE_TOWER_NAV_WIDTH:-24}"
 readonly TOWER_SESSION_SOCKET="${CLAUDE_TOWER_SESSION_SOCKET:-claude-tower-sessions}"
 
 # State files for cross-server communication
-readonly TOWER_NAV_STATE_DIR="/tmp/claude-tower"
+#
+# The directory is overridable for the same reason every other path here is:
+# a test (or a second, deliberately isolated Tower) needs somewhere else to
+# put it. It used to be a bare literal, which meant tests could only ever
+# exercise the one real directory.
+readonly TOWER_NAV_STATE_DIR="${CLAUDE_TOWER_NAV_STATE_DIR:-/tmp/claude-tower}"
 readonly TOWER_NAV_SELECTED_FILE="${TOWER_NAV_STATE_DIR}/selected"
 readonly TOWER_NAV_CALLER_FILE="${TOWER_NAV_STATE_DIR}/caller"
 readonly TOWER_NAV_FOCUS_FILE="${TOWER_NAV_STATE_DIR}/focus"
+# Which list pane the state files above belong to (see nav_owns_state).
+readonly TOWER_NAV_OWNER_FILE="${TOWER_NAV_STATE_DIR}/owner"
 
 # tmux wait-for channel for view pane updates
 readonly TOWER_VIEW_UPDATE_CHANNEL="tower-view-update"
@@ -283,11 +290,55 @@ get_nav_selected() {
     fi
 }
 
-# Set currently selected session
+# Set currently selected session.
+#
+# Refuses to write if this process is not the Navigator's current list pane.
+# `q` only detaches the client (quit_navigator), and the pane-exited hook
+# respawns navigator-list.sh, so a list loop can outlive the Navigator that
+# owned it. Two of them then shared this one file: the survivor kept writing
+# its own cursor into it while the visible Navigator drew the highlight from
+# its own in-memory array. The highlight and the file disagreed, and `D`
+# reads the file — so the confirmation prompt named the row under the cursor
+# while session-delete.sh was handed the stale id and killed a different
+# session. Deleting the wrong session is not recoverable, so the writer is
+# gated rather than the reader.
 set_nav_selected() {
     local session_id="$1"
+    nav_owns_state || return 0
     ensure_nav_state_dir
     echo "$session_id" >"$TOWER_NAV_SELECTED_FILE"
+}
+
+# True if this process is the Navigator list pane that currently owns the
+# shared state files.
+#
+# The owner is recorded as a pane id rather than a PID: respawn-pane reuses
+# the pane and replaces the process, so a PID would go stale on every
+# auto-restart while the pane legitimately stays the owner.
+#
+# Anything that is not a list pane (session-add.sh, tile.sh, the CLI) has no
+# TOWER_NAV_PANE at all and is left free to write — those callers are
+# one-shot and are not the racing party.
+nav_owns_state() {
+    [[ -z "${TOWER_NAV_PANE:-}" ]] && return 0
+
+    local owner=""
+    [[ -f "$TOWER_NAV_OWNER_FILE" ]] && owner=$(cat "$TOWER_NAV_OWNER_FILE" 2>/dev/null || echo "")
+
+    # Unclaimed: the first list pane to ask takes it.
+    if [[ -z "$owner" ]]; then
+        claim_nav_state
+        return 0
+    fi
+
+    [[ "$owner" == "$TOWER_NAV_PANE" ]]
+}
+
+# Record this process's pane as the owner of the shared state files.
+claim_nav_state() {
+    [[ -z "${TOWER_NAV_PANE:-}" ]] && return 0
+    ensure_nav_state_dir
+    echo "$TOWER_NAV_PANE" >"$TOWER_NAV_OWNER_FILE"
 }
 
 # Get caller session (session to return to on quit)
@@ -314,15 +365,20 @@ get_nav_focus() {
 }
 
 # Set current focus
+#
+# Gated like set_nav_selected: a list loop that outlived its Navigator would
+# otherwise keep flipping focus for the Navigator now on screen.
 set_nav_focus() {
     local focus="$1" # "list" or "view"
+    nav_owns_state || return 0
     ensure_nav_state_dir
     echo "$focus" >"$TOWER_NAV_FOCUS_FILE"
 }
 
 # Clean up Navigator state files
 cleanup_nav_state() {
-    rm -f "$TOWER_NAV_SELECTED_FILE" "$TOWER_NAV_CALLER_FILE" "$TOWER_NAV_FOCUS_FILE" 2>/dev/null || true
+    rm -f "$TOWER_NAV_SELECTED_FILE" "$TOWER_NAV_CALLER_FILE" "$TOWER_NAV_FOCUS_FILE" \
+        "$TOWER_NAV_OWNER_FILE" 2>/dev/null || true
 }
 
 # Kill Navigator server
