@@ -19,7 +19,8 @@ tests/
   e2e/         # End-to-end tests (bats)
   scenarios/   # Test scenario data
 docs/          # Design notes worth keeping (PRINCIPLES.md, architecture/)
-backlog/       # Backlog.md tasks and decisions
+docs/decisions/   # Accepted design decisions (ADR-style)
+docs/tickets/     # Issue manifests (github-tickets skill; verify with apply.sh --verify)
 .github/       # CI/CD (GitHub Actions)
 ```
 

@@ -1,0 +1,113 @@
+# Backlog.md から GitHub Issues への移行時に登録した木。
+# 検証: PYTHONPATH=~/.claude/skills/github-tickets/scripts ~/.claude/skills/github-tickets/scripts/apply.sh --verify docs/tickets/backlog-migration.yml
+repo: tapoh22334/claude-tower
+
+project:
+  number: 4
+  owner: tapoh22334
+
+stories:
+  - key: fork-visible
+    issue: 26
+    title: fork で作ったセッションが Navigator の一覧で親の下に見える
+    body: |
+      ## ユーザーストーリー
+      複数のセッションを fork で増やして使う利用者として、どの行がどこから派生したかを一覧で見分けたい。なぜなら fork 行が無関係な行に混ざると、戻る先・消してよい行の判断が毎回手探りになるから。
+
+      fork 検出本体(`_fork_label` / `list_fork_sessions` / `find_fork_parent`)は `feature/fork-detection` ブランチで検証・レビュー済みだが main に未反映のまま宙に浮いている。放置するほど main との差が開き、取り込みが難しくなる。
+
+      ## 受入条件
+      - [ ] fork で作ったセッションが、Navigator の一覧で親セッションの下に fork 行として表示される
+      - [ ] 親が Tower に未登録の fork 行も、他の行と同じ規則のタイトルで表示される
+      - [ ] compaction(同一 sessionId でファイルが分かれるだけ)が fork として表示されない
+      - [ ] fork 行の表示を有効にしても、一覧のリフレッシュ 1 回あたりの外部コマンド起動数が TASK-16 で落とした水準(約 275 回)を大きく超えない
+    children:
+      - issue: 27
+        title: feature/fork-detection をレビュー指摘を解消して main に取り込む
+        body: |
+          ## やること
+          `origin/feature/fork-detection`(main と 11 コミット差、`claude-sessions.sh` のタイトル生成部でコンフリクト見込み)を、2026-08-27 のコードレビュー指摘を解消したうえで main に取り込む。取り込んだらブランチを消す。
+
+          レビュー指摘(未検証のものを含む。着手時に各項目を実際に確かめること。同レビューの main 側 13 件中 2 件は誤検出だった):
+          - 性能: `list_fork_sessions` → `find_fork_parent` が未登録プロセスごとに slug 内の全 `*.jsonl` を grep し、fork 行ごとに `get_session_title` が走る。`strace -f -e trace=execve` で実測してから入れる
+          - 正しさ: `find_fork_parent` の tie-break が `>=` で、同一 mtime の候補では glob 順(UUID 辞書順)で最後のものが勝つ。親の直後に fork すると同秒になりやすい
+          - 正しさ: `_FORK_SCAN_LINES` の `grep -o -m 5` は「最初の 5 行」であって「最初の 5 uuid」ではない。前置きの長い親で本物の fork が検出漏れする
+          - 安全性: `D` が fork 行を守っていない。`delete_selected` が登録済みか確認せず未登録の生 sessionId に削除を走らせる
+          - UI: fork 行が `SESSION_IDS` に混ざるとリビルド間に消えたときカーソルが別セッションを指す。`r` の `sleep 0.5` が隣接パスより長く押しっぱなしで止まって見える
+
+          ## 完了条件
+          - [ ] fork 検出本体が main に入り、`feature/fork-detection` が削除されている
+          - [ ] 上の指摘のうち実在したものが解消されている(誤検出だったものはその旨を PR に記す)
+          - [ ] 同一 mtime の親候補の選択順が決定的になっている、または非決定的である旨と理由がコードに残っている
+          - [ ] 既存の fork 検出テスト(7 件)を含め bats が baseline と同じ結果で通る
+      - issue: 28
+        title: 親未登録の fork 行のタイトルも _fork_label 経由で生成する
+        body: |
+          ## やること
+          親セッションが Tower に未登録の「orphan」な fork 行だけ、タイトル生成が共通の `_fork_label` を通らず短縮 ID 生成を独自に再実装している。同じ「fork 行のタイトル」が 2 経路で作られていて、片方を直すともう片方が古びる。経路を一本化する。
+
+          ## 完了条件
+          - [ ] orphan fork 行も他の fork 行と同一の経路(`_fork_label`)でタイトルが生成される
+          - [ ] 既存の fork 検出テスト(7 件)が引き続き通る
+      - issue: 29
+        title: nearest-parent と compaction 非 fork の設計保証をテストで固定する
+        body: |
+          ## やること
+          `find_fork_parent` の設計上の約束 2 つにテストが無く、リファクタで壊れても気づけない。回帰テストで固定する。
+
+          - 複数の古い候補が uuid を共有するとき、子に mtime が最も近い候補が親に選ばれる(nearest wins)
+          - compaction(同一 sessionId でファイルが分かれるが uuid をファイル跨ぎで共有しない)は fork ではなく、「親なし」が返る
+
+          ## 完了条件
+          - [ ] 上記 2 つを検証するテストが `test_fork_detection.bats` にあり、通る
+          - [ ] それぞれ、該当ロジックを壊したときに実際に失敗することを確認済み
+
+tasks:
+  - issue: 30
+    title: Navigator 起動時に端末を失った古い navigator プロセスを掃除する
+    body: |
+      ## やること
+      busy-loop 本体は PR #20 で根治した(端末喪失を検知して自滅する)が、修正前に生まれた孤児プロセスは残ったままで、次に自滅するまで CPU を食い続ける。8 日間 40% CPU を焼く孤児が実際に観測された。利用者が tmux を落とすたびに増える運用実態を踏まえ、Navigator 起動時に「tmux ペインから切り離された古い navigator-list.sh / view プロセス」を検出して片付け、再起動するだけで健全な状態に戻せるようにする。今は手動 kill が必要。
+
+      ## 完了条件
+      - [ ] Navigator 起動時、tmux ペインから切り離された既存の navigator/view プロセスが検出され、終了される
+      - [ ] 稼働中の正規の Navigator や他ユーザー・他ソケットのプロセスは誤って kill されない
+    labels:
+      - bug
+  - issue: 31
+    title: Tile ビューに実機 tmux での回帰テストを用意する
+    body: |
+      ## やること
+      Tile の不具合が単体テストをすり抜けて 2 回起きている(Tab が握り潰されて起動しない件、window と attach 先が別セッションで Tile が見えない件 d693a54)。tile.sh の単体テスト 9 件はどちらも通ったまま素通りした。関数を個別に見る単体テストでは tmux を挟んだ組み立ての誤りを捕まえられない。`tests/integration/test_view_handoff.bats` はハンドオフ 1 点のみ固定している。Tile 自体の描画・操作・復帰を実機の tmux 上で検証するテストを用意する。
+
+      参考: 未マージブランチ `origin/003-simplify` に `tests/e2e/test_tile_live_client.bats`(実クライアント接続時のペイン高さの安定性、小さい 2 つ目のクライアント、prefix+Tab での離脱)と `tests/integration/test_tile_join_pane.bats`(N セッションのタイル化と往復、5 セッションで pane too small が出ない、クラッシュしたペインのスキップ)がある。ただし 003-simplify は join-pane 方式で main の attach-session 方式とは実装が別物なので、検証している「性質」を借りて main の tile.sh 向けに書き起こす。**このタスクが片付くまで `origin/003-simplify` は消さないこと(テストの唯一の出所)。**
+
+      ## 完了条件
+      - [ ] Tile を実機の tmux 上で起動し、落ちずにグリッドが描画されることがテストで固定されている
+      - [ ] セッション数が画面に収まらない場合(6 件超)の挙動がテストで固定されている
+      - [ ] Tile から list ビューへ戻ったとき、選択が保たれることがテストで固定されている
+      - [ ] 追加したテストが、修正前のコードに対して実際に失敗することを確認済み
+  - issue: 32
+    title: navigator-list.sh を責務ごとに 500 行以下に分ける
+    body: |
+      ## やること
+      `navigator-list.sh` が約 1470 行あり、CLAUDE.md の「Files under 500 lines」を大きく超えている。行のレンダリング、バックグラウンド再構築とキャッシュ、キー入力ループ、削除・追加の各サブフローが同居していて、どれか一つを変えるときに全体を読む必要がある。この規模ゆえに削除マークの実装ではサブシェルによる変更破棄を見落とした(直接呼ぶユニットテストは全て通っていた)。既存の違反なので、機能作業のついでではなく独立して扱う。
+
+      ## 完了条件
+      - [ ] `navigator-list.sh` が 500 行以下になる
+      - [ ] 分割後も既存の bats テストがベースラインと同じ結果で通る
+      - [ ] 各ファイルの責務が、先頭のコメントで一言で言える
+  - issue: 33
+    title: 同梱 claude-flow ヘルパーのシェルインジェクションを上流へ報告する
+    body: |
+      ## やること
+      ローカルの `.claude/helpers/github-safe.js`(claude-flow 同梱、gitignore 対象で claude-tower のコードではない)に、シェルインジェクションの実行経路がある。101 行目と 105 行目で `execSync` に `gh ${args.join(' ')}` を渡しており、引数がシェルに素通りする。実証済み: `node .claude/helpers/github-safe.js issue view '123;echo INJECTED'` で INJECTED が出力される。
+
+      同ファイル群には他に、`memory.js:26` と `session.js:30,62` の `writeFileSync` が mode 0600 を指定していない点、`session.js:15` の `session-${Date.now()}` が予測可能な ID である点がある。
+
+      claude-tower 自体には JS ファイルが無く、当プロジェクトの脆弱性ではない。実害はエージェントが信頼できない文字列をこのヘルパーに渡した場合に限られるため緊急度は低いが、上流(claude-flow)に報告する価値はある。
+
+      ## 完了条件
+      - [ ] claude-flow の上流に報告(issue またはセキュリティ報告)が存在し、その URL がこの issue に記されている
+    labels:
+      - security
