@@ -9,6 +9,15 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Identify which Navigator pane this loop is running in, before common.sh is
+# sourced — the state accessors there consult it to decide whether this
+# process is still the live list pane or one that outlived its Navigator.
+# Empty outside tmux (running the script directly), which leaves the
+# ownership check inert and the old unguarded behaviour in place.
+TOWER_NAV_PANE="${TMUX_PANE:-}"
+export TOWER_NAV_PANE
+
 source "$SCRIPT_DIR/../lib/common.sh"
 
 # Error handler - log and continue instead of exiting
@@ -1426,6 +1435,13 @@ main_loop() {
     # user at a shell that no longer echoes what they type.
     trap 'nav_echo_on; printf "\033[?25h" 2>/dev/null || true' EXIT INT TERM
     nav_echo_off
+
+    # Take ownership of the shared state files. The newest list pane wins:
+    # this pane is the one attached to the Navigator the user is looking at,
+    # so any older loop still running from a previous Navigator must stop
+    # writing the cursor. Claiming here (not at source time) keeps one-shot
+    # helpers that source this file from stealing the claim.
+    claim_nav_state
 
     # Initial build is synchronous so the first frame is correct, then seed
     # the cache from it. From here on the refresh tick only loads the cache
