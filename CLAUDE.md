@@ -37,6 +37,16 @@ make reset         # Kill servers, clear caches, reload
 make status        # Show servers, sessions, state files
 ```
 
+## Review
+
+Before opening a PR that touches `tmux-plugin/`, run the project review agent
+`tower-reviewer` (`.claude/agents/tower-reviewer.md`) on the diff. It checks the
+failure classes this app keeps reproducing: a tmux client nested inside the pane
+that spawned it, screen vs `/tmp/claude-tower` state disagreeing, a global-array
+edit discarded by `$(...)`, an optimistic edit undone by the cache reload, and
+terminal echo/cursor left wrong after a sub-flow. ShellCheck and generic review
+do not catch these.
+
 ## Code Style
 
 - ShellCheck compliant (`.shellcheckrc` excludes SC1091, SC1007, SC2034, SC1003)

@@ -16,8 +16,12 @@ Thumbs.db
 .env
 .env.local
 
-# claude-tower data
-.claude
+# claude-tower data (claude-flow scratch, local settings). Only the
+# project review agent is tracked.
+.claude/*
+!.claude/agents/
+.claude/agents/*
+!.claude/agents/tower-reviewer.md
 .superpowers/
 # Agent working notes: plans, provisional design docs, screen captures. The
 # reasoning worth keeping goes in Backlog or a commit message, not here.
