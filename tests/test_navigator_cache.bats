@@ -170,3 +170,60 @@ source_navigator_list_functions() {
     _load_session_state
     [ "${#SESSION_IDS[@]}" -eq 2 ]
 }
+
+# The refresh tick reloads the arrays from the cache file. An optimistic edit
+# (D → _forget_session_row → _settle_after_change) changes the arrays and bumps
+# the generation, but the cache on disk is still the pre-delete snapshot. The
+# next tick loads it and the deleted row is back on screen until the forced
+# rebuild publishes — the "vanishes, returns after half a second, then vanishes
+# for good" the user sees.
+@test "settle: the next tick's cache reload does not resurrect a deleted row" {
+    source_navigator_list_functions
+    SESSION_IDS=(tower_a tower_b tower_c)
+    SESSION_DISPLAYS=("row a" "row b" "row c")
+    SESSION_DIRS=(/p /p /p)
+    SESSION_HEADERS=("p ───" "" "")
+    BROKEN_START=-1
+    # The cache holds what the last rebuild saw: all three rows.
+    _serialize_session_state >"$(_session_cache_file)"
+
+    # Stub what settle would otherwise touch: no tmux, no rebuild fork.
+    set_nav_selected() { :; }
+    signal_view_update_async() { :; }
+    _spawn_background_rebuild() { :; }
+
+    # D on tower_b, exactly as the handler does it (settle runs under $(...)).
+    _forget_session_row tower_b
+    local idx
+    idx=$(_settle_after_change 1)
+    [[ " ${SESSION_IDS[*]} " != *" tower_b "* ]]
+
+    # The very next refresh tick.
+    _load_session_state
+    [[ " ${SESSION_IDS[*]} " != *" tower_b "* ]]
+}
+
+# The mirror image for n/f/N: the freshly seated "starting" row must survive
+# the next tick's reload too, or the session the user just made blinks out
+# until the rebuild finds it.
+@test "settle: the next tick's cache reload keeps a freshly added row" {
+    source_navigator_list_functions
+    SESSION_IDS=(tower_a)
+    SESSION_DISPLAYS=("row a")
+    SESSION_DIRS=(/p)
+    SESSION_HEADERS=("p ───")
+    BROKEN_START=-1
+    _serialize_session_state >"$(_session_cache_file)"
+
+    set_nav_selected() { :; }
+    signal_view_update_async() { :; }
+    _spawn_background_rebuild() { :; }
+    _compose_row() { printf '%s %s' "$1" "$2"; }
+    _session_label() { echo "$1"; }
+
+    _remember_session_row tower_new /q
+    local idx
+    idx=$(_settle_after_change 1)
+    _load_session_state
+    [[ " ${SESSION_IDS[*]} " == *" tower_new "* ]]
+}

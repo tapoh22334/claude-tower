@@ -763,6 +763,14 @@ _settle_after_change() {
     # Every caller has just changed the list optimistically. Bump first, so a
     # rebuild that started before the change cannot publish over it.
     _bump_list_generation
+    # Then write what the screen now shows into the cache. The generation only
+    # stops a *rebuild* from publishing a pre-edit snapshot; it does nothing
+    # about the pre-edit snapshot already sitting in the cache file, which the
+    # next refresh tick loads wholesale. Without this, a deleted row came back
+    # on the next tick and left again when the forced rebuild landed — the
+    # list looked like it had changed its mind. The cache is "what the list
+    # shows", so an optimistic edit has to publish exactly like a rebuild.
+    _publish_rebuild "$LIST_GENERATION" || true
     ((want < 0)) && want=0
     ((n > 0 && want >= n)) && want=$((n - 1))
     if ((n > 0)); then
