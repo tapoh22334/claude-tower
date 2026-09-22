@@ -756,7 +756,15 @@ _restore_session_row() {
 }
 
 # Redraw now, then let the background rebuild reconcile. Callers pass the
-# index they want the cursor left on; it is clamped to the list.
+# index they want the cursor left on; it is clamped to the list and handed
+# back in NAV_NEW_INDEX (and echoed, for callers that only want to read it).
+#
+# Call it BARE, never inside command substitution: it bumps the generation,
+# resets the rebuild cool-off and records the rebuild PID, and every one of
+# those is a global write that a subshell throws away. That is exactly how
+# the generation guard was silently defeated — the parent's counter never
+# moved, so every settle wrote the same "1" and a rebuild from before the
+# first edit could publish over the second.
 _settle_after_change() {
     local want="${1:-0}"
     local n=${#SESSION_IDS[@]}
@@ -783,6 +791,7 @@ _settle_after_change() {
     # the user changed something and the confirmation should not lag.
     _REBUILD_DONE_AT=0
     _spawn_background_rebuild
+    NAV_NEW_INDEX="$want"
     echo "$want"
 }
 
@@ -1532,7 +1541,8 @@ main_loop() {
                     # it), so the selection lookup finds the new session and
                     # the cursor stays on it. The background rebuild replaces
                     # the placeholder row with the real one.
-                    selected_index=$(_settle_after_change "$(get_selection_index)")
+                    _settle_after_change "$(get_selection_index)" >/dev/null
+                    selected_index=$NAV_NEW_INDEX
                     ;;
                 f)
                     fork_session_here
@@ -1541,7 +1551,8 @@ main_loop() {
                     # it), so the selection lookup finds the new session and
                     # the cursor stays on it. The background rebuild replaces
                     # the placeholder row with the real one.
-                    selected_index=$(_settle_after_change "$(get_selection_index)")
+                    _settle_after_change "$(get_selection_index)" >/dev/null
+                    selected_index=$NAV_NEW_INDEX
                     ;;
                 N)
                     new_session_pick_dir
@@ -1550,7 +1561,8 @@ main_loop() {
                     # it), so the selection lookup finds the new session and
                     # the cursor stays on it. The background rebuild replaces
                     # the placeholder row with the real one.
-                    selected_index=$(_settle_after_change "$(get_selection_index)")
+                    _settle_after_change "$(get_selection_index)" >/dev/null
+                    selected_index=$NAV_NEW_INDEX
                     ;;
                 D)
                     doomed=$(get_nav_selected)
@@ -1569,7 +1581,8 @@ main_loop() {
                         elif [[ -n "$doomed_row" ]]; then
                             _restore_session_row "$doomed" "$doomed_row" || true
                         fi
-                        selected_index=$(_settle_after_change "$selected_index")
+                        _settle_after_change "$selected_index" >/dev/null
+                        selected_index=$NAV_NEW_INDEX
                     fi
                     _return_from_subflow
                     ;;
@@ -1577,7 +1590,8 @@ main_loop() {
                     # Restore selected dormant session
                     restore_selected || true
                     _return_from_subflow
-                    selected_index=$(_settle_after_change "$selected_index")
+                    _settle_after_change "$selected_index" >/dev/null
+                    selected_index=$NAV_NEW_INDEX
                     ;;
                 $'\t') # Tab key
                     switch_to_tile

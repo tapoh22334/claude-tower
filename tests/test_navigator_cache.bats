@@ -227,3 +227,57 @@ source_navigator_list_functions() {
     _load_session_state
     [[ " ${SESSION_IDS[*]} " == *" tower_new "* ]]
 }
+
+# _settle_after_change used to be called as `idx=$(_settle_after_change …)`
+# at every optimistic edit. Command substitution is a subshell, so the
+# generation bump, the forced-rebuild bookkeeping and the coalescing PID all
+# died with it: the parent's LIST_GENERATION stayed at 0, every settle wrote
+# the same "1", and a rebuild that started before the FIRST edit could still
+# publish over the SECOND. Movers already hand their result back through
+# NAV_NEW_INDEX; settle must do the same and be called bare.
+@test "settle: two edits in a row advance the generation in the calling shell" {
+    source_navigator_list_functions
+    SESSION_IDS=(tower_a tower_b tower_c)
+    SESSION_DISPLAYS=("row a" "row b" "row c")
+    SESSION_DIRS=(/p /p /p)
+    SESSION_HEADERS=("" "" "")
+    BROKEN_START=-1
+    set_nav_selected() { :; }
+    signal_view_update_async() { :; }
+    _spawn_background_rebuild() { :; }
+
+    local started_at="$LIST_GENERATION"
+    _forget_session_row tower_c
+    _settle_after_change 1
+    local after_first="$LIST_GENERATION"
+    _forget_session_row tower_b
+    _settle_after_change 0
+    [ "$after_first" -gt "$started_at" ]
+    [ "$LIST_GENERATION" -gt "$after_first" ]
+    # A rebuild that began before the first edit must still be refused after
+    # the second (this is the case the $(...) form let through).
+    run _generation_is_current "$started_at"
+    [ "$status" -ne 0 ]
+    run _generation_is_current "$after_first"
+    [ "$status" -ne 0 ]
+}
+
+@test "settle: hands the clamped index back in NAV_NEW_INDEX" {
+    source_navigator_list_functions
+    SESSION_IDS=(tower_a tower_b)
+    SESSION_DISPLAYS=("row a" "row b")
+    SESSION_DIRS=(/p /p)
+    SESSION_HEADERS=("" "")
+    BROKEN_START=-1
+    set_nav_selected() { :; }
+    signal_view_update_async() { :; }
+    _spawn_background_rebuild() { :; }
+    _settle_after_change 7
+    [ "$NAV_NEW_INDEX" -eq 1 ]
+}
+
+@test "settle: no handler calls it under command substitution" {
+    # The call shape is the bug; a direct-call unit test cannot see it.
+    run grep -n '^[^#]*\$(_settle_after_change' "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
+    [ "$status" -ne 0 ]
+}
