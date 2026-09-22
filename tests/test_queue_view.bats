@@ -163,6 +163,10 @@ _run_queue() {
     [[ "$output" == *"_return_from_subflow"* ]]
     [[ "$output" == *'selected_index=$(get_selection_index)'* ]]
     [[ "$output" == *"quit_navigator"* ]]
+    # And the view pane must be pointed at that row: the queue's last redirect
+    # may have raced its own exit, and the arrays must be fresh first.
+    [[ "$output" == *"_load_session_state"* ]]
+    [[ "$output" == *"signal_view_update_async"* ]]
 }
 
 # ----------------------------------------------------------------------------
@@ -200,6 +204,56 @@ _shadow_tmux() {
     '
     [ "$status" -eq 3 ]
     [ ! -f "$BATS_TEST_TMPDIR/tmux.log" ]
+}
+
+@test "queue-view.sh: j/k redirect the view pane, not just write the file" {
+    # Writing the selection is not enough: the view's nested client is parked
+    # inside attach-session and moves only when redirected. Every move must
+    # call the shared redirect.
+    run bash -c '
+        export CLAUDE_TOWER_NAV_STATE_DIR="'"$BATS_TEST_TMPDIR"'/state"
+        source "'"$PROJECT_ROOT"'/tmux-plugin/scripts/queue-view.sh"
+        set +e
+        nav_redirect_view() { echo "redirect:$(get_nav_selected)" >>"'"$BATS_TEST_TMPDIR"'/redirects"; }
+        QUEUE_IDS=(tower_a tower_b tower_c); QUEUE_KINDS=(input input input); QUEUE_AGES=(1m 2m 3m)
+        SELECTED_INDEX=0
+        handle_key j; handle_key k; handle_key G
+        wait
+    '
+    [ "$status" -eq 0 ]
+    run cat "$BATS_TEST_TMPDIR/redirects"
+    [[ "$output" == *"redirect:tower_b"* ]]
+    [[ "$output" == *"redirect:tower_a"* ]]
+    [[ "$output" == *"redirect:tower_c"* ]]
+}
+
+@test "common.sh: nav_redirect_view switches the view client onto a live selection" {
+    run bash -c '
+        export CLAUDE_TOWER_NAV_STATE_DIR="'"$BATS_TEST_TMPDIR"'/state"
+        source "'"$PROJECT_ROOT"'/tmux-plugin/lib/common.sh"
+        set +e
+        set_nav_selected tower_live
+        nav_tmux() { echo "/dev/pts/99"; }
+        session_tmux() { echo "session_tmux $*"; }
+        nav_redirect_view
+    '
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"switch-client -c /dev/pts/99 -t tower_live"* ]]
+}
+
+@test "common.sh: nav_redirect_view detaches the view client when the selection is not live" {
+    run bash -c '
+        export CLAUDE_TOWER_NAV_STATE_DIR="'"$BATS_TEST_TMPDIR"'/state"
+        source "'"$PROJECT_ROOT"'/tmux-plugin/lib/common.sh"
+        set +e
+        set_nav_selected tower_dormant
+        nav_tmux() { echo "/dev/pts/99"; }
+        session_tmux() { case "$1" in has-session) return 1 ;; *) echo "session_tmux $*" ;; esac; }
+        nav_redirect_view
+    '
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"detach-client -t /dev/pts/99"* ]]
+    [[ "$output" != *"switch-client"* ]]
 }
 
 @test "queue-view.sh: j/k publish the row under the cursor so the view pane follows" {

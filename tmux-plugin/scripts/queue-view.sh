@@ -204,12 +204,18 @@ quit_navigator() {
     exit "$QUEUE_EXIT_QUIT"
 }
 
-# Publish the row under the cursor so the view pane shows that session while
-# the user is still deciding. Same contract as list mode's j/k.
+# Publish the row under the cursor and point the view pane at it, so the
+# right-hand pane shows that session while the user is still deciding. Same
+# contract as list mode's j/k: writing the file alone is not enough, because
+# the view's nested client is parked inside attach-session and only moves
+# when someone redirects it (nav_redirect_view). The redirect runs in the
+# background so a j/k burst never waits on tmux; it re-reads the selection
+# when it runs, so the last move wins.
 _follow_selection() {
     local count=${#QUEUE_IDS[@]}
     ((count > 0)) || return 0
     set_nav_selected "${QUEUE_IDS[$SELECTED_INDEX]}"
+    nav_redirect_view >/dev/null 2>&1 &
 }
 
 # Start with the cursor on the session the list had selected, when it is in
