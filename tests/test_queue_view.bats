@@ -217,14 +217,17 @@ _shadow_tmux() {
         nav_redirect_view() { echo "redirect:$(get_nav_selected)" >>"'"$BATS_TEST_TMPDIR"'/redirects"; }
         QUEUE_IDS=(tower_a tower_b tower_c); QUEUE_KINDS=(input input input); QUEUE_AGES=(1m 2m 3m)
         SELECTED_INDEX=0
-        handle_key j; handle_key k; handle_key G
-        wait
+        # One move at a time: the redirect runs in the background and reads
+        # the selection when it runs, so a burst legitimately collapses to
+        # the last value. What must hold is that every move fires one.
+        handle_key j; wait
+        handle_key G; wait
     '
     [ "$status" -eq 0 ]
     run cat "$BATS_TEST_TMPDIR/redirects"
-    [[ "$output" == *"redirect:tower_b"* ]]
-    [[ "$output" == *"redirect:tower_a"* ]]
-    [[ "$output" == *"redirect:tower_c"* ]]
+    [ "${lines[0]}" = "redirect:tower_b" ]
+    [ "${lines[1]}" = "redirect:tower_c" ]
+    [ "${#lines[@]}" -eq 2 ]
 }
 
 @test "common.sh: nav_redirect_view switches the view client onto a live selection" {
