@@ -16,7 +16,7 @@ tmux the user was already working in.
 │ ├── tower_api        ← Claude Code session                     │
 │ ├── tower_frontend   ← Claude Code session                     │
 │ ├── tower_scripts    ← Claude Code session                     │
-│ └── tower-tile / tower-tail / tower-queue  ← view windows      │
+│ └── tower-tile / tower-tail  ← full-screen view windows        │
 └─────────────────────────────────────────────────────────────────┘
         ▲
         │ Right pane connects via: TMUX= tmux -L … attach -t <session>

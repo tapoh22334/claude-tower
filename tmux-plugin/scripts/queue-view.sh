@@ -4,6 +4,18 @@
 # nothing blocked or finished gets forgotten. Visualization only — pick a
 # row to jump to that session and answer it yourself.
 #
+# Runs IN the Navigator's list pane, as a display mode of that pane: the list
+# loop execs this script in the foreground and takes the screen back when it
+# exits. It never creates tmux windows or attaches clients. Moving the cursor
+# writes the shared selection, so the right-hand view pane follows the row
+# under the cursor exactly as it does in list mode. (The earlier design made
+# this a window inside a real tower_* session and attached from inside that
+# pane on the way back, which nested the Navigator inside itself — #37.)
+#
+# Exit codes tell the list loop what to do next:
+#   0  back to list mode (selection already written)
+#   3  the user pressed q: quit the Navigator
+#
 # Key bindings:
 #   j/↓ k/↑   Move selection (wraps)
 #   g / G     First / last
@@ -20,6 +32,7 @@ TOWER_SCRIPT_NAME="queue-view.sh"
 source "$SCRIPT_DIR/../lib/common.sh"
 
 REFRESH_INTERVAL="${TOWER_QUEUE_REFRESH:-2}"
+readonly QUEUE_EXIT_QUIT=3
 
 readonly NC=$'\033[0m'
 readonly BOLD=$'\033[1m'
@@ -174,45 +187,65 @@ render_frame() {
     printf '\033[?25l\033[H%b%s\033[?25h' "$frame" "$clear_eos"
 }
 
+# Hand the pane back to the list loop. The selection file is the only thing
+# that crosses the boundary: the loop re-reads it to place its cursor.
 return_to_list_view() {
     local selected_id="$1"
     [[ -n "$selected_id" ]] && set_nav_selected "$selected_id"
     cleanup
-    TMUX= tmux -L "$TOWER_NAV_SOCKET" attach-session -t "$TOWER_NAV_SESSION" 2>/dev/null || exit 0
     exit 0
 }
 
+# q in the queue means "quit the Navigator", but the queue is not the one to
+# do it — it is a mode of the list pane, and the list loop owns the exit
+# (it knows the caller session and how to hand the client back). Report it.
 quit_navigator() {
     cleanup
-    local caller
-    caller=$(get_nav_caller)
-    if [[ -n "$caller" ]]; then
-        if session_tmux has-session -t "$caller" 2>/dev/null; then
-            session_tmux attach-session -t "$caller" 2>/dev/null || exit 0
-        elif TMUX= tmux has-session -t "$caller" 2>/dev/null; then
-            TMUX= tmux attach-session -t "$caller" 2>/dev/null || exit 0
+    exit "$QUEUE_EXIT_QUIT"
+}
+
+# Publish the row under the cursor so the view pane shows that session while
+# the user is still deciding. Same contract as list mode's j/k.
+_follow_selection() {
+    local count=${#QUEUE_IDS[@]}
+    ((count > 0)) || return 0
+    set_nav_selected "${QUEUE_IDS[$SELECTED_INDEX]}"
+}
+
+# Start with the cursor on the session the list had selected, when it is in
+# the queue; otherwise on the longest wait.
+_seed_selection() {
+    local current i
+    current=$(get_nav_selected)
+    [[ -n "$current" ]] || return 0
+    for ((i = 0; i < ${#QUEUE_IDS[@]}; i++)); do
+        if [[ "${QUEUE_IDS[$i]}" == "$current" ]]; then
+            SELECTED_INDEX=$i
+            return 0
         fi
-    fi
-    local target
-    target=$(session_tmux list-sessions -F '#{session_name}' 2>/dev/null | grep '^tower_' | head -1 || echo "")
-    if [[ -n "$target" ]]; then
-        session_tmux attach-session -t "$target" 2>/dev/null || exit 0
-    fi
-    target=$(TMUX= tmux list-sessions -F '#{session_name}' 2>/dev/null | head -1 || echo "")
-    if [[ -n "$target" ]]; then
-        TMUX= tmux attach-session -t "$target" 2>/dev/null || exit 0
-    fi
-    exit 0
+    done
 }
 
 handle_key() {
     local key="$1"
     local count=${#QUEUE_IDS[@]}
     case "$key" in
-        j | $'\x1b[B') if ((count > 0)); then SELECTED_INDEX=$(((SELECTED_INDEX + 1) % count)); fi ;;
-        k | $'\x1b[A') if ((count > 0)); then SELECTED_INDEX=$(((SELECTED_INDEX - 1 + count) % count)); fi ;;
-        g) SELECTED_INDEX=0 ;;
-        G) if ((count > 0)); then SELECTED_INDEX=$((count - 1)); fi ;;
+        j | $'\x1b[B')
+            if ((count > 0)); then SELECTED_INDEX=$(((SELECTED_INDEX + 1) % count)); fi
+            _follow_selection
+            ;;
+        k | $'\x1b[A')
+            if ((count > 0)); then SELECTED_INDEX=$(((SELECTED_INDEX - 1 + count) % count)); fi
+            _follow_selection
+            ;;
+        g)
+            SELECTED_INDEX=0
+            _follow_selection
+            ;;
+        G)
+            if ((count > 0)); then SELECTED_INDEX=$((count - 1)); fi
+            _follow_selection
+            ;;
         [1-9])
             local target=$((key - 1))
             if ((target < count)); then return_to_list_view "${QUEUE_IDS[$target]}"; fi
@@ -239,6 +272,7 @@ main() {
     stty -echo 2>/dev/null || true
 
     load_queue
+    _seed_selection
     render_frame
 
     local key key2 read_rc
