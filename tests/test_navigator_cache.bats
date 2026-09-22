@@ -281,3 +281,75 @@ source_navigator_list_functions() {
     run grep -n '^[^#]*\$(_settle_after_change' "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
     [ "$status" -ne 0 ]
 }
+
+# settle asks for the confirming rebuild NOW. The tick-driven path treats a
+# just-finished rebuild as the start of a cool-off, and zeroing the cool-off
+# clock — settle's old way of "forcing" — is exactly what selects that branch.
+# Once settle ran in the parent shell for real, every n/f/N/D/r pushed the
+# confirming rebuild out by REBUILD_MIN_GAP instead of pulling it in.
+@test "settle: forces a rebuild even though the last one has just finished" {
+    source_navigator_list_functions
+    SESSION_IDS=(tower_a)
+    SESSION_DISPLAYS=("row a")
+    SESSION_DIRS=(/p)
+    SESSION_HEADERS=("")
+    BROKEN_START=-1
+    set_nav_selected() { :; }
+    signal_view_update_async() { :; }
+    build_session_list() { :; }
+    _publish_rebuild() { :; }
+    # A rebuild that finished a moment ago (dead pid, cool-off not started).
+    _REBUILD_PID=4194304
+    _REBUILD_DONE_AT=0
+    _settle_after_change 0
+    [ "$_REBUILD_PID" != "4194304" ]
+    kill -0 "$_REBUILD_PID" 2>/dev/null || true
+    wait 2>/dev/null || true
+}
+
+@test "settle: with a rebuild still running, queues one for the moment it ends" {
+    source_navigator_list_functions
+    SESSION_IDS=(tower_a)
+    SESSION_DISPLAYS=("row a")
+    SESSION_DIRS=(/p)
+    SESSION_HEADERS=("")
+    BROKEN_START=-1
+    set_nav_selected() { :; }
+    signal_view_update_async() { :; }
+    build_session_list() { :; }
+    _publish_rebuild() { :; }
+    sleep 30 &
+    local running=$!
+    _REBUILD_PID=$running
+    _REBUILD_DONE_AT=0
+    _settle_after_change 0
+    # Not replaced while it runs, but remembered.
+    [ "$_REBUILD_PID" = "$running" ]
+    [ "$_REBUILD_WANTED" -eq 1 ]
+    kill "$running" 2>/dev/null; wait "$running" 2>/dev/null || true
+    # The next plain tick spawns at once instead of starting a cool-off.
+    _spawn_background_rebuild
+    [ "$_REBUILD_PID" != "$running" ]
+    [ "$_REBUILD_WANTED" -eq 0 ]
+    wait 2>/dev/null || true
+}
+
+@test "tick: a rebuild that just finished still starts the cool-off when nothing was forced" {
+    source_navigator_list_functions
+    build_session_list() { :; }
+    _publish_rebuild() { :; }
+    _REBUILD_PID=4194304
+    _REBUILD_DONE_AT=0
+    _spawn_background_rebuild
+    [ "$_REBUILD_PID" = "4194304" ]
+    [ "$_REBUILD_DONE_AT" -ne 0 ]
+}
+
+@test "generation: the bump counts up from the file, not from this process's memory" {
+    source_navigator_list_functions
+    printf '41\n' >"$(_generation_file)"
+    LIST_GENERATION=3
+    _bump_list_generation
+    [ "$LIST_GENERATION" -eq 42 ]
+    [ "$(cat "$(_generation_file)")" = "42" ]
+}

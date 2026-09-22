@@ -458,7 +458,12 @@ _generation_file() {
 }
 
 _bump_list_generation() {
-    LIST_GENERATION=$((LIST_GENERATION + 1))
+    # Count up from the value on disk, not from this process's memory: two
+    # list loops can coexist (q only detaches; the pane-exited hook respawns),
+    # and a loop whose memory lags the file would otherwise re-issue a number
+    # a rebuild elsewhere already holds, letting that rebuild publish over
+    # this loop's edit.
+    LIST_GENERATION=$(($(_current_generation) + 1))
     local f
     f=$(_generation_file)
     mkdir -p "$(dirname "$f")" 2>/dev/null || true
@@ -573,22 +578,39 @@ fi
 
 _REBUILD_PID=""
 _REBUILD_DONE_AT=0
+# Set when a forced rebuild was asked for while one was still running: the
+# next call spawns as soon as that one is gone, skipping the cool-off.
+_REBUILD_WANTED=0
+#
+# $1 = "force": the caller just changed the list and wants the confirming
+# rebuild now, not after the cool-off. Without it the tick-driven path
+# applies: a rebuild that has just finished starts the cool-off, and a spawn
+# inside the cool-off is a no-op. Settle used to fake "force" by zeroing
+# _REBUILD_DONE_AT — which, once it actually ran in the parent shell, took
+# the "just finished, start the cool-off from now" branch and *delayed* the
+# rebuild by REBUILD_MIN_GAP instead of forcing it.
 _spawn_background_rebuild() {
+    local force="${1:-}"
     local now
     now=$(_now_seconds)
-    if [[ -n "$_REBUILD_PID" ]]; then
-        if kill -0 "$_REBUILD_PID" 2>/dev/null; then
-            return
-        fi
-        # It finished since we last looked; start the cool-off from now.
-        if [[ $_REBUILD_DONE_AT -eq 0 ]]; then
+    if [[ -n "$_REBUILD_PID" ]] && kill -0 "$_REBUILD_PID" 2>/dev/null; then
+        # One is running. It may predate the edit that asked for this, and
+        # the generation guard will then refuse its publish — so remember
+        # to run another the moment it is gone.
+        [[ -n "$force" ]] && _REBUILD_WANTED=1
+        return
+    fi
+    if [[ -z "$force" && $_REBUILD_WANTED -eq 0 ]]; then
+        if [[ -n "$_REBUILD_PID" && $_REBUILD_DONE_AT -eq 0 ]]; then
+            # It finished since we last looked; start the cool-off from now.
             _REBUILD_DONE_AT=$now
             return
         fi
+        if ((now - _REBUILD_DONE_AT < REBUILD_MIN_GAP)); then
+            return
+        fi
     fi
-    if ((now - _REBUILD_DONE_AT < REBUILD_MIN_GAP)); then
-        return
-    fi
+    _REBUILD_WANTED=0
     _REBUILD_DONE_AT=0
     local started_at
     started_at=$(_current_generation)
@@ -787,10 +809,9 @@ _settle_after_change() {
     else
         set_nav_selected ""
     fi
-    # Force the next tick to rebuild rather than waiting out the cool-off:
-    # the user changed something and the confirmation should not lag.
-    _REBUILD_DONE_AT=0
-    _spawn_background_rebuild
+    # The user changed something and the confirmation should not lag: run
+    # the rebuild now, or queue one behind the rebuild already running.
+    _spawn_background_rebuild force
     NAV_NEW_INDEX="$want"
     echo "$want"
 }
