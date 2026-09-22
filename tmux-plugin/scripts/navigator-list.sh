@@ -975,29 +975,9 @@ show_help() {
 # the cursor-movement lag. So we NEVER call this inline; movers call
 # signal_view_update_async, which detaches it completely (see below).
 signal_view_update() {
-    local selected view_tty
-    selected=$(get_nav_selected)
-    [[ -z "$selected" ]] && return
-
-    view_tty=$(nav_tmux display-message -t "$TOWER_NAV_SESSION:0.1" -p '#{pane_tty}' 2>/dev/null)
-    [[ -z "$view_tty" ]] && return
-
-    if session_tmux has-session -t "$selected" 2>/dev/null; then
-        # Live session: retarget the view's nested client straight onto it.
-        # This detaches the old session and attaches the new one in one step,
-        # which also unblocks navigator-view.sh's attach-session so its poll
-        # loop resumes on the new session.
-        session_tmux switch-client -c "$view_tty" -t "$selected" 2>/dev/null || true
-    else
-        # Not live (dormant / unregistered). switch-client would fail — there
-        # is no session to switch to — and, failing, would leave the nested
-        # client parked on the PREVIOUS session, so its stale pane stays on
-        # screen. Instead force the client to detach. That unblocks the
-        # attach-session call in navigator-view.sh; its poll loop then takes
-        # the not-live branch and paints the dedicated dormant/placeholder
-        # screen for this selection.
-        session_tmux detach-client -t "$view_tty" 2>/dev/null || true
-    fi
+    # The redirect itself lives in common.sh so the queue mode, which runs as
+    # its own process in this pane, can drive the same view pane.
+    nav_redirect_view
 }
 
 # Fire the view redirect fully detached so cursor movement never waits on it.
@@ -1343,10 +1323,23 @@ switch_to_tail() {
     _switch_to_view "tower-tail" "$SCRIPT_DIR/tail-view.sh"
 }
 
-# Switch to Queue view (sessions awaiting your action, oldest wait first)
+# Queue mode (sessions awaiting your action, oldest wait first).
+#
+# Unlike Tile and Tail, the queue is a way of looking at the same list, so it
+# runs in THIS pane as a foreground sub-flow — the same shape as the help
+# screen or the add prompt — and the view pane keeps following the shared
+# selection while the user moves through it. Nothing is created on the
+# session server and no client is attached from inside a pane, which is what
+# made the old window-based queue nest the Navigator inside itself (#37).
+#
+# Returns 0 when the user came back to the list (the selection file already
+# names the row they chose) and QUEUE_EXIT_QUIT when they pressed q there.
+readonly QUEUE_EXIT_QUIT=3
 switch_to_queue() {
     info_log "Switching to Queue mode"
-    _switch_to_view "tower-queue" "$SCRIPT_DIR/queue-view.sh"
+    local rc=0
+    "$SCRIPT_DIR/queue-view.sh" || rc=$?
+    return "$rc"
 }
 
 # Quit Navigator
@@ -1494,7 +1487,7 @@ main_loop() {
         # Wait for input with timeout (short tick so the spinner turns).
         # nav_read_key guards against the orphaned-terminal busy-loop: rc 2
         # means the pane is gone and we must exit rather than spin forever.
-        local key="" read_rc=0 doomed="" doomed_row=""
+        local key="" read_rc=0 doomed="" doomed_row="" queue_rc=0
         nav_read_key key "$TICK_INTERVAL" || read_rc=$?
         [[ $read_rc -eq 2 ]] && exit 0
         if [[ $read_rc -eq 0 ]]; then
@@ -1593,7 +1586,25 @@ main_loop() {
                     switch_to_tail
                     ;;
                 w)
-                    switch_to_queue
+                    # Foreground sub-flow in this pane. On return, the cursor
+                    # follows whatever the queue left in the selection file,
+                    # so the row the user picked there is the row under the
+                    # cursor here — screen and state agree.
+                    queue_rc=0
+                    switch_to_queue || queue_rc=$?
+                    _return_from_subflow
+                    if [[ $queue_rc -eq $QUEUE_EXIT_QUIT ]]; then
+                        quit_navigator
+                    fi
+                    # The list arrays are as old as the moment w was pressed;
+                    # the cache may have moved on (a rebuild finished, a
+                    # session was added from the CLI) and the queue can have
+                    # picked a row the arrays do not hold yet. Reload before
+                    # looking the selection up, then make sure the view pane
+                    # shows the same session the cursor is on.
+                    _load_session_state || true
+                    selected_index=$(get_selection_index)
+                    signal_view_update_async
                     ;;
                 '?')
                     show_help

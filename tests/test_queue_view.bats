@@ -115,32 +115,175 @@ _run_queue() {
 }
 
 @test "navigator-list.sh: w key is wired to switch_to_queue" {
-    run grep -A 2 "^                w)" "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
+    run sed -n '/^                w)$/,/;;/p' "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
     [ "$status" -eq 0 ]
     [[ "$output" == *"switch_to_queue"* ]]
 }
 
-@test "navigator-list.sh: switch_to_queue launches queue-view.sh on the session server" {
-    # Asserted by calling the function with tmux stubbed, not by grepping the
-    # source: the three switch_to_* functions share one helper now, so the
-    # new-window call no longer sits inside switch_to_queue's own body.
+@test "navigator-list.sh: switch_to_queue runs queue-view.sh in this pane and touches no tmux server" {
+    # The queue is a mode of the list pane, not a window on the session
+    # server (that design nested the Navigator inside itself — #37). Any tmux
+    # call here is a regression, so both wrappers abort the test.
+    local fake="$BATS_TEST_TMPDIR/fakescripts"
+    mkdir -p "$fake"
+    printf '#!/usr/bin/env bash\necho ran-in-pane\nexit 0\n' >"$fake/queue-view.sh"
+    chmod +x "$fake/queue-view.sh"
     run bash -c '
         source "'"$PROJECT_ROOT"'/tmux-plugin/scripts/navigator-list.sh"
         set +e
-        session_tmux() {
-            case "$1" in
-                list-sessions) echo "tower_stub" ;;
-                new-window) printf "new-window %s\n" "$*" ;;
-            esac
-        }
-        nav_tmux() { :; }
-        handle_error() { :; }
-        handle_info() { :; }
+        SCRIPT_DIR="'"$fake"'"
+        session_tmux() { echo "SESSION_TMUX CALLED: $*"; exit 99; }
+        nav_tmux() { echo "NAV_TMUX CALLED: $*"; exit 99; }
         switch_to_queue
     '
     [ "$status" -eq 0 ]
-    [[ "$output" == *"new-window"* ]]
-    [[ "$output" == *"queue-view.sh"* ]]
-    # The window must be pinned to the session the user gets attached to.
-    [[ "$output" == *"-t tower_stub"* ]]
+    [ "$output" = "ran-in-pane" ]
+}
+
+@test "navigator-list.sh: switch_to_queue reports the queue's quit code to the loop" {
+    local fake="$BATS_TEST_TMPDIR/fakescripts"
+    mkdir -p "$fake"
+    printf '#!/usr/bin/env bash\nexit 3\n' >"$fake/queue-view.sh"
+    chmod +x "$fake/queue-view.sh"
+    run bash -c '
+        source "'"$PROJECT_ROOT"'/tmux-plugin/scripts/navigator-list.sh"
+        set +e
+        SCRIPT_DIR="'"$fake"'"
+        switch_to_queue
+    '
+    [ "$status" -eq 3 ]
+}
+
+@test "navigator-list.sh: the w handler resyncs the cursor from the selection after the queue" {
+    # The queue writes the chosen id to the selection file; the loop must read
+    # it back into selected_index, or the highlight stays where it was before
+    # w while D/Enter act on the queue's choice (screen vs state).
+    run sed -n '/^                w)$/,/;;/p' "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"_return_from_subflow"* ]]
+    [[ "$output" == *'selected_index=$(get_selection_index)'* ]]
+    [[ "$output" == *"quit_navigator"* ]]
+    # And the view pane must be pointed at that row: the queue's last redirect
+    # may have raced its own exit, and the arrays must be fresh first.
+    [[ "$output" == *"_load_session_state"* ]]
+    [[ "$output" == *"signal_view_update_async"* ]]
+}
+
+# ----------------------------------------------------------------------------
+# Exits: the queue hands control back by exiting, never by attaching a client.
+# A PATH-shadowed tmux records any call and fails, so an attach from inside
+# the pane shows up as both a log line and a non-zero status.
+# ----------------------------------------------------------------------------
+_shadow_tmux() {
+    mkdir -p "$BATS_TEST_TMPDIR/bin"
+    printf '#!/usr/bin/env bash\necho "tmux $*" >>"%s/tmux.log"\nexit 1\n' "$BATS_TEST_TMPDIR" >"$BATS_TEST_TMPDIR/bin/tmux"
+    chmod +x "$BATS_TEST_TMPDIR/bin/tmux"
+}
+
+@test "queue-view.sh: return_to_list_view writes the selection and exits 0 without attaching" {
+    _shadow_tmux
+    run env PATH="$BATS_TEST_TMPDIR/bin:$PATH" bash -c '
+        export CLAUDE_TOWER_NAV_STATE_DIR="'"$BATS_TEST_TMPDIR"'/state"
+        source "'"$PROJECT_ROOT"'/tmux-plugin/scripts/queue-view.sh"
+        set +e
+        ( return_to_list_view tower_picked ); rc=$?
+        echo "rc=$rc sel=$(get_nav_selected)"
+    '
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"rc=0 sel=tower_picked"* ]]
+    [ ! -f "$BATS_TEST_TMPDIR/tmux.log" ]
+}
+
+@test "queue-view.sh: quit_navigator exits with the quit code without attaching" {
+    _shadow_tmux
+    run env PATH="$BATS_TEST_TMPDIR/bin:$PATH" bash -c '
+        export CLAUDE_TOWER_NAV_STATE_DIR="'"$BATS_TEST_TMPDIR"'/state"
+        source "'"$PROJECT_ROOT"'/tmux-plugin/scripts/queue-view.sh"
+        set +e
+        quit_navigator
+    '
+    [ "$status" -eq 3 ]
+    [ ! -f "$BATS_TEST_TMPDIR/tmux.log" ]
+}
+
+@test "queue-view.sh: j/k redirect the view pane, not just write the file" {
+    # Writing the selection is not enough: the view's nested client is parked
+    # inside attach-session and moves only when redirected. Every move must
+    # call the shared redirect.
+    run bash -c '
+        export CLAUDE_TOWER_NAV_STATE_DIR="'"$BATS_TEST_TMPDIR"'/state"
+        source "'"$PROJECT_ROOT"'/tmux-plugin/scripts/queue-view.sh"
+        set +e
+        nav_redirect_view() { echo "redirect:$(get_nav_selected)" >>"'"$BATS_TEST_TMPDIR"'/redirects"; }
+        QUEUE_IDS=(tower_a tower_b tower_c); QUEUE_KINDS=(input input input); QUEUE_AGES=(1m 2m 3m)
+        SELECTED_INDEX=0
+        # One move at a time: the redirect runs in the background and reads
+        # the selection when it runs, so a burst legitimately collapses to
+        # the last value. What must hold is that every move fires one.
+        handle_key j; wait
+        handle_key G; wait
+    '
+    [ "$status" -eq 0 ]
+    run cat "$BATS_TEST_TMPDIR/redirects"
+    [ "${lines[0]}" = "redirect:tower_b" ]
+    [ "${lines[1]}" = "redirect:tower_c" ]
+    [ "${#lines[@]}" -eq 2 ]
+}
+
+@test "common.sh: nav_redirect_view switches the view client onto a live selection" {
+    run bash -c '
+        export CLAUDE_TOWER_NAV_STATE_DIR="'"$BATS_TEST_TMPDIR"'/state"
+        source "'"$PROJECT_ROOT"'/tmux-plugin/lib/common.sh"
+        set +e
+        set_nav_selected tower_live
+        nav_tmux() { echo "/dev/pts/99"; }
+        session_tmux() { echo "session_tmux $*"; }
+        nav_redirect_view
+    '
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"switch-client -c /dev/pts/99 -t tower_live"* ]]
+}
+
+@test "common.sh: nav_redirect_view detaches the view client when the selection is not live" {
+    run bash -c '
+        export CLAUDE_TOWER_NAV_STATE_DIR="'"$BATS_TEST_TMPDIR"'/state"
+        source "'"$PROJECT_ROOT"'/tmux-plugin/lib/common.sh"
+        set +e
+        set_nav_selected tower_dormant
+        nav_tmux() { echo "/dev/pts/99"; }
+        session_tmux() { case "$1" in has-session) return 1 ;; *) echo "session_tmux $*" ;; esac; }
+        nav_redirect_view
+    '
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"detach-client -t /dev/pts/99"* ]]
+    [[ "$output" != *"switch-client"* ]]
+}
+
+@test "queue-view.sh: j/k publish the row under the cursor so the view pane follows" {
+    run bash -c '
+        export CLAUDE_TOWER_NAV_STATE_DIR="'"$BATS_TEST_TMPDIR"'/state"
+        source "'"$PROJECT_ROOT"'/tmux-plugin/scripts/queue-view.sh"
+        set +e
+        QUEUE_IDS=(tower_a tower_b tower_c); QUEUE_KINDS=(input input input); QUEUE_AGES=(1m 2m 3m)
+        SELECTED_INDEX=0
+        handle_key j; echo "after-j=$(get_nav_selected)"
+        handle_key G; echo "after-G=$(get_nav_selected)"
+    '
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"after-j=tower_b"* ]]
+    [[ "$output" == *"after-G=tower_c"* ]]
+}
+
+@test "queue-view.sh: the cursor starts on the list's current selection when it is queued" {
+    run bash -c '
+        export CLAUDE_TOWER_NAV_STATE_DIR="'"$BATS_TEST_TMPDIR"'/state"
+        source "'"$PROJECT_ROOT"'/tmux-plugin/scripts/queue-view.sh"
+        set +e
+        QUEUE_IDS=(tower_a tower_b tower_c)
+        set_nav_selected tower_c
+        SELECTED_INDEX=0
+        _seed_selection
+        echo "idx=$SELECTED_INDEX"
+    '
+    [[ "$output" == *"idx=2"* ]]
 }

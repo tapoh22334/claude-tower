@@ -100,7 +100,9 @@ you are deleting while the delete runs.
 
 **Tile** (`Tab`) — a grid of every session. Refreshes on `r`.
 **Tail** (`t`) — sessions stacked, last few lines each, refreshing.
-**Queue** (`w`) — only what is waiting on you, longest wait first.
+**Queue** (`w`) — only what is waiting on you, longest wait first. Runs in the
+list pane itself: `j`/`k` there move the view pane to that session, `Enter`
+returns to the list with the cursor on it.
 
 Tile to choose, Tail to watch, Queue to work through. All return with `Enter`,
 `Tab`, or `1`-`9`.

@@ -309,6 +309,36 @@ set_nav_selected() {
     echo "$session_id" >"$TOWER_NAV_SELECTED_FILE"
 }
 
+# Point the Navigator's view pane at the currently selected session.
+#
+# The view pane's nested client sits inside `attach-session`, so it cannot
+# notice a change to the selection file by itself; whoever moves the
+# selection has to redirect that client. List mode does this on every j/k,
+# and any other mode that moves the selection (the queue) must do the same,
+# or the highlight and the right-hand pane show different sessions and the
+# next Enter types into the wrong one.
+#
+# Live session: switch the nested client straight onto it (one step, which
+# also unblocks navigator-view.sh's attach so its poll resumes there). Not
+# live (dormant / unregistered): switch-client would fail and leave the old
+# pane on screen, so detach the client instead; the view's poll then paints
+# the dormant/placeholder screen for the new selection.
+nav_redirect_view() {
+    local selected view_tty
+    selected=$(get_nav_selected)
+    [[ -z "$selected" ]] && return 0
+
+    view_tty=$(nav_tmux display-message -t "$TOWER_NAV_SESSION:0.1" -p '#{pane_tty}' 2>/dev/null)
+    [[ -z "$view_tty" ]] && return 0
+
+    if session_tmux has-session -t "$selected" 2>/dev/null; then
+        session_tmux switch-client -c "$view_tty" -t "$selected" 2>/dev/null || true
+    else
+        session_tmux detach-client -t "$view_tty" 2>/dev/null || true
+    fi
+    return 0
+}
+
 # True if this process is the Navigator list pane that currently owns the
 # shared state files.
 #

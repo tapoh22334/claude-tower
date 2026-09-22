@@ -1,5 +1,6 @@
 #!/usr/bin/env bats
-# Handoff from the session list to the full-screen views (tile/tail/queue).
+# Handoff from the session list to the full-screen views (tile/tail). The
+# queue is not one of these any more: it runs inside the list pane (#39).
 #
 # Each of those views runs as a window on the session server, and the
 # Navigator detaches the user onto that server so they land on it. Both
@@ -85,14 +86,6 @@ _handoff_targets() {
     [ "$target" = "$holder" ]
 }
 
-@test "switch_to_queue: the queue window lands on the session the user is attached to" {
-    _handoff_targets switch_to_queue "tower-queue"
-    [ "$status" -eq 0 ]
-    local target="${output%%|*}" holder="${output##*|}"
-    [ -n "$target" ]
-    [ -n "$holder" ]
-    [ "$target" = "$holder" ]
-}
 
 @test "switch_to_tile: with no sessions at all, nothing is created and nothing crashes" {
     TMUX= tmux -L "$SESSION_SOCKET" kill-server 2>/dev/null || true
