@@ -1133,6 +1133,39 @@ _wait_for_shell_ready() {
 #   $1 - Tower session ID (tower_<uuid>)
 #   $2 - Working directory (must exist; --resume only finds the session there)
 #   $3 - Mode: "new" (claude --session-id) or "resume" (claude --resume)
+# The program Tower types into a new pane, with its first word resolved to an
+# absolute path. The pane's shell inherits the PATH of whoever ran
+# new-session, and from an ssh login shell that PATH has no ~/.local/bin — so
+# a bare `claude` typed into the pane was "command not found", but only when
+# the session was opened through Tower (#50). Resolve here, in Tower's own
+# process, and fall back to ~/.local/bin (where the claude installer puts it)
+# when even this process cannot see it. Returns 1 if it is nowhere.
+_resolve_tower_program() {
+    local prog="${TOWER_PROGRAM%% *}" rest=""
+    [[ "$TOWER_PROGRAM" == *" "* ]] && rest=" ${TOWER_PROGRAM#* }"
+    local path=""
+    if [[ "$prog" == */* ]]; then
+        path="$prog"
+    elif path=$(command -v -- "$prog" 2>/dev/null) && [[ -n "$path" ]]; then
+        :
+    elif [[ -x "$HOME/.local/bin/$prog" ]]; then
+        path="$HOME/.local/bin/$prog"
+    else
+        return 1
+    fi
+    printf '%s%s' "$path" "$rest"
+}
+
+# PATH for a new pane: the caller's PATH with ~/.local/bin in front when it
+# exists and is missing, so a claude the user types by hand resolves too.
+_pane_path() {
+    local p="$PATH" local_bin="$HOME/.local/bin"
+    if [[ -d "$local_bin" ]] && [[ ":$p:" != *":$local_bin:"* ]]; then
+        p="$local_bin:$p"
+    fi
+    printf '%s' "$p"
+}
+
 start_claude_session() {
     local session_id="$1"
     local working_dir="$2"
@@ -1149,7 +1182,15 @@ start_claude_session() {
         return 0
     fi
 
-    if ! session_tmux new-session -d -s "$session_id" -c "$working_dir"; then
+    # Resolve before creating anything: a session whose pane says
+    # "command not found" is worse than no session.
+    local program
+    if ! program=$(_resolve_tower_program); then
+        handle_error "Cannot find ${TOWER_PROGRAM%% *} on PATH or in ~/.local/bin (set CLAUDE_TOWER_PROGRAM to its full path)"
+        return 1
+    fi
+
+    if ! session_tmux new-session -d -s "$session_id" -c "$working_dir" -e "PATH=$(_pane_path)"; then
         handle_error "Failed to create tmux session"
         return 1
     fi
@@ -1160,9 +1201,9 @@ start_claude_session() {
 
     local claude_cmd
     if [[ "$mode" == "resume" ]]; then
-        claude_cmd="$TOWER_PROGRAM --resume $claude_id"
+        claude_cmd="$program --resume $claude_id"
     else
-        claude_cmd="$TOWER_PROGRAM --session-id $claude_id"
+        claude_cmd="$program --session-id $claude_id"
     fi
     session_tmux send-keys -t "$session_id" "$claude_cmd" C-m
 
