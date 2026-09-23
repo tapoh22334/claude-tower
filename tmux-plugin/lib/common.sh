@@ -804,6 +804,7 @@ load_metadata() {
     META_SESSION_NAME=""
     META_CREATED_AT=""
     META_LAUNCH_DIR=""
+    META_LIVE_ID=""
 
     if [[ -f "$metadata_file" ]]; then
         while IFS='=' read -r key value; do
@@ -811,11 +812,31 @@ load_metadata() {
                 session_name) META_SESSION_NAME="$value" ;;
                 created_at) META_CREATED_AT="$value" ;;
                 launch_dir) META_LAUNCH_DIR="$value" ;;
+                live_id) META_LIVE_ID="$value" ;;
             esac
         done <"$metadata_file"
         return 0
     fi
     return 1
+}
+
+# Record the Claude session id last seen live in Tower session $1 (see
+# live_claude_id). Rewrites only the live_id= line, leaving created_at alone
+# — save_metadata stamps a fresh created_at, which would make the session
+# look "starting" again. Old readers ignore the key (Principle IV).
+record_live_id() {
+    local session_id="$1" live_id="$2"
+    local metadata_file="${TOWER_METADATA_DIR}/${session_id}.meta"
+    [[ -f "$metadata_file" ]] || return 0
+    [[ "$live_id" =~ ^[0-9a-fA-F-]{36}$ ]] || return 0
+    local current
+    current=$(grep -m1 '^live_id=' "$metadata_file" 2>/dev/null | cut -d= -f2-) || current=""
+    [[ "$current" == "$live_id" ]] && return 0
+    local tmp="${metadata_file}.$$"
+    { grep -v '^live_id=' "$metadata_file"; echo "live_id=${live_id}"; } >"$tmp" 2>/dev/null &&
+        mv -f "$tmp" "$metadata_file"
+    rm -f "$tmp" 2>/dev/null
+    return 0
 }
 
 # Delete session metadata file
@@ -1287,7 +1308,9 @@ start_claude_session() {
 
     local claude_cmd
     if [[ "$mode" == "resume" ]]; then
-        claude_cmd="$program --resume $claude_id"
+        # Resume the session the user was last in there, which after a
+        # /clear is not the one this row was launched with.
+        claude_cmd="$program --resume $(live_claude_id "$session_id")"
     else
         claude_cmd="$program --session-id $claude_id"
     fi
@@ -1310,7 +1333,8 @@ restore_session() {
         return 1
     fi
 
-    local claude_id="${session_id#tower_}"
+    local claude_id
+    claude_id=$(live_claude_id "$session_id")
     local jsonl
     if ! jsonl=$(find_session_jsonl "$claude_id"); then
         handle_error "Claude transcript not found (auto-deleted after ~30 days) — press D to unregister"
