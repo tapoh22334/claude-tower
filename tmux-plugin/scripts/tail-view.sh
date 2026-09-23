@@ -31,6 +31,7 @@ readonly CYAN=$'\033[36m'
 
 # State
 SELECTED_INDEX=0
+SELECTED_ID=""
 SESSION_IDS=()
 SESSION_LABELS=()
 SESSION_STATES=()
@@ -56,6 +57,19 @@ load_sessions() {
     elif [[ $SELECTED_INDEX -ge $count ]]; then
         SELECTED_INDEX=$((count - 1))
     fi
+    # The list is rebuilt every refresh and its order can change under the
+    # cursor (a session going dormant, one added elsewhere). Keep the cursor
+    # on the same id, not the same row number.
+    if [[ -n "${SELECTED_ID:-}" ]]; then
+        local i
+        for ((i = 0; i < count; i++)); do
+            if [[ "${SESSION_IDS[$i]}" == "$SELECTED_ID" ]]; then
+                SELECTED_INDEX=$i
+                break
+            fi
+        done
+    fi
+    ((count > 0)) && SELECTED_ID="${SESSION_IDS[$SELECTED_INDEX]}"
 }
 
 # Last $2 lines of live pane output for session $1. Isolated so tests can
@@ -137,6 +151,25 @@ render_frame() {
     printf '\033[?25l\033[H%b%s\033[?25h' "$frame" "$clear_eos"
 }
 
+
+# Start with the cursor on the session the list had selected, when it is in
+# this view; otherwise on the first row. Without this, Enter handed the list
+# the FIRST session whatever the user had been on — the selection was lost
+# every time the view was opened and closed (#31).
+_seed_selection() {
+    local current i
+    current=$(get_nav_selected)
+    [[ -n "$current" ]] || return 0
+    for ((i = 0; i < ${#SESSION_IDS[@]}; i++)); do
+        if [[ "${SESSION_IDS[$i]}" == "$current" ]]; then
+            SELECTED_INDEX=$i
+            SELECTED_ID="$current"
+            return 0
+        fi
+    done
+    return 0
+}
+
 # Return to list view with selected session
 return_to_list_view() {
     local selected_id="$1"
@@ -163,10 +196,10 @@ handle_key() {
 
     case "$key" in
         j | $'\x1b[B')
-            if ((count > 0)); then SELECTED_INDEX=$(((SELECTED_INDEX + 1) % count)); fi
+            if ((count > 0)); then SELECTED_INDEX=$(((SELECTED_INDEX + 1) % count)); fi; SELECTED_ID="${SESSION_IDS[$SELECTED_INDEX]:-}"
             ;;
         k | $'\x1b[A')
-            if ((count > 0)); then SELECTED_INDEX=$(((SELECTED_INDEX - 1 + count) % count)); fi
+            if ((count > 0)); then SELECTED_INDEX=$(((SELECTED_INDEX - 1 + count) % count)); fi; SELECTED_ID="${SESSION_IDS[$SELECTED_INDEX]:-}"
             ;;
         g)
             SELECTED_INDEX=0
@@ -204,6 +237,7 @@ main() {
     stty -echo 2>/dev/null || true
 
     load_sessions
+    _seed_selection
     render_frame
 
     local key key2 read_rc

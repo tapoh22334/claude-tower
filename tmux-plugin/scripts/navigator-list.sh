@@ -1775,6 +1775,15 @@ main_loop() {
             _load_session_state || build_session_list
             _spawn_background_rebuild
 
+            # A view (Tile/Tail) may have moved the selection while this loop
+            # sat detached; it writes the file, not our index. Follow it, or
+            # the highlight and the id D/Enter act on disagree.
+            local synced
+            synced=$(get_nav_selected)
+            if [[ -n "$synced" && "${SESSION_IDS[$selected_index]:-}" != "$synced" ]]; then
+                selected_index=$(get_selection_index)
+            fi
+
             # Clamp selection
             if [[ $selected_index -ge ${#SESSION_IDS[@]} ]]; then
                 selected_index=$((${#SESSION_IDS[@]} - 1))
