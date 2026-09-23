@@ -341,3 +341,14 @@ _ids() { printf '%s ' "${SESSION_IDS[@]}"; }
     _remember_session_row tower_aa /p/one
     [ "$(_ids)" = "tower_a tower_aa tower_b " ]
 }
+
+# A Tile/Tail run moves the selection while the list loop sits detached; the
+# loop's refresh tick must follow the file, or the highlight and the id that
+# D/Enter act on disagree (the "wrong session was deleted" shape).
+@test "tick resync: the refresh tick moves the cursor to the selection a view left behind" {
+    run grep -n 'selected_index=\$(get_selection_index)' "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
+    [ "$status" -eq 0 ]
+    run sed -n '/_spawn_background_rebuild$/,/Clamp selection/p' "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
+    [[ "$output" == *"get_nav_selected"* ]]
+    [[ "$output" == *"selected_index=\$(get_selection_index)"* ]]
+}

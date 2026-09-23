@@ -31,6 +31,7 @@ readonly CYAN=$'\033[36m'
 
 # State
 SELECTED_INDEX=0
+SELECTED_ID=""
 SESSION_IDS=()
 SESSION_LABELS=()
 SESSION_STATES=()
@@ -56,6 +57,19 @@ load_sessions() {
     elif [[ $SELECTED_INDEX -ge $count ]]; then
         SELECTED_INDEX=$((count - 1))
     fi
+    # The list is rebuilt every refresh and its order can change under the
+    # cursor (a session going dormant, one added elsewhere). Keep the cursor
+    # on the same id, not the same row number.
+    if [[ -n "${SELECTED_ID:-}" ]]; then
+        local i
+        for ((i = 0; i < count; i++)); do
+            if [[ "${SESSION_IDS[$i]}" == "$SELECTED_ID" ]]; then
+                SELECTED_INDEX=$i
+                break
+            fi
+        done
+    fi
+    ((count > 0)) && SELECTED_ID="${SESSION_IDS[$SELECTED_INDEX]}"
 }
 
 # Last $2 lines of live pane output for session $1. Isolated so tests can
@@ -149,6 +163,7 @@ _seed_selection() {
     for ((i = 0; i < ${#SESSION_IDS[@]}; i++)); do
         if [[ "${SESSION_IDS[$i]}" == "$current" ]]; then
             SELECTED_INDEX=$i
+            SELECTED_ID="$current"
             return 0
         fi
     done
@@ -181,10 +196,10 @@ handle_key() {
 
     case "$key" in
         j | $'\x1b[B')
-            if ((count > 0)); then SELECTED_INDEX=$(((SELECTED_INDEX + 1) % count)); fi
+            if ((count > 0)); then SELECTED_INDEX=$(((SELECTED_INDEX + 1) % count)); fi; SELECTED_ID="${SESSION_IDS[$SELECTED_INDEX]:-}"
             ;;
         k | $'\x1b[A')
-            if ((count > 0)); then SELECTED_INDEX=$(((SELECTED_INDEX - 1 + count) % count)); fi
+            if ((count > 0)); then SELECTED_INDEX=$(((SELECTED_INDEX - 1 + count) % count)); fi; SELECTED_ID="${SESSION_IDS[$SELECTED_INDEX]:-}"
             ;;
         g)
             SELECTED_INDEX=0

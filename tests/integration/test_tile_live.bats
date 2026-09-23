@@ -10,11 +10,12 @@
 
 load '../test_helper'
 
-NAV_SOCKET="ct-tilelive-nav"
-SESSION_SOCKET="ct-tilelive-session"
+# Per run, so two bats runs at once do not kill each other's servers.
+NAV_SOCKET="ct-tilelive-nav-${CLAUDE_TOWER_TEST_RUN_ID##*/}"
+SESSION_SOCKET="ct-tilelive-session-${CLAUDE_TOWER_TEST_RUN_ID##*/}"
 
 setup_file() {
-    export TMUX_TMPDIR="/tmp/claude-tower-tilelive-test"
+    export TMUX_TMPDIR="/tmp/claude-tower-tilelive-${CLAUDE_TOWER_TEST_RUN_ID##*/}"
     mkdir -p "$TMUX_TMPDIR"
     chmod 700 "$TMUX_TMPDIR"
 }
@@ -62,6 +63,7 @@ _launch_tile() {
         -e "CLAUDE_TOWER_METADATA_DIR=$CLAUDE_TOWER_METADATA_DIR" \
         -e "CLAUDE_PROJECTS_DIR=$CLAUDE_PROJECTS_DIR" \
         -e "TMUX_TMPDIR=$TMUX_TMPDIR" \
+        -e "TOWER_TERM_COLS=" -e "TOWER_TERM_LINES=" \
         "$PROJECT_ROOT/tmux-plugin/scripts/tile.sh"
     local i
     for ((i = 0; i < 50; i++)); do
@@ -146,6 +148,7 @@ _launch_tail() {
         -e "CLAUDE_TOWER_METADATA_DIR=$CLAUDE_TOWER_METADATA_DIR" \
         -e "CLAUDE_PROJECTS_DIR=$CLAUDE_PROJECTS_DIR" \
         -e "TMUX_TMPDIR=$TMUX_TMPDIR" \
+        -e "TOWER_TERM_COLS=" -e "TOWER_TERM_LINES=" \
         "$PROJECT_ROOT/tmux-plugin/scripts/tail-view.sh"
     local i
     for ((i = 0; i < 50; i++)); do
