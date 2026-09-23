@@ -172,7 +172,7 @@ setup() {
 }
 
 @test "navigator-list.sh: build_session_list uses session_tmux" {
-    local script="$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
+    local script="$PROJECT_ROOT/tmux-plugin/lib/nav/nav-actions.sh"
 
     # The script uses session_tmux list-sessions in build_session_list
     run grep "session_tmux list-sessions" "$script"

@@ -13,6 +13,9 @@ Auto-generated from feature plans. **Last updated**: 2026-02-11
 tmux-plugin/
   scripts/     # CLI and UI scripts (tower, session-add.sh, navigator-list.sh, etc.)
   lib/         # Core libraries (common.sh, error-recovery.sh)
+  lib/nav/     # Navigator list internals, one responsibility per file
+               # (nav-render/build/cache/view-signal/optimistic/actions/loop);
+               # navigator-list.sh only sources them
   conf/        # tmux configuration
 tests/
   integration/ # Integration tests (bats)

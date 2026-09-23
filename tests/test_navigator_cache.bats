@@ -278,7 +278,7 @@ source_navigator_list_functions() {
 
 @test "settle: no handler calls it under command substitution" {
     # The call shape is the bug; a direct-call unit test cannot see it.
-    run grep -n '^[^#]*\$(_settle_after_change' "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
+    run grep -n '^[^#]*\$(_settle_after_change' "$PROJECT_ROOT/tmux-plugin/lib/nav/nav-loop.sh"
     [ "$status" -ne 0 ]
 }
 

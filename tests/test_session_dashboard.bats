@@ -254,16 +254,16 @@ _run_nav() {
 }
 
 @test "navigator-list.sh: f and N keys are wired" {
-    run grep -c -E "^                (f|N)\)" "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
+    run grep -c -E "^                (f|N)\)" "$PROJECT_ROOT/tmux-plugin/lib/nav/nav-loop.sh"
     [ "$output" = "2" ]
-    run grep -A 1 "^                f)" "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
+    run grep -A 1 "^                f)" "$PROJECT_ROOT/tmux-plugin/lib/nav/nav-loop.sh"
     [[ "$output" == *"fork_session_here"* ]]
-    run grep -A 1 "^                N)" "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
+    run grep -A 1 "^                N)" "$PROJECT_ROOT/tmux-plugin/lib/nav/nav-loop.sh"
     [[ "$output" == *"new_session_pick_dir"* ]]
 }
 
 @test "restore_selected: refuses to resume an external session" {
-    run grep -A 4 'get_display_state "\$selected".*==.*external' "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
+    run grep -A 4 'get_display_state "\$selected".*==.*external' "$PROJECT_ROOT/tmux-plugin/lib/nav/nav-actions.sh"
     [ "$status" -eq 0 ]
     [[ "$output" == *"return 0"* ]]
 }
