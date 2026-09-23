@@ -1141,8 +1141,9 @@ _wait_for_shell_ready() {
 # process, and fall back to ~/.local/bin (where the claude installer puts it)
 # when even this process cannot see it. Returns 1 if it is nowhere.
 _resolve_tower_program() {
-    local prog="${TOWER_PROGRAM%% *}" rest=""
-    [[ "$TOWER_PROGRAM" == *" "* ]] && rest=" ${TOWER_PROGRAM#* }"
+    local prog rest
+    # Split on whitespace the way the pane's shell would (spaces or tabs).
+    read -r prog rest <<<"$TOWER_PROGRAM"
     local path=""
     if [[ "$prog" == */* ]]; then
         path="$prog"
@@ -1153,7 +1154,12 @@ _resolve_tower_program() {
     else
         return 1
     fi
-    printf '%s%s' "$path" "$rest"
+    # The result is typed into a shell, so quote it: a resolved path with a
+    # space in it would otherwise be split there — a case the bare `claude`
+    # used to survive because the pane's own lookup never saw the path.
+    printf '%q' "$path"
+    [[ -n "$rest" ]] && printf ' %s' "$rest"
+    return 0
 }
 
 # PATH for a new pane: the caller's PATH with ~/.local/bin in front when it
@@ -1295,7 +1301,12 @@ restart_session() {
     session_tmux send-keys -t "$session_id" C-c 2>/dev/null || true
     sleep 0.5
 
-    local claude_cmd="$TOWER_PROGRAM --resume ${session_id#tower_}"
+    local program
+    if ! program=$(_resolve_tower_program); then
+        handle_error "Cannot find ${TOWER_PROGRAM%% *} on PATH or in ~/.local/bin (set CLAUDE_TOWER_PROGRAM to its full path)"
+        return 1
+    fi
+    local claude_cmd="$program --resume ${session_id#tower_}"
 
     session_tmux send-keys -t "$session_id" "$claude_cmd" C-m
 

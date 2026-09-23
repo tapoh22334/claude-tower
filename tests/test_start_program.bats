@@ -70,3 +70,24 @@ _run_start() {
     '
     [[ "$output" == *"send-keys -t tower_11111111-1111-4111-8111-111111111111 /opt/x/claude --verbose --resume"* ]]
 }
+
+@test "start: a resolved path with a space in it is quoted for the pane's shell" {
+    local sp="$BATS_TEST_TMPDIR/sp ace"
+    mkdir -p "$sp"; printf '#!/usr/bin/env bash\n' >"$sp/claude"; chmod +x "$sp/claude"
+    _run_start "$sp:/usr/bin:/bin" "$BATS_TEST_TMPDIR/nohome"
+    [[ "$output" == *"send-keys -t tower_11111111-1111-4111-8111-111111111111 $BATS_TEST_TMPDIR/sp\\ ace/claude --session-id"* ]]
+}
+
+@test "start: restart_session resolves the program the same way" {
+    run env PATH="/usr/bin:/bin" HOME="$FAKE_HOME" CLAUDE_TOWER_PROGRAM=claude bash -c '
+        source "'"$PROJECT_ROOT"'/tmux-plugin/lib/common.sh"
+        set +e
+        session_tmux() { case "$1" in has-session) return 0 ;; *) echo "tmux $*" ;; esac; }
+        _wait_for_shell_ready() { :; }
+        handle_error() { echo "ERROR: $*"; }
+        handle_success() { :; }
+        handle_info() { :; }
+        restart_session tower_11111111-1111-4111-8111-111111111111
+    '
+    [[ "$output" == *"$FAKE_HOME/.local/bin/claude --resume"* ]]
+}
