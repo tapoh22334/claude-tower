@@ -6,7 +6,8 @@ project:
   owner: tapoh22334
 
 tasks:
-  - title: n/f/N で作った直後のセッション行を、最初からそのプロジェクトのグループに置く
+  - issue: 46
+    title: n/f/N で作った直後のセッション行を、最初からそのプロジェクトのグループに置く
     labels:
       - bug
     body: |
