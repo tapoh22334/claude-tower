@@ -383,41 +383,38 @@ _view_handoff() {
 }
 
 view_return_to_navigator() {
-    _view_handoff "TMUX= tmux -L '$TOWER_NAV_SOCKET' attach-session -t '$TOWER_NAV_SESSION'" || true
+    _view_handoff "TMUX= tmux -L $(printf '%q' "$TOWER_NAV_SOCKET") attach-session -t $(printf '%q' "$TOWER_NAV_SESSION")" || true
     return 0
 }
 
-# Quit from a view: hand the outer client to the caller session, or to a
-# tower_* session that is NOT the one hosting this view (the old fallback
-# took `list-sessions | head -1`, which is exactly the hosting session — the
-# self-attach that made panes shrink). With nothing sensible to go to, just
-# detach.
+# Quit from a view: hand the outer client to the caller session, or failing
+# that to some other tower_* session. If neither exists the person is already
+# attached to the only session there is — the one hosting this view — so do
+# nothing: the script exits, the view window closes, and they are looking at
+# that session's Claude window. (A bare detach here dropped them to a shell;
+# the old in-pane attach to the same session nested it.) Targets are %q-quoted
+# because the caller name comes from the user's own tmux and is not sanitized.
 view_quit_navigator() {
     local caller here target=""
     caller=$(get_nav_caller)
     here=$(session_tmux display-message -p '#{session_name}' 2>/dev/null || echo "")
     if [[ -n "$caller" ]]; then
         if session_tmux has-session -t "$caller" 2>/dev/null; then
-            target="TMUX= tmux -L '$TOWER_SESSION_SOCKET' attach-session -t '$caller'"
+            target="TMUX= tmux -L $(printf '%q' "$TOWER_SESSION_SOCKET") attach-session -t $(printf '%q' "$caller")"
         elif TMUX= tmux has-session -t "$caller" 2>/dev/null; then
-            target="TMUX= tmux attach-session -t '$caller'"
+            target="TMUX= tmux attach-session -t $(printf '%q' "$caller")"
         fi
     fi
     if [[ -z "$target" ]]; then
         local s
         while read -r s; do
             [[ -n "$s" && "$s" != "$here" ]] || continue
-            target="TMUX= tmux -L '$TOWER_SESSION_SOCKET' attach-session -t '$s'"
+            target="TMUX= tmux -L $(printf '%q' "$TOWER_SESSION_SOCKET") attach-session -t $(printf '%q' "$s")"
             break
         done < <(session_tmux list-sessions -F '#{session_name}' 2>/dev/null | grep '^tower_' || true)
     fi
     if [[ -n "$target" ]]; then
         _view_handoff "$target" || true
-    else
-        local tty
-        if tty=$(_view_outer_client_tty); then
-            session_tmux detach-client -t "$tty" 2>/dev/null || true
-        fi
     fi
     return 0
 }

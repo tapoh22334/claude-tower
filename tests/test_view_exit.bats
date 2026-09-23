@@ -50,7 +50,7 @@ _stubs='
         view_return_to_navigator
     "
     [ "$status" -eq 0 ]
-    [[ "$output" == *"SESSION_TMUX detach-client -t /dev/pts/3 -E "*"attach-session -t 'navigator'"* ]]
+    [[ "$output" == *"SESSION_TMUX detach-client -t /dev/pts/3 -E "*"attach-session -t navigator"* ]]
     [[ "$output" != *"BARE_TMUX"* ]]
     [[ "$output" != *"/dev/pts/9 -E"* ]]
 }
@@ -78,21 +78,36 @@ _stubs='
         view_quit_navigator
     "
     [ "$status" -eq 0 ]
-    [[ "$output" == *"SESSION_TMUX detach-client -t /dev/pts/3 -E "*"attach-session -t 'tower_caller'"* ]]
+    [[ "$output" == *"SESSION_TMUX detach-client -t /dev/pts/3 -E "*"attach-session -t tower_caller"* ]]
     [[ "$output" != *"BARE_TMUX attach"* ]]
 }
 
-@test "view exit: quitting never picks the session this view runs in as the fallback target" {
-    # No caller recorded; the fallback used to be `list-sessions | head -1`,
-    # which is tower_x — the very session hosting this window (self-attach).
+@test "view exit: quitting with only the hosting session left does nothing — the person is already there" {
+    # No caller recorded and tower_x is the only session. The old fallback
+    # attached to it from inside its own pane (nesting); a bare detach would
+    # drop the person to a shell. Right answer: exit, the window closes, and
+    # they see tower_x's Claude window.
     run bash -c "
         source '$PROJECT_ROOT/tmux-plugin/lib/common.sh'
         set +e
         $_stubs
+        session_tmux() { case \"\$1\" in display-message) echo tower_x ;; list-clients) echo '/dev/pts/3 100' ;; list-sessions) echo tower_x ;; has-session) return 1 ;; *) echo \"SESSION_TMUX \$*\" ;; esac; }
         view_quit_navigator
     "
     [ "$status" -eq 0 ]
-    [[ "$output" != *"attach-session -t 'tower_x'"* ]]
+    [[ "$output" != *"detach-client"* ]]
+    [[ "$output" != *"attach-session"* ]]
+}
+
+@test "view exit: quitting prefers another tower session over the hosting one" {
+    run bash -c "
+        source '$PROJECT_ROOT/tmux-plugin/lib/common.sh'
+        set +e
+        $_stubs
+        session_tmux() { case \"\$1\" in display-message) echo tower_x ;; list-clients) echo '/dev/pts/3 100' ;; list-sessions) printf 'tower_x\ntower_other\n' ;; has-session) return 1 ;; *) echo \"SESSION_TMUX \$*\" ;; esac; }
+        view_quit_navigator
+    "
+    [[ "$output" == *"detach-client -t /dev/pts/3 -E "*"attach-session -t tower_other"* ]]
 }
 
 @test "tile.sh and tail-view.sh no longer attach from inside their pane" {
