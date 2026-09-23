@@ -15,6 +15,11 @@ PROJECT_ROOT="$(dirname "$TEST_DIR")"
 export CLAUDE_TOWER_TEST_RUN_ID="${BATS_RUN_TMPDIR:-$$}"
 export CLAUDE_TOWER_TEST_ROOT="${TEST_DIR}/tmp/run-${CLAUDE_TOWER_TEST_RUN_ID##*/}"
 export CLAUDE_TOWER_METADATA_DIR="${CLAUDE_TOWER_TEST_ROOT}/metadata"
+# The Navigator's shared state (cursor, caller, owner, list cache) too. It
+# defaulted to the real /tmp/claude-tower, so a test run with a Navigator open
+# wiped the user's cursor and caller file (and the live Navigator's owner claim
+# made move_selection/go_first/go_last fail for the tests) — #41.
+export CLAUDE_TOWER_NAV_STATE_DIR="${CLAUDE_TOWER_TEST_ROOT}/nav-state"
 
 # Keep tests off the sockets a real Tower is using, and off the real claude.
 #
@@ -75,6 +80,7 @@ source_common() {
 setup_test_env() {
     mkdir -p "$CLAUDE_TOWER_METADATA_DIR"
     mkdir -p "$CLAUDE_PROJECTS_DIR"
+    mkdir -p "$CLAUDE_TOWER_NAV_STATE_DIR"
 }
 
 # Clean up test fixtures.

@@ -124,8 +124,9 @@ setup() {
     [ "$TOWER_NAV_SESSION" = "navigator" ]
 }
 
-@test "TOWER_NAV_STATE_DIR: is in /tmp" {
-    [[ "$TOWER_NAV_STATE_DIR" == /tmp/* ]]
+@test "TOWER_NAV_STATE_DIR: under test, is this run's isolated dir, never the live one" {
+    [ "$TOWER_NAV_STATE_DIR" = "$CLAUDE_TOWER_NAV_STATE_DIR" ]
+    [[ "$TOWER_NAV_STATE_DIR" != /tmp/claude-tower* ]]
 }
 
 @test "ensure_nav_state_dir: creates state directory" {
