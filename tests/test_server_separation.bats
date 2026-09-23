@@ -171,10 +171,12 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
-@test "navigator-list.sh: build_session_list uses session_tmux" {
-    local script="$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
-
-    # The script uses session_tmux list-sessions in build_session_list
+@test "nav-actions.sh: the view switch and quit list sessions on the session server" {
+    # (This test used to be named after build_session_list, which never
+    # called tmux itself — it reaches the server through list_all_sessions
+    # in common.sh. The literal it greps for lives in _switch_to_view and
+    # quit_navigator.)
+    local script="$PROJECT_ROOT/tmux-plugin/lib/nav/nav-actions.sh"
     run grep "session_tmux list-sessions" "$script"
     [ "$status" -eq 0 ]
 }

@@ -99,7 +99,7 @@ _run_tail_frame() {
 }
 
 @test "navigator-list.sh: t key is wired to switch_to_tail" {
-    run grep -A 2 "^                t)" "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
+    run grep -A 2 "^                t)" "$PROJECT_ROOT/tmux-plugin/lib/nav/nav-loop.sh"
     [ "$status" -eq 0 ]
     [[ "$output" == *"switch_to_tail"* ]]
 }

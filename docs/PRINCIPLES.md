@@ -23,10 +23,12 @@ breaking change and belongs in the README.
 ### V. Simplicity and Performance
 Start simple, YAGNI principles. ShellCheck and shfmt compliance enforced.
 
-Keep files under 500 lines. Four exceed it today — `navigator-list.sh` (1619),
-`common.sh` (1221), `claude-sessions.sh` (820), `error-recovery.sh` (507) —
-and that is a debt, not a dispensation: each has grown to hold several
-concerns. Do not add to them without splitting something out.
+Keep files under 500 lines. Three exceed it today — `common.sh` (1465),
+`claude-sessions.sh` (820), `error-recovery.sh` (507) — and that is a debt,
+not a dispensation: each has grown to hold several concerns. Do not add to
+them without splitting something out. `navigator-list.sh` used to lead that
+list at 1800 lines; it is now an entry point that sources one file per
+responsibility from `tmux-plugin/lib/nav/`.
 
 Interactive work is measured, not assumed. The session list rebuild is the
 expensive path (it reads every transcript), so it runs on a timer in the

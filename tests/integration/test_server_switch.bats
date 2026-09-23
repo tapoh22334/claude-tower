@@ -160,7 +160,7 @@ teardown() {
 }
 
 @test "server-switch: navigator-list.sh quit_navigator uses detach-client -E" {
-    local script="$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
+    local script="$PROJECT_ROOT/tmux-plugin/lib/nav/nav-actions.sh"
 
     # Window widened to 45 lines: quit_navigator's session/socket fallback
     # logic pushes the detach-client -E call past a narrower window.

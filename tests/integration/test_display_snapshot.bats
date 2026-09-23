@@ -148,7 +148,7 @@ strip_ansi() {
 }
 
 @test "display: NAV colors in navigator-list use \$'...' syntax" {
-    local script="$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
+    local script="$PROJECT_ROOT/tmux-plugin/lib/nav/nav-render.sh"
 
     run grep "NAV_C_" "$script"
     [ "$status" -eq 0 ]

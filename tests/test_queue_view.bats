@@ -115,7 +115,7 @@ _run_queue() {
 }
 
 @test "navigator-list.sh: w key is wired to switch_to_queue" {
-    run sed -n '/^                w)$/,/;;/p' "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
+    run sed -n '/^                w)$/,/;;/p' "$PROJECT_ROOT/tmux-plugin/lib/nav/nav-loop.sh"
     [ "$status" -eq 0 ]
     [[ "$output" == *"switch_to_queue"* ]]
 }
@@ -158,7 +158,7 @@ _run_queue() {
     # The queue writes the chosen id to the selection file; the loop must read
     # it back into selected_index, or the highlight stays where it was before
     # w while D/Enter act on the queue's choice (screen vs state).
-    run sed -n '/^                w)$/,/;;/p' "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
+    run sed -n '/^                w)$/,/;;/p' "$PROJECT_ROOT/tmux-plugin/lib/nav/nav-loop.sh"
     [ "$status" -eq 0 ]
     [[ "$output" == *"_return_from_subflow"* ]]
     [[ "$output" == *'selected_index=$(get_selection_index)'* ]]
