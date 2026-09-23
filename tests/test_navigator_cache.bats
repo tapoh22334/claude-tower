@@ -12,8 +12,8 @@ load 'test_helper'
 setup() {
     source_common
     setup_test_env
-    # TOWER_NAV_STATE_DIR is readonly (/tmp/claude-tower), so the cache file
-    # is not test-isolated; clear it before and after each test.
+    # The state dir is per run (test_helper); still clear the cache between
+    # tests of this file.
     mkdir -p "$TOWER_NAV_STATE_DIR" 2>/dev/null || true
     rm -f "$TOWER_NAV_STATE_DIR/session-list.cache" 2>/dev/null || true
     rm -f "$TOWER_NAV_STATE_DIR/session-list.generation" 2>/dev/null || true

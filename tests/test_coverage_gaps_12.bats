@@ -17,10 +17,8 @@ setup() {
 }
 
 teardown() {
-    # TOWER_NAV_SELECTED_FILE lives under the hardcoded, non-test-isolated
-    # /tmp/claude-tower (TOWER_NAV_STATE_DIR is `readonly`), so tests that
-    # call set_nav_selected/move_selection/go_first/go_last leak state
-    # across tests and even across bats runs unless explicitly cleared.
+    # The state dir is per test run (test_helper), but the selected file
+    # would still leak between tests of this file.
     rm -f "$TOWER_NAV_SELECTED_FILE" 2>/dev/null || true
     teardown_test_env
 }
@@ -152,9 +150,8 @@ source_navigator_list_functions() {
 # ============================================================================
 
 @test "ensure_nav_state_dir: creates directory with 700 permissions" {
-    # TOWER_NAV_STATE_DIR is `readonly` in common.sh (hardcoded to
-    # /tmp/claude-tower), so it cannot be overridden per-test; exercise the
-    # real path directly and restore its prior permissions afterwards.
+    # The state dir is this run's isolated one (test_helper), so chmod here
+    # touches nothing the user is running.
     local orig_perms
     orig_perms=$(stat -c '%a' "$TOWER_NAV_STATE_DIR" 2>/dev/null || stat -f '%Lp' "$TOWER_NAV_STATE_DIR" 2>/dev/null || echo "")
 
