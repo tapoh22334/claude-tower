@@ -32,7 +32,7 @@ handle_script_error() {
     # Don't exit - the main loop will continue
 }
 
-trap 'handle_script_error $LINENO "${BASH_SOURCE[0]}"' ERR
+trap 'handle_script_error $LINENO "${BASH_SOURCE[0]:-}"' ERR
 
 # shellcheck source=../lib/nav/nav-render.sh
 source "$SCRIPT_DIR/../lib/nav/nav-render.sh"
