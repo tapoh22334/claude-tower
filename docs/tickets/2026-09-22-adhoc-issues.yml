@@ -1,0 +1,18 @@
+# Issues filed ad hoc with `gh issue create` during 2026-09-21/22 (outside the
+# manifest path), adopted here so they land on the Project and can be verified.
+# 検証: PYTHONPATH=~/.claude/skills/github-tickets/scripts ~/.claude/skills/github-tickets/scripts/apply.sh --verify docs/tickets/2026-09-22-adhoc-issues.yml
+repo: tapoh22334/claude-tower
+
+project:
+  number: 4
+  owner: tapoh22334
+
+tasks:
+  - issue: 37
+    title: Queue/Tail/Tile から戻ると Navigator がセッションの中に入れ子になり、繰り返すと自分自身に attach して pane が縮み続ける
+  - issue: 41
+    title: テストが実機の /tmp/claude-tower を消す — Navigator の状態ファイルをテストごとに隔離する
+  - issue: 42
+    title: 楽観更新の世代カウンタが $(...) の中で進み、古い再構築のキャッシュ公開を拒めていない
+  - issue: 43
+    title: pane 内で Claude がセッションを切り替えると(/clear 等)、行のタイトル・状態が古い id のまま止まり、同じプロセスが ⚡ に数えられる
