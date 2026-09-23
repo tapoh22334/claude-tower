@@ -6,7 +6,8 @@ project:
   owner: tapoh22334
 
 tasks:
-  - title: Tower が起動した pane で claude が見つからないことがある — 起動側の PATH に依存しない
+  - issue: 50
+    title: Tower が起動した pane で claude が見つからないことがある — 起動側の PATH に依存しない
     labels:
       - bug
     body: |
