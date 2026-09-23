@@ -40,7 +40,7 @@ Run each one. For each, state what you looked at and what you found, even when c
 ## Process
 
 1. Read the diff (or the named files) fully. List the functions it adds or changes and every call site of each (`grep -n`).
-2. Run the nine checks. Use Bash only for read-only inspection: grep, `git log -S`, `tmux list-*` on throwaway `-L` sockets if you need a live check. Never attach, kill, or write to the user's servers or `/tmp/claude-tower`.
+2. Run the nine checks. Use Bash only for read-only inspection: grep, `git log -S`, `tmux list-*` on throwaway `-L` sockets if you need a live check. Never attach, kill, or write to the user's servers or `/tmp/claude-tower`. If a reproduction has to call a function that writes state (settle, publish, set_nav_selected), first `export CLAUDE_TOWER_NAV_STATE_DIR=<scratch dir>` — that is the override common.sh reads; exporting `TOWER_NAV_STATE_DIR` does nothing, and a review once overwrote the live Navigator's cache that way.
 3. For each suspected defect, verify it: trace the call shape, or reproduce with a one-line bash snippet, or point at the exact tmux semantics. If you cannot verify, say so and mark it PLAUSIBLE, separate from CONFIRMED.
 4. Check the tests: does a test exist that mirrors the *production call shape* of the changed function? A direct-call test on a function that production calls under `$(...)` does not count.
 
