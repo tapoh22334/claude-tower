@@ -268,6 +268,9 @@ get_display_state() {
 
     has_metadata "$session_id" || return 0
 
+    # No pane: follow the id last seen live there, if any (live_id= in the
+    # metadata), so a /clear'd session does not snap back to its launch id.
+    claude_id=$(live_claude_id "$session_id")
     if ! jsonl=$(find_session_jsonl "$claude_id"); then
         echo "lost"
         return 0
@@ -337,59 +340,100 @@ _live_session_id() {
 # unmanaged ⚡ stray in its own group (#43). The pane's tty is the link: the
 # claude process whose tty is the pane's tty is the session on screen.
 #
-# Cached per list build (reset_live_id_cache) — one display-message per
-# session plus one ps per live process is fine once, not once per lookup.
+# The map is built ONCE per list build, in the calling shell, with one
+# list-panes and one ps for all live pids. Everything else only reads it —
+# and a read is safe from inside $(...), where a cache write would be thrown
+# away with the subshell. The live id is also written to the session's
+# metadata (live_id=), so once the pane is gone the row, the unread mark and
+# `r` keep following the session the user was actually in, not the one they
+# launched a week ago.
+#
+# LIVE_ID_MAP lines: "<tower_id>\t<live claude id>". TOWER_PANE_TTYS lines:
+# "/dev/pts/N" for every pane on the session server.
 # ----------------------------------------------------------------------------
-declare -gA _LIVE_ID_CACHE=()
-declare -g _LIVE_PROCS_SNAPSHOT=""
-declare -g _TOWER_PANE_TTYS=""
+LIVE_ID_MAP=""
+TOWER_PANE_TTYS=""
 
-reset_live_id_cache() {
-    _LIVE_ID_CACHE=()
-    _LIVE_PROCS_SNAPSHOT=""
-    _TOWER_PANE_TTYS=""
+# The sessionId Claude itself records for a pid, straight from its
+# ~/.claude/sessions/<pid>.json — bash-only, no fork. This is the value that
+# moves on /clear; argv keeps saying --resume <old>.
+_json_session_id() {
+    local f="$CLAUDE_LIVE_SESSIONS_DIR/$1.json" line sid
+    [[ -r "$f" ]] || return 1
+    IFS= read -r line <"$f" || [[ -n "$line" ]] || return 1
+    [[ "$line" == *'"sessionId":"'* ]] || return 1
+    sid="${line#*\"sessionId\":\"}"
+    sid="${sid%%\"*}"
+    [[ -n "$sid" ]] || return 1
+    printf '%s\n' "$sid"
 }
 
-# tty ("pts/7") of a pid, empty if it has none or is gone.
-_pid_tty() {
-    local t
-    t=$(ps -o tty= -p "$1" 2>/dev/null | tr -d ' ')
-    [[ "$t" == "?" ]] && t=""
-    printf '%s' "$t"
+# Build LIVE_ID_MAP and TOWER_PANE_TTYS for this build, and persist any live
+# id that differs from the registered one. Call it bare (not under $(...)).
+build_live_id_map() {
+    LIVE_ID_MAP=""
+    TOWER_PANE_TTYS=""
+    local panes
+    panes=$(session_tmux list-panes -a -F '#{session_name}'$'\t''#{pane_tty}' 2>/dev/null) || panes=""
+    [[ -n "$panes" ]] || return 0
+    TOWER_PANE_TTYS=$(cut -f2 <<<"$panes")
+
+    # tty of every live claude pid, one ps for all of them.
+    local table pids="" sid pid _cwd ptys
+    table=$(list_live_claude_processes)
+    while IFS=$'\t' read -r sid pid _cwd; do
+        [[ -n "$pid" ]] && pids+="${pids:+,}$pid"
+    done <<<"$table"
+    [[ -n "$pids" ]] || return 0
+    ptys=$(ps -o pid=,tty= -p "$pids" 2>/dev/null || true)
+
+    local session tty ppid ptty live registered
+    while IFS=$'\t' read -r session tty; do
+        [[ "$session" == tower_* && -n "$tty" ]] || continue
+        while read -r ppid ptty; do
+            [[ -n "$ppid" && -n "$ptty" && "$ptty" != "?" ]] || continue
+            [[ "/dev/$ptty" == "$tty" ]] || continue
+            live=$(_json_session_id "$ppid") || live=$(awk -F'\t' -v p="$ppid" '$2==p{print $1; exit}' <<<"$table")
+            [[ -n "$live" ]] || continue
+            LIVE_ID_MAP+="${session}"$'\t'"${live}"$'\n'
+            registered="${session#tower_}"
+            if [[ "$live" != "$registered" ]]; then
+                record_live_id "$session" "$live"
+            fi
+            break
+        done <<<"$ptys"
+    done <<<"$panes"
+    return 0
 }
 
-# All pane ttys on the session server, one per line, as "/dev/pts/N".
-_tower_pane_ttys() {
-    if [[ -z "$_TOWER_PANE_TTYS" ]]; then
-        _TOWER_PANE_TTYS=$(session_tmux list-panes -a -F '#{pane_tty}' 2>/dev/null || true)
-    fi
-    printf '%s\n' "$_TOWER_PANE_TTYS"
-}
-
-# The Claude session id live in Tower session $1 (tower_<id>): the id of the
-# claude process on that pane's tty, else the registered id.
+# The Claude session id Tower session $1 (tower_<id>) really refers to: the
+# one on its pane now, else the one last recorded there, else the launch id.
 live_claude_id() {
-    local session_id="$1" registered="${1#tower_}"
-    if [[ -n "${_LIVE_ID_CACHE[$session_id]+x}" ]]; then
-        printf '%s\n' "${_LIVE_ID_CACHE[$session_id]}"
+    local session_id="$1" line
+    if [[ -n "$LIVE_ID_MAP" ]]; then
+        line=$(grep -m1 "^${session_id}"$'\t' <<<"$LIVE_ID_MAP") || line=""
+        if [[ -n "$line" ]]; then
+            printf '%s\n' "${line#*$'\t'}"
+            return 0
+        fi
+    fi
+    local META_SESSION_NAME="" META_CREATED_AT="" META_LAUNCH_DIR="" META_LIVE_ID=""
+    if load_metadata "$session_id" 2>/dev/null && [[ -n "$META_LIVE_ID" ]]; then
+        printf '%s\n' "$META_LIVE_ID"
         return 0
     fi
-    local result="$registered" tty sid pid _cwd ptty
-    tty=$(session_tmux display-message -t "$session_id" -p '#{pane_tty}' 2>/dev/null) || tty=""
-    if [[ -n "$tty" ]]; then
-        [[ -n "$_LIVE_PROCS_SNAPSHOT" ]] || _LIVE_PROCS_SNAPSHOT=$(list_live_claude_processes)
-        while IFS=$'\t' read -r sid pid _cwd; do
-            [[ -n "$pid" ]] || continue
-            ptty=$(_pid_tty "$pid")
-            [[ -n "$ptty" ]] || continue
-            if [[ "/dev/$ptty" == "$tty" ]]; then
-                result="$sid"
-                break
-            fi
-        done <<<"$_LIVE_PROCS_SNAPSHOT"
-    fi
-    _LIVE_ID_CACHE[$session_id]="$result"
-    printf '%s\n' "$result"
+    printf '%s\n' "${session_id#tower_}"
+}
+
+# Is pid $1 running inside a Tower pane? (Reads the build's pane tty list;
+# without a build, one list-panes.)
+_pid_in_tower_pane() {
+    local ptty ttys="$TOWER_PANE_TTYS"
+    [[ -n "$ttys" ]] || ttys=$(session_tmux list-panes -a -F '#{pane_tty}' 2>/dev/null || true)
+    [[ -n "$ttys" ]] || return 1
+    ptty=$(ps -o tty= -p "$1" 2>/dev/null | tr -d ' ')
+    [[ -n "$ptty" && "$ptty" != "?" ]] || return 1
+    grep -qxF -- "/dev/$ptty" <<<"$ttys"
 }
 
 # Live claude processes, from Claude's own per-process files
@@ -478,7 +522,8 @@ classify_pane_wait() {
 get_wait_state() {
     local session_id="$1"
     local pane="${2-}"
-    local claude_id="${session_id#tower_}"
+    local claude_id
+    claude_id=$(live_claude_id "$session_id")
     local jsonl
 
     if session_tmux has-session -t "$session_id" 2>/dev/null; then
@@ -515,7 +560,8 @@ get_wait_state() {
 # Returns 0 when unknown, so an unknown wait sorts as oldest (surfaced).
 wait_since() {
     local session_id="$1"
-    local claude_id="${session_id#tower_}"
+    local claude_id
+    claude_id=$(live_claude_id "$session_id")
     local jsonl
     jsonl=$(find_session_jsonl "$claude_id" 2>/dev/null) || { echo 0; return 0; }
     get_session_activity "$jsonl"
@@ -555,11 +601,7 @@ count_unregistered_processes_in_dir() {
         [[ -n "$self_sid" && "$sid" == "$self_sid" ]] && continue
         # A claude inside a Tower pane is managed even when its session id
         # is not the one Tower launched (it switched session in place).
-        local ptty
-        ptty=$(_pid_tty "$_pid")
-        if [[ -n "$ptty" ]] && grep -qxF -- "/dev/$ptty" <<<"$(_tower_pane_ttys)"; then
-            continue
-        fi
+        _pid_in_tower_pane "$_pid" && continue
         # One session can hold several live pids, in several dirs (a resumed
         # session leaves its old process running). The mark counts SESSIONS
         # you cannot see, so each id contributes at most one.
@@ -851,7 +893,7 @@ TOWER_SEEN_DIR="${CLAUDE_TOWER_SEEN_DIR:-${TOWER_NAV_STATE_DIR:-/tmp/claude-towe
 mark_session_seen() {
     local session_id="$1"
     local jsonl
-    jsonl=$(find_session_jsonl "${session_id#tower_}") || return 0
+    jsonl=$(find_session_jsonl "$(live_claude_id "$session_id")") || return 0
     mkdir -p "$TOWER_SEEN_DIR" 2>/dev/null || return 0
     get_session_activity "$jsonl" >"${TOWER_SEEN_DIR}/${session_id}" 2>/dev/null || true
 }

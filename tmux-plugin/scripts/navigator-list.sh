@@ -314,9 +314,9 @@ build_session_list() {
     # reused, replaces N full rescans per refresh.
     local live_procs
     live_procs=$(list_live_claude_processes)
-    # And forget last build's pane→session resolution; sessions may have
-    # switched in place since (see live_claude_id).
-    reset_live_id_cache
+    # Resolve which session each pane is really running, once for this
+    # build (see live_claude_id). Bare call: it writes globals.
+    build_live_id_map
 
     # The selected session is on screen in the view pane: whatever it has
     # produced counts as seen. Everything else gets a baseline mark so a
