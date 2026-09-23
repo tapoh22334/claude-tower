@@ -290,3 +290,33 @@ _ids() { printf '%s ' "${SESSION_IDS[@]}"; }
     [ "${SESSION_IDS[2]}" = "tower_new" ]
     [ "$BROKEN_START" -eq 3 ]
 }
+
+@test "seat row: inside its group the row takes the position tmux name order gives it" {
+    # The rebuild keeps list-sessions order inside a group, and tmux lists by
+    # name (strcmp). tower_aa sorts between tower_a and tower_b.
+    _remember_session_row tower_aa /p/one
+    [ "$(_ids)" = "tower_a tower_aa tower_b tower_c tower_d " ]
+    [ "${SESSION_HEADERS[1]}" = "" ]
+    [[ "${SESSION_HEADERS[0]}" == *"one"* ]]
+}
+
+@test "seat row: a row that names a group's first member takes over its header" {
+    _remember_session_row tower_0 /p/one
+    [ "${SESSION_IDS[0]}" = "tower_0" ]
+    # The header stays on the first row of the group — which is now tower_0.
+    [[ "${SESSION_HEADERS[0]}" == *"one"* ]]
+    [ "${SESSION_HEADERS[1]}" = "" ]
+}
+
+@test "seat row: with no dir given, the seat is resolved the way the rebuild resolves it" {
+    # n only knows the picker's default; the user may have chosen elsewhere.
+    _session_dir() { echo /p/two; }
+    _remember_session_row tower_new ""
+    [ "${SESSION_DIRS[4]}" = "/p/two" ]
+    [ "$(_ids)" = "tower_a tower_b tower_c tower_d tower_new " ]
+}
+
+@test "seat row: no handler passes the caller cwd as the seat dir" {
+    run grep -n '_remember_session_row "\$new_id" "\$(get_caller_cwd)"' "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
+    [ "$status" -ne 0 ]
+}

@@ -732,20 +732,39 @@ _remember_session_row() {
     for ((i = 0; i < ${#SESSION_IDS[@]}; i++)); do
         [[ "${SESSION_IDS[$i]}" == "$id" ]] && return 1
     done
-    if [[ -z "$dir" ]] && load_metadata "$id" 2>/dev/null; then
-        dir="$META_LAUNCH_DIR"
-    fi
+    # Resolve the dir the same way the rebuild will (_session_dir: transcript
+    # cwd, then launch_dir), so the seat is where the rebuild keeps the row.
+    # Callers that only know a *default* (n's picker default) pass "" rather
+    # than guess — the user may have picked another directory entirely.
+    [[ -z "$dir" ]] && dir=$(_session_dir "$id")
 
     # Live rows end where the broken tail starts; a live row never sits in it.
     local n=${#SESSION_IDS[@]}
     local live_end=$n
     ((BROKEN_START >= 0)) && live_end=$BROKEN_START
 
-    local at=-1 header=""
+    # Within a group the rebuild keeps list-sessions order, which is tmux's
+    # name order (strcmp on tower_<uuid>) — not creation order. Seat the row
+    # where that order puts it, or it moves inside its group a tick later.
+    local at=-1 header="" in_group=0 placed=0
     for ((i = 0; i < live_end; i++)); do
-        [[ "${SESSION_DIRS[$i]}" == "$dir" ]] && at=$((i + 1))
+        [[ "${SESSION_DIRS[$i]}" == "$dir" ]] || continue
+        in_group=1
+        ((placed)) && continue
+        if [[ "$id" < "${SESSION_IDS[$i]}" ]]; then
+            at=$i
+            placed=1
+        else
+            at=$((i + 1))
+        fi
     done
-    if ((at < 0)); then
+    if ((in_group == 1)) && ((at < live_end)) && [[ "${SESSION_DIRS[$at]}" == "$dir" && -n "${SESSION_HEADERS[$at]}" ]]; then
+        # Taking the group's first seat: the header rides on the first row,
+        # so it moves to the new row and the old first row loses it.
+        header="${SESSION_HEADERS[$at]}"
+        SESSION_HEADERS[at]=""
+    fi
+    if ((in_group == 0)); then
         # No group yet: open one, placed by the same order the rebuild uses.
         header=$(_compose_group_header "$dir" 0)
         at=$live_end
@@ -1163,7 +1182,9 @@ add_session_inline() {
         # Seat the row now: without it the list has no entry for the session
         # the user just made, so it stays invisible until the next rebuild and
         # the selection lookup cannot find it.
-        _remember_session_row "$new_id" "$(get_caller_cwd)" || true
+        # No dir here: the caller cwd was only the picker's default and the
+        # user may have chosen elsewhere; the seat resolves the real one.
+        _remember_session_row "$new_id" "" || true
     fi
 }
 
