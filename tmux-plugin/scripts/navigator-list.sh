@@ -238,6 +238,61 @@ _session_dir() {
 }
 
 # Build session list: normal states first, broken (dead/lost) last.
+# Sort key for a project group: "1\t" for the unknown (empty) dir so it sinks
+# to the bottom whatever it is called, else "0<basename>\t<dir>" so groups
+# order by project name and two same-named projects stay apart by path.
+_group_sort_key() {
+    local d="$1" base
+    if [[ -z "$d" ]]; then
+        printf '1\t\n'
+        return 0
+    fi
+    base="${d%/}"
+    base="${base##*/}"
+    [[ -z "$base" ]] && base="/"
+    printf '0%s\t%s\n' "$base" "$d"
+}
+
+# 0 if group dir $1 sorts before group dir $2 (same collation as the rebuild).
+_group_sorts_before() {
+    local a b first
+    a=$(_group_sort_key "$1")
+    b=$(_group_sort_key "$2")
+    [[ "$a" == "$b" ]] && return 1
+    first=$(printf '%s\n%s\n' "$a" "$b" | LC_ALL=C sort -f | head -n 1)
+    [[ "$first" == "$a" ]]
+}
+
+# The group header row text for project dir $1 with $2 unmanaged claude
+# processes. The project name is the one thing that must be findable at a
+# glance, so it gets the strongest treatment on screen: bold cyan against dim
+# rows, with a rule running out to the capped content width (not the raw
+# terminal, so a wide screen doesn't draw a rule clear across the display).
+_compose_group_header() {
+    local d="$1" extern="${2:-0}"
+    local dname header rule_w
+    # basename without the fork. Strip a trailing slash, then everything up
+    # to the last one; "/" has nothing left, so keep it as itself.
+    dname="${d:-unknown}"
+    dname="${dname%/}"
+    dname="${dname##*/}"
+    [[ -z "$dname" ]] && dname="/"
+    header="${NAV_C_HEADER}${dname}${NAV_C_NORMAL}"
+    if ((extern > 0)); then
+        # Live claude processes here that Tower doesn't manage
+        # (forks / sessions started in plain terminals).
+        header+=" ${NAV_C_EXTERNAL}⚡${extern}${NAV_C_NORMAL}"
+    fi
+    rule_w=$(( $(_content_width) - $(str_display_width "$dname") - 4 ))
+    if ((extern > 0)); then rule_w=$((rule_w - 3)); fi
+    if ((rule_w > 0)); then
+        local rule="" k
+        for ((k = 0; k < rule_w; k++)); do rule+="─"; done
+        header+=" ${NAV_C_DIM}${rule}${NAV_C_NORMAL}"
+    fi
+    printf '%s' "$header"
+}
+
 build_session_list() {
     SESSION_IDS=()
     SESSION_DISPLAYS=()
@@ -329,9 +384,9 @@ build_session_list() {
     done < <(list_all_sessions)
 
     # Regroup by project dir: groups sorted by project name so the order is
-    # stable across refreshes, with the unknown-dir group pinned last.
-    # Original order is kept within a group. Headers are precomputed here so
-    # spinner ticks can re-render without touching the process table.
+    # stable across refreshes, with the unknown-dir group pinned last; rows
+    # within a group by id. Headers are precomputed here so spinner ticks can
+    # re-render without touching the process table.
     local -a dirs_seen=()
     local d seen_d found i j header extern
     for ((i = 0; i < ${#raw_ids[@]}; i++)); do
@@ -344,21 +399,12 @@ build_session_list() {
         dirs_seen+=("$d")
     done
 
-    # Sort key: "0<basename>\t<dir>" for real dirs, "1" for the unknown group,
-    # so unknown sorts to the bottom whatever it is called. Ties on basename
-    # fall back to the full path, keeping two same-named projects apart.
+    # Groups are ordered by _group_sort_key: unknown last, then project name,
+    # ties broken by the full path so two same-named projects stay apart.
     if [[ ${#dirs_seen[@]} -gt 0 ]]; then
         local -a sort_keys=()
-        local base
         for seen_d in "${dirs_seen[@]}"; do
-            if [[ -z "$seen_d" ]]; then
-                sort_keys+=($'1\t')
-                continue
-            fi
-            base="${seen_d%/}"
-            base="${base##*/}"
-            [[ -z "$base" ]] && base="/"
-            sort_keys+=("0${base}"$'\t'"${seen_d}")
+            sort_keys+=("$(_group_sort_key "$seen_d")")
         done
         mapfile -t dirs_seen < <(printf '%s\n' "${sort_keys[@]}" | LC_ALL=C sort -f | cut -f2-)
     fi
@@ -366,42 +412,27 @@ build_session_list() {
     for ((i = 0; i < ${#dirs_seen[@]}; i++)); do
         d="${dirs_seen[$i]}"
 
-        # The project name is the one thing that must be findable at a
-        # glance, so it gets the strongest treatment on screen: bold cyan
-        # against dim rows, with a rule running out to the right margin.
-        local dname rule_w
-        # basename without the fork. Strip a trailing slash, then everything
-        # up to the last one; "/" has nothing left, so keep it as itself.
-        dname="${d:-unknown}"
-        dname="${dname%/}"
-        dname="${dname##*/}"
-        [[ -z "$dname" ]] && dname="/"
-        header="${NAV_C_HEADER}${dname}${NAV_C_NORMAL}"
         extern=$(count_unregistered_processes_in_dir "$d" "$live_procs")
-        if [[ "$extern" -gt 0 ]]; then
-            # Live claude processes here that Tower doesn't manage
-            # (forks / sessions started in plain terminals).
-            header+=" ${NAV_C_EXTERNAL}⚡${extern}${NAV_C_NORMAL}"
-        fi
-        # Rule fills to the capped content width, not the raw terminal, so
-        # a wide screen doesn't draw a rule clear across the display.
-        rule_w=$(( $(_content_width) - $(str_display_width "$dname") - 4 ))
-        if ((extern > 0)); then rule_w=$((rule_w - 3)); fi
-        if ((rule_w > 0)); then
-            local rule="" k
-            for ((k = 0; k < rule_w; k++)); do rule+="─"; done
-            header+=" ${NAV_C_DIM}${rule}${NAV_C_NORMAL}"
-        fi
+        header=$(_compose_group_header "$d" "$extern")
 
+        # Rows inside a group are ordered by id (strcmp). list_all_sessions
+        # hands us live tmux rows in tmux's name order followed by the
+        # dormant .meta-only rows, i.e. two blocks; a row seated optimistically
+        # by _remember_session_row cannot know which block a neighbour is in,
+        # so the one order both sides can compute is plain id order. That is
+        # what keeps a freshly made row from moving when this rebuild lands.
+        local -a members=()
         for ((j = 0; j < ${#raw_ids[@]}; j++)); do
-            if [[ "${raw_dirs[$j]}" == "$d" ]]; then
-                SESSION_IDS+=("${raw_ids[$j]}")
-                SESSION_DISPLAYS+=("${raw_displays[$j]}")
-                SESSION_DIRS+=("$d")
-                SESSION_HEADERS+=("$header")
-                header=""
-            fi
+            [[ "${raw_dirs[$j]}" == "$d" ]] && members+=("${raw_ids[$j]}"$'\t'"$j")
         done
+        while IFS=$'\t' read -r _ j; do
+            [[ -n "$j" ]] || continue
+            SESSION_IDS+=("${raw_ids[$j]}")
+            SESSION_DISPLAYS+=("${raw_displays[$j]}")
+            SESSION_DIRS+=("$d")
+            SESSION_HEADERS+=("$header")
+            header=""
+        done < <(printf '%s\n' "${members[@]}" | LC_ALL=C sort -t $'\t' -k1,1)
     done
 
     if [[ ${#broken_ids[@]} -gt 0 ]]; then
@@ -712,18 +743,18 @@ _mark_session_deleting() {
 }
 
 # Put a freshly created session into the list right away, as a "starting"
-# row. n/f/N register a session and select it, but the arrays are only
-# refreshed by the background rebuild — so for a second or two the list did
-# not contain the row at all. Two things went wrong from that. The row the
-# user just made was invisible, and worse, get_selection_index could not find
-# the selected id and fell back to its not-found default of 0, so the cursor
-# silently jumped to the top of the list.
+# row, seated in its project group. n/f/N register a session and select it,
+# but the arrays are only refreshed by the background rebuild — so for a
+# second or two the list did not contain the row at all, and the cursor
+# lookup fell back to row 0. The row used to be appended at the very bottom
+# and left for the rebuild to move; the user watched it jump (#46). The
+# caller knows the dir for n/f, and for N the metadata save_metadata has just
+# written knows it, so the row goes where the rebuild will keep it: the end
+# of its group, or a new headed group in name order. Starting (◐) is the
+# honest icon — the session exists but has not written a transcript yet.
 #
-# The row is appended rather than sorted into its project group: the rebuild
-# that follows places it properly, and guessing the group here would need the
-# same expensive scan the rebuild is already doing. Starting (◐) is the honest
-# icon — the session exists but has not written a transcript yet, so its real
-# state is not knowable at this instant.
+# launch_dir is used only to pick the seat. Dead/lost decisions stay with the
+# transcript (get_session_cwd), as the Key API requires.
 #
 # Returns 1 if the id is already present, so a caller cannot double-add.
 _remember_session_row() {
@@ -732,13 +763,75 @@ _remember_session_row() {
     for ((i = 0; i < ${#SESSION_IDS[@]}; i++)); do
         [[ "${SESSION_IDS[$i]}" == "$id" ]] && return 1
     done
-    SESSION_IDS+=("$id")
-    SESSION_DISPLAYS+=("$(_compose_row \
+    # Resolve the dir the same way the rebuild will (_session_dir: transcript
+    # cwd, then launch_dir), so the seat is where the rebuild keeps the row.
+    # Callers that only know a *default* (n's picker default) pass "" rather
+    # than guess — the user may have picked another directory entirely.
+    [[ -z "$dir" ]] && dir=$(_session_dir "$id")
+
+    # Live rows end where the broken tail starts; a live row never sits in it.
+    local n=${#SESSION_IDS[@]}
+    local live_end=$n
+    ((BROKEN_START >= 0)) && live_end=$BROKEN_START
+
+    # Within a group the rebuild keeps list-sessions order, which is tmux's
+    # name order (strcmp on tower_<uuid>) — not creation order. Seat the row
+    # where that order puts it, or it moves inside its group a tick later.
+    local at=-1 header="" in_group=0 placed=0
+    for ((i = 0; i < live_end; i++)); do
+        [[ "${SESSION_DIRS[$i]}" == "$dir" ]] || continue
+        in_group=1
+        ((placed)) && continue
+        if [[ "$id" < "${SESSION_IDS[$i]}" ]]; then
+            at=$i
+            placed=1
+        else
+            at=$((i + 1))
+        fi
+    done
+    if ((in_group == 1)) && ((at < live_end)) && [[ "${SESSION_DIRS[$at]}" == "$dir" && -n "${SESSION_HEADERS[$at]}" ]]; then
+        # Taking the group's first seat: the header rides on the first row,
+        # so it moves to the new row and the old first row loses it.
+        header="${SESSION_HEADERS[$at]}"
+        SESSION_HEADERS[at]=""
+    fi
+    if ((in_group == 0)); then
+        # No group yet: open one, placed by the same order the rebuild uses.
+        header=$(_compose_group_header "$dir" 0)
+        at=$live_end
+        for ((i = 0; i < live_end; i++)); do
+            [[ -n "${SESSION_HEADERS[$i]}" ]] || continue
+            if _group_sorts_before "$dir" "${SESSION_DIRS[$i]}"; then
+                at=$i
+                break
+            fi
+        done
+    fi
+
+    local display
+    display=$(_compose_row \
         "${NAV_C_DIM}${ICON_STATE_STARTING}${NAV_C_NORMAL}" \
         "$(_session_label "$id")" \
-        "")")
-    SESSION_DIRS+=("$dir")
-    SESSION_HEADERS+=("")
+        "")
+
+    local -a ids=() disp=() dirs=() heads=()
+    for ((i = 0; i < n; i++)); do
+        if ((i == at)); then
+            ids+=("$id"); disp+=("$display"); dirs+=("$dir"); heads+=("$header")
+        fi
+        ids+=("${SESSION_IDS[$i]}")
+        disp+=("${SESSION_DISPLAYS[$i]}")
+        dirs+=("${SESSION_DIRS[$i]}")
+        heads+=("${SESSION_HEADERS[$i]}")
+    done
+    if ((at >= n)); then
+        ids+=("$id"); disp+=("$display"); dirs+=("$dir"); heads+=("$header")
+    fi
+    SESSION_IDS=("${ids[@]}")
+    SESSION_DISPLAYS=("${disp[@]}")
+    SESSION_DIRS=("${dirs[@]}")
+    SESSION_HEADERS=("${heads[@]}")
+    ((BROKEN_START >= 0)) && BROKEN_START=$((BROKEN_START + 1))
     return 0
 }
 
@@ -1128,7 +1221,9 @@ add_session_inline() {
         # Seat the row now: without it the list has no entry for the session
         # the user just made, so it stays invisible until the next rebuild and
         # the selection lookup cannot find it.
-        _remember_session_row "$new_id" "$(get_caller_cwd)" || true
+        # No dir here: the caller cwd was only the picker's default and the
+        # user may have chosen elsewhere; the seat resolves the real one.
+        _remember_session_row "$new_id" "" || true
     fi
 }
 
@@ -1164,8 +1259,8 @@ new_session_pick_dir() {
     if [[ -n "$new_id" ]]; then
         set_nav_selected "$new_id"
         signal_view_update
-        # The picker chose the directory; the rebuild will fill in the real
-        # one, so an empty dir here only costs this row its group for a tick.
+        # The picker chose the directory and session-add.sh saved it as
+        # launch_dir; _remember_session_row reads it back to seat the row.
         _remember_session_row "$new_id" "" || true
     fi
 }
