@@ -99,3 +99,20 @@ _stubs='
     run grep -n 'attach-session' "$PROJECT_ROOT/tmux-plugin/scripts/tile.sh" "$PROJECT_ROOT/tmux-plugin/scripts/tail-view.sh"
     [ "$status" -ne 0 ]
 }
+
+@test "view launch: the view window inherits this Navigator's sockets and state dir" {
+    # new-window processes get the server's environment, not the Navigator's;
+    # without -e a test (or second Tower) Navigator launches a view that talks
+    # to the live default servers — which is how one test run moved the
+    # user's real cursor.
+    run env CLAUDE_TOWER_NAV_SOCKET=nav-x CLAUDE_TOWER_SESSION_SOCKET=sess-x CLAUDE_TOWER_NAV_STATE_DIR="$BATS_TEST_TMPDIR/st" \
+        bash -c '
+        source "'"$PROJECT_ROOT"'/tmux-plugin/scripts/navigator-list.sh"
+        set +e
+        session_tmux() { case "$1" in list-sessions) echo tower_x ;; *) echo "SESSION_TMUX $*" ;; esac; }
+        nav_tmux() { :; }
+        handle_error() { :; }
+        switch_to_tile
+    '
+    [[ "$output" == *"new-window -t tower_x -n tower-tile -e CLAUDE_TOWER_NAV_SOCKET=nav-x -e CLAUDE_TOWER_SESSION_SOCKET=sess-x -e CLAUDE_TOWER_NAV_STATE_DIR=$BATS_TEST_TMPDIR/st"* ]]
+}
