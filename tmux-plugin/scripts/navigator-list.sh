@@ -1429,8 +1429,18 @@ _switch_to_view() {
         handle_info "No sessions to show"
         return 0
     fi
-    # -t pins the window to the session we are about to attach to.
-    if ! session_tmux new-window -t "$target" -n "$window" "$script" 2>/dev/null; then
+    # -t pins the window to the session we are about to attach to. -e hands
+    # the view this Navigator's effective settings: a new-window process gets
+    # the SERVER's environment, not ours, so a Navigator running with
+    # overridden sockets or state dir (tests, a second Tower) would otherwise
+    # launch a view that reads and writes the default, live ones.
+    if ! session_tmux new-window -t "$target" -n "$window" \
+        -e "CLAUDE_TOWER_NAV_SOCKET=$TOWER_NAV_SOCKET" \
+        -e "CLAUDE_TOWER_SESSION_SOCKET=$TOWER_SESSION_SOCKET" \
+        -e "CLAUDE_TOWER_NAV_STATE_DIR=$TOWER_NAV_STATE_DIR" \
+        -e "CLAUDE_TOWER_METADATA_DIR=$TOWER_METADATA_DIR" \
+        -e "CLAUDE_PROJECTS_DIR=$CLAUDE_PROJECTS_DIR" \
+        "$script" 2>/dev/null; then
         handle_error "Could not open $window"
         return 1
     fi

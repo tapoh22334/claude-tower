@@ -38,32 +38,9 @@ SESSION_IDS=()
 # Quit navigator - return to caller session
 quit_navigator() {
     cleanup
-
-    local caller
-    caller=$(get_nav_caller)
-
-    # Check session server first, then default server
-    if [[ -n "$caller" ]]; then
-        if session_tmux has-session -t "$caller" 2>/dev/null; then
-            session_tmux attach-session -t "$caller" 2>/dev/null || exit 0
-        elif TMUX= tmux has-session -t "$caller" 2>/dev/null; then
-            TMUX= tmux attach-session -t "$caller" 2>/dev/null || exit 0
-        fi
-    fi
-
-    # Fall back to any tower session on session server
-    local target
-    target=$(session_tmux list-sessions -F '#{session_name}' 2>/dev/null | grep '^tower_' | head -1 || echo "")
-    if [[ -n "$target" ]]; then
-        session_tmux attach-session -t "$target" 2>/dev/null || exit 0
-    fi
-
-    # Final fallback to default server
-    target=$(TMUX= tmux list-sessions -F '#{session_name}' 2>/dev/null | head -1 || echo "")
-    if [[ -n "$target" ]]; then
-        TMUX= tmux attach-session -t "$target" 2>/dev/null || exit 0
-    fi
-
+    # Hand the outer client to the caller (detach -E), then let this window
+    # close. Never attach from inside this pane — see view_quit_navigator.
+    view_quit_navigator
     exit 0
 }
 
@@ -189,19 +166,14 @@ draw_tiles() {
     done
 }
 
-# Return to list view with selected session
+# Return to list view with selected session (hand the outer client back)
 return_to_list_view() {
     local selected_id="$1"
-
-    # Save selection to state file
-    if [[ -n "$selected_id" ]]; then
-        set_nav_selected "$selected_id"
-    fi
-
+    [[ -n "$selected_id" ]] && set_nav_selected "$selected_id"
     cleanup
-
-    # Return to Navigator
-    TMUX= tmux -L "$TOWER_NAV_SOCKET" attach-session -t "$TOWER_NAV_SESSION" 2>/dev/null || exit 0
+    # Detach the outer client onto the Navigator; this window closes when we
+    # exit. An attach from inside this pane would nest the Navigator (#37).
+    view_return_to_navigator
     exit 0
 }
 
