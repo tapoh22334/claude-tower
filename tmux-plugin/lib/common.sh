@@ -419,6 +419,51 @@ view_quit_navigator() {
     return 0
 }
 
+# ----------------------------------------------------------------------------
+# Sweeping Navigator processes that lost their terminal (#30)
+#
+# q only detaches, the pane-exited hook respawns, and a tmux server going
+# away leaves list/view loops running with no pane behind them. They spin
+# until their own EOF guard fires — one burned 40% CPU for eight days. When
+# the Navigator opens, any Tower script of ours whose tty is not a pane on
+# either Tower server is nobody's, and is asked to stop.
+# ----------------------------------------------------------------------------
+
+# Pure: given "pid tty args" lines and the live pane ttys ("/dev/pts/N", one
+# per line), print the pids of Tower UI scripts that are not on a live pane.
+# An empty live list prints nothing: a server we cannot see is not a licence
+# to kill everything.
+_orphan_nav_pids() {
+    local procs="$1" live="$2"
+    [[ -n "$live" ]] || return 0
+    local pid tty args
+    while read -r pid tty args; do
+        [[ -n "$pid" ]] || continue
+        [[ "$args" =~ tmux-plugin/scripts/(navigator-list|navigator-view|queue-view|tail-view|tile)\.sh( |$) ]] || continue
+        [[ "$pid" == "$$" ]] && continue
+        if [[ "$tty" == "?" || -z "$tty" ]]; then
+            echo "$pid"
+            continue
+        fi
+        grep -qxF -- "/dev/$tty" <<<"$live" || echo "$pid"
+    done <<<"$procs"
+}
+
+cleanup_orphan_nav_processes() {
+    local procs live pid
+    procs=$(ps -u "$(id -u)" -o pid=,tty=,args= 2>/dev/null || true)
+    live=$(
+        nav_tmux list-panes -a -F '#{pane_tty}' 2>/dev/null || true
+        session_tmux list-panes -a -F '#{pane_tty}' 2>/dev/null || true
+    )
+    while read -r pid; do
+        [[ -n "$pid" ]] || continue
+        info_log "Sweeping orphaned Navigator process $pid (no pane behind it)"
+        kill -TERM "$pid" 2>/dev/null || true
+    done < <(_orphan_nav_pids "$procs" "$live")
+    return 0
+}
+
 # True if this process is the Navigator list pane that currently owns the
 # shared state files.
 #
