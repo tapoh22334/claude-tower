@@ -320,3 +320,24 @@ _ids() { printf '%s ' "${SESSION_IDS[@]}"; }
     run grep -n '_remember_session_row "\$new_id" "\$(get_caller_cwd)"' "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh"
     [ "$status" -ne 0 ]
 }
+
+# The seat is only stable if the rebuild orders a group the same way. This
+# drives build_session_list's grouping on a fixture where a dormant row
+# (.meta only) sorts before a live row, the case where list_all_sessions'
+# two-block order (live rows, then dormant) disagreed with the seat.
+@test "seat row: the rebuild orders a group by id, so the seat holds when live and dormant rows mix" {
+    # A tiny list_all_sessions: tower_b live (first block), tower_a dormant.
+    list_all_sessions() { printf 'tower_b:active\ntower_a:dormant\n'; }
+    _session_dir() { echo /p/one; }
+    get_display_state() { echo active; }
+    count_unregistered_processes_in_dir() { echo 0; }
+    list_live_claude_processes() { :; }
+    _session_label() { echo "$1"; }
+    _compose_row() { printf '%s %s' "$1" "$2"; }
+    _row_marks() { :; }
+    build_session_list
+    [ "$(_ids)" = "tower_a tower_b " ]
+    # And the seat lands where that order puts it: after tower_a, before tower_b.
+    _remember_session_row tower_aa /p/one
+    [ "$(_ids)" = "tower_a tower_aa tower_b " ]
+}

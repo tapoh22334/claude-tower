@@ -384,9 +384,9 @@ build_session_list() {
     done < <(list_all_sessions)
 
     # Regroup by project dir: groups sorted by project name so the order is
-    # stable across refreshes, with the unknown-dir group pinned last.
-    # Original order is kept within a group. Headers are precomputed here so
-    # spinner ticks can re-render without touching the process table.
+    # stable across refreshes, with the unknown-dir group pinned last; rows
+    # within a group by id. Headers are precomputed here so spinner ticks can
+    # re-render without touching the process table.
     local -a dirs_seen=()
     local d seen_d found i j header extern
     for ((i = 0; i < ${#raw_ids[@]}; i++)); do
@@ -415,15 +415,24 @@ build_session_list() {
         extern=$(count_unregistered_processes_in_dir "$d" "$live_procs")
         header=$(_compose_group_header "$d" "$extern")
 
+        # Rows inside a group are ordered by id (strcmp). list_all_sessions
+        # hands us live tmux rows in tmux's name order followed by the
+        # dormant .meta-only rows, i.e. two blocks; a row seated optimistically
+        # by _remember_session_row cannot know which block a neighbour is in,
+        # so the one order both sides can compute is plain id order. That is
+        # what keeps a freshly made row from moving when this rebuild lands.
+        local -a members=()
         for ((j = 0; j < ${#raw_ids[@]}; j++)); do
-            if [[ "${raw_dirs[$j]}" == "$d" ]]; then
-                SESSION_IDS+=("${raw_ids[$j]}")
-                SESSION_DISPLAYS+=("${raw_displays[$j]}")
-                SESSION_DIRS+=("$d")
-                SESSION_HEADERS+=("$header")
-                header=""
-            fi
+            [[ "${raw_dirs[$j]}" == "$d" ]] && members+=("${raw_ids[$j]}"$'\t'"$j")
         done
+        while IFS=$'\t' read -r _ j; do
+            [[ -n "$j" ]] || continue
+            SESSION_IDS+=("${raw_ids[$j]}")
+            SESSION_DISPLAYS+=("${raw_displays[$j]}")
+            SESSION_DIRS+=("$d")
+            SESSION_HEADERS+=("$header")
+            header=""
+        done < <(printf '%s\n' "${members[@]}" | LC_ALL=C sort -t $'\t' -k1,1)
     done
 
     if [[ ${#broken_ids[@]} -gt 0 ]]; then
