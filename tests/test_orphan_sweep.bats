@@ -19,9 +19,10 @@ teardown() {
 PROCS='3001 pts/4 bash /x/tmux-plugin/scripts/navigator-list.sh
 3002 pts/5 bash /x/tmux-plugin/scripts/navigator-view.sh
 3003 pts/9 bash /x/tmux-plugin/scripts/navigator-list.sh
-3004 ? bash /x/tmux-plugin/scripts/queue-view.sh
-3005 pts/9 vim navigator-list.sh
-3006 pts/7 bash /x/tmux-plugin/scripts/tile.sh'
+3004 ? /bin/bash /x/tmux-plugin/scripts/navigator-view.sh
+3005 pts/9 vim /x/tmux-plugin/scripts/navigator-list.sh
+3006 pts/7 bash /x/tmux-plugin/scripts/tile.sh
+3007 pts/9 bash /x/tmux-plugin/scripts/tile.sh'
 LIVE='/dev/pts/4
 /dev/pts/5
 /dev/pts/7'
@@ -43,9 +44,14 @@ LIVE='/dev/pts/4
     [[ "$output" != *"3006"* ]]
 }
 
-@test "orphan pids: an unrelated process that merely mentions the script name is not touched" {
+@test "orphan pids: an editor holding the script's full path is not touched" {
     run _orphan_nav_pids "$PROCS" "$LIVE"
     [[ "$output" != *"3005"* ]]
+}
+
+@test "orphan pids: tile/tail outside any pane are not swept (tower tile runs in a plain terminal)" {
+    run _orphan_nav_pids "$PROCS" "$LIVE"
+    [[ "$output" != *"3007"* ]]
 }
 
 @test "orphan pids: with no live ttys known at all, nothing is killed (a dead server is not a licence)" {
@@ -57,6 +63,7 @@ LIVE='/dev/pts/4
     ps() { printf '%s\n' "$PROCS"; }
     nav_tmux() { printf '/dev/pts/4\n/dev/pts/5\n'; }
     session_tmux() { printf '/dev/pts/7\n'; }
+    _proc_is_this_tower() { return 0; }
     kill() { echo "kill $*" >>"$BATS_TEST_TMPDIR/kills"; }
     cleanup_orphan_nav_processes
     run cat "$BATS_TEST_TMPDIR/kills"
@@ -70,7 +77,46 @@ LIVE='/dev/pts/4
     ps() { printf '%s ? bash /x/tmux-plugin/scripts/navigator-list.sh\n' "$$"; }
     nav_tmux() { echo "/dev/pts/4"; }
     session_tmux() { :; }
+    _proc_is_this_tower() { return 0; }
     kill() { echo "kill $*" >>"$BATS_TEST_TMPDIR/kills"; }
     cleanup_orphan_nav_processes
     [ ! -f "$BATS_TEST_TMPDIR/kills" ]
+}
+
+@test "sweep: a second Tower's loops (other socket pair) are left alone" {
+    ps() { printf '%s\n' "$PROCS"; }
+    nav_tmux() { printf '/dev/pts/4\n/dev/pts/5\n'; }
+    session_tmux() { printf '/dev/pts/7\n'; }
+    _proc_is_this_tower() { return 1; }
+    kill() { echo "kill $*" >>"$BATS_TEST_TMPDIR/kills"; }
+    cleanup_orphan_nav_processes
+    [ ! -f "$BATS_TEST_TMPDIR/kills" ]
+}
+
+@test "sweep: if either server cannot be listed, nothing is killed" {
+    ps() { printf '%s\n' "$PROCS"; }
+    nav_tmux() { return 1; }
+    session_tmux() { printf '/dev/pts/7\n'; }
+    _proc_is_this_tower() { return 0; }
+    kill() { echo "kill $*" >>"$BATS_TEST_TMPDIR/kills"; }
+    cleanup_orphan_nav_processes
+    [ ! -f "$BATS_TEST_TMPDIR/kills" ]
+}
+
+@test "traps: a loop with the Navigator's signal traps actually stops on TERM" {
+    # The old trap restored the terminal and returned, and bash resumes the
+    # loop after a handler — so TERM never stopped list/view. Run the same
+    # traps around a tight read loop (EOF on /dev/null makes it spin), send
+    # TERM, and expect it gone with the TERM exit status.
+    bash -c '
+        source "'"$PROJECT_ROOT"'/tmux-plugin/lib/common.sh"
+        nav_install_signal_traps ":"
+        while :; do read -rsn1 -t 0.2 k || :; done
+    ' </dev/null &
+    local pid=$!
+    sleep 0.3
+    kill -TERM "$pid"
+    local rc=0
+    wait "$pid" || rc=$?
+    [ "$rc" -eq 143 ]
 }
