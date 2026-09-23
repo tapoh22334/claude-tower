@@ -1,0 +1,21 @@
+# 検証: PYTHONPATH=~/.claude/skills/github-tickets/scripts ~/.claude/skills/github-tickets/scripts/apply.sh --verify docs/tickets/2026-09-23-new-row-placement.yml
+repo: tapoh22334/claude-tower
+
+project:
+  number: 4
+  owner: tapoh22334
+
+tasks:
+  - title: n/f/N で作った直後のセッション行を、最初からそのプロジェクトのグループに置く
+    labels:
+      - bug
+    body: |
+      ## やること
+      n/f/N で作ったセッションの行は、一覧の末尾に「◐ starting」として追加され、次の再構築(数秒後)で本来のプロジェクトのグループへ移動する。利用者には「一番下に生まれて、しばらくすると別の場所へ飛ぶ」と見え、削除直後の復活と同じく「押した直後の挙動が正しくない」クラス。`_remember_session_row` が「グループの推定は再構築と同じ高価な走査が要る」として末尾追加にしているが、n/f は呼び出し元がディレクトリを知っており、N も `save_metadata` が launch_dir を書いた直後なので `load_metadata` で分かる。
+
+      行は最初からそのディレクトリのグループの末尾(同じグループが無ければ、グループ名順の正しい位置に見出し付きで新設)に座らせる。再構築は以後もその位置を確認するだけで、行が動かない。
+
+      ## 完了条件
+      - [ ] n/f/N の直後、新しい行がそのプロジェクトの見出しの下(既存グループなら末尾)に表示され、再構築後も位置が変わらないことがテストで固定されている
+      - [ ] 同名のグループが無い場合、見出し付きの新グループが名前順の位置に入り、unknown グループより上にある
+      - [ ] launch_dir は「座らせる位置」にだけ使い、dead/lost の判定には使わない(CLAUDE.md Key API)

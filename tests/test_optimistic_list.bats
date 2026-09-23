@@ -26,6 +26,12 @@ setup() {
     declare -g BROKEN_START=-1
 }
 
+teardown() {
+    # Metadata written by one test (save_metadata) must not seat rows in the
+    # next: the seating code reads launch_dir back for N.
+    teardown_test_env
+}
+
 _lengths() {
     echo "${#SESSION_IDS[@]} ${#SESSION_DISPLAYS[@]} ${#SESSION_DIRS[@]} ${#SESSION_HEADERS[@]}"
 }
@@ -221,4 +227,66 @@ _lengths() {
     _forget_session_row tower_b
     _bump_list_generation
     [ "$LIST_GENERATION" -ne "$before" ]
+}
+
+# ----------------------------------------------------------------------------
+# Seating a new row where it belongs (#46). n/f/N used to append the ◐ row at
+# the very bottom and let the rebuild move it into its project group a few
+# seconds later — the row visibly jumped. The caller (n/f) knows the dir, and
+# for N the metadata just written by save_metadata knows it, so the row can be
+# seated in its group from the first frame.
+# ----------------------------------------------------------------------------
+_ids() { printf '%s ' "${SESSION_IDS[@]}"; }
+
+@test "seat row: joins the end of its existing project group, not the bottom" {
+    _remember_session_row tower_new /p/one
+    [ "$(_ids)" = "tower_a tower_b tower_new tower_c tower_d " ]
+    [ "${SESSION_HEADERS[2]}" = "" ]
+    [ "${SESSION_DIRS[2]}" = "/p/one" ]
+    [ "$(_lengths)" = "5 5 5 5" ]
+}
+
+@test "seat row: a dir with no group yet opens a new headed group in name order" {
+    _remember_session_row tower_new /p/alpha
+    [ "${SESSION_IDS[0]}" = "tower_new" ]
+    [[ "${SESSION_HEADERS[0]}" == *"alpha"* ]]
+    # The group that used to be first keeps its own header on its own row.
+    [ "${SESSION_IDS[1]}" = "tower_a" ]
+    [[ "${SESSION_HEADERS[1]}" == *"one"* ]]
+}
+
+@test "seat row: a new group that sorts last goes after the last group, before nothing" {
+    _remember_session_row tower_new /p/zeta
+    [ "${SESSION_IDS[4]}" = "tower_new" ]
+    [[ "${SESSION_HEADERS[4]}" == *"zeta"* ]]
+}
+
+@test "seat row: N with no dir argument seats by the metadata launch_dir" {
+    save_metadata tower_new "" /p/two
+    _remember_session_row tower_new ""
+    [ "$(_ids)" = "tower_a tower_b tower_c tower_d tower_new " ]
+    [ "${SESSION_DIRS[4]}" = "/p/two" ]
+    [ "${SESSION_HEADERS[4]}" = "" ]
+}
+
+@test "seat row: unknown dir lands in a trailing unknown group, never above a real one" {
+    _remember_session_row tower_new ""
+    [ "${SESSION_IDS[4]}" = "tower_new" ]
+    [[ "${SESSION_HEADERS[4]}" == *"unknown"* ]]
+}
+
+@test "seat row: the broken section shifts down when a live row is inserted above it" {
+    BROKEN_START=2
+    _remember_session_row tower_new /p/one
+    [ "$BROKEN_START" -eq 3 ]
+    [ "${SESSION_IDS[3]}" = "tower_c" ]
+}
+
+@test "seat row: a live row never lands inside the broken section" {
+    # tower_c/tower_d are the broken tail; /p/two matches their dirs, but
+    # a live row must stay in the live part of the list.
+    BROKEN_START=2
+    _remember_session_row tower_new /p/two
+    [ "${SESSION_IDS[2]}" = "tower_new" ]
+    [ "$BROKEN_START" -eq 3 ]
 }
