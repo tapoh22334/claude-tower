@@ -137,6 +137,24 @@ render_frame() {
     printf '\033[?25l\033[H%b%s\033[?25h' "$frame" "$clear_eos"
 }
 
+
+# Start with the cursor on the session the list had selected, when it is in
+# this view; otherwise on the first row. Without this, Enter handed the list
+# the FIRST session whatever the user had been on — the selection was lost
+# every time the view was opened and closed (#31).
+_seed_selection() {
+    local current i
+    current=$(get_nav_selected)
+    [[ -n "$current" ]] || return 0
+    for ((i = 0; i < ${#SESSION_IDS[@]}; i++)); do
+        if [[ "${SESSION_IDS[$i]}" == "$current" ]]; then
+            SELECTED_INDEX=$i
+            return 0
+        fi
+    done
+    return 0
+}
+
 # Return to list view with selected session
 return_to_list_view() {
     local selected_id="$1"
@@ -204,6 +222,7 @@ main() {
     stty -echo 2>/dev/null || true
 
     load_sessions
+    _seed_selection
     render_frame
 
     local key key2 read_rc

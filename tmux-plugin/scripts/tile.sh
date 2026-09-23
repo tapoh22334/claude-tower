@@ -166,6 +166,24 @@ draw_tiles() {
     done
 }
 
+
+# Start with the cursor on the session the list had selected, when it is in
+# this view; otherwise on the first row. Without this, Enter handed the list
+# the FIRST session whatever the user had been on — the selection was lost
+# every time the view was opened and closed (#31).
+_seed_selection() {
+    local current i
+    current=$(get_nav_selected)
+    [[ -n "$current" ]] || return 0
+    for ((i = 0; i < ${#SESSION_IDS[@]}; i++)); do
+        if [[ "${SESSION_IDS[$i]}" == "$current" ]]; then
+            SELECTED_INDEX=$i
+            return 0
+        fi
+    done
+    return 0
+}
+
 # Return to list view with selected session (hand the outer client back)
 return_to_list_view() {
     local selected_id="$1"
@@ -262,6 +280,7 @@ main() {
     stty -echo
 
     load_sessions
+    _seed_selection
     draw_tiles
 
     while true; do
