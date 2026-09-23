@@ -117,8 +117,8 @@ _content_width() {
 # sessions sharing a project), plus " (name)" when the registry has one.
 _session_label() {
     local session_id="$1"
-    local claude_id="${session_id#tower_}"
-    local label="" name=""
+    local claude_id label="" name=""
+    claude_id=$(live_claude_id "$session_id")
 
     # A registry name is the user's own words for this session — when one
     # exists it IS the label, no title needed.
@@ -223,7 +223,8 @@ _strip_ansi_str() {
 # dir recorded at registration, and only for as long as the transcript has
 # nothing to say.
 _session_dir() {
-    local session_id="$1" claude_id="${1#tower_}" jsonl cwd=""
+    local session_id="$1" jsonl cwd="" claude_id
+    claude_id=$(live_claude_id "$session_id")
     # `local` on the META_* names: load_metadata assigns them unconditionally,
     # and this runs mid-loop in build_session_list, so leaking them would let
     # one row's directory lookup overwrite another row's loaded name.
@@ -313,6 +314,9 @@ build_session_list() {
     # reused, replaces N full rescans per refresh.
     local live_procs
     live_procs=$(list_live_claude_processes)
+    # And forget last build's pane→session resolution; sessions may have
+    # switched in place since (see live_claude_id).
+    reset_live_id_cache
 
     # The selected session is on screen in the view pane: whatever it has
     # produced counts as seen. Everything else gets a baseline mark so a
@@ -343,7 +347,7 @@ build_session_list() {
         fi
         badge=""
         if [[ "$state" == "busy" ]] &&
-            jsonl=$(find_session_jsonl "${session_id#tower_}" 2>/dev/null); then
+            jsonl=$(find_session_jsonl "$(live_claude_id "$session_id")" 2>/dev/null); then
             agents=$(count_active_subagents "$jsonl")
             if [[ "$agents" -gt 0 ]]; then
                 badge="${NAV_C_DIM}⚙${agents}${NAV_C_NORMAL}"

@@ -242,6 +242,8 @@ get_display_state() {
     local jsonl
 
     if session_tmux has-session -t "$session_id" 2>/dev/null; then
+        # Follow the session the pane is really running (see live_claude_id).
+        claude_id=$(live_claude_id "$session_id")
         if ! jsonl=$(find_session_jsonl "$claude_id") && _session_is_fresh "$session_id"; then
             # A tmux session with no transcript behind it is one Claude has
             # only just been launched into. Distinguishing this from "active"
@@ -323,6 +325,71 @@ _live_session_id() {
     else
         echo "$recorded"
     fi
+}
+
+# ----------------------------------------------------------------------------
+# Which session is a Tower pane really running?
+#
+# A row is keyed by the id the session was launched with (tower_<id>), but
+# Claude can switch session inside the pane — /clear starts a new id — and
+# from then on the launch id's transcript stops moving. Keyed on it, the row
+# froze on the old title and state, and the live process was counted as an
+# unmanaged ⚡ stray in its own group (#43). The pane's tty is the link: the
+# claude process whose tty is the pane's tty is the session on screen.
+#
+# Cached per list build (reset_live_id_cache) — one display-message per
+# session plus one ps per live process is fine once, not once per lookup.
+# ----------------------------------------------------------------------------
+declare -gA _LIVE_ID_CACHE=()
+declare -g _LIVE_PROCS_SNAPSHOT=""
+declare -g _TOWER_PANE_TTYS=""
+
+reset_live_id_cache() {
+    _LIVE_ID_CACHE=()
+    _LIVE_PROCS_SNAPSHOT=""
+    _TOWER_PANE_TTYS=""
+}
+
+# tty ("pts/7") of a pid, empty if it has none or is gone.
+_pid_tty() {
+    local t
+    t=$(ps -o tty= -p "$1" 2>/dev/null | tr -d ' ')
+    [[ "$t" == "?" ]] && t=""
+    printf '%s' "$t"
+}
+
+# All pane ttys on the session server, one per line, as "/dev/pts/N".
+_tower_pane_ttys() {
+    if [[ -z "$_TOWER_PANE_TTYS" ]]; then
+        _TOWER_PANE_TTYS=$(session_tmux list-panes -a -F '#{pane_tty}' 2>/dev/null || true)
+    fi
+    printf '%s\n' "$_TOWER_PANE_TTYS"
+}
+
+# The Claude session id live in Tower session $1 (tower_<id>): the id of the
+# claude process on that pane's tty, else the registered id.
+live_claude_id() {
+    local session_id="$1" registered="${1#tower_}"
+    if [[ -n "${_LIVE_ID_CACHE[$session_id]+x}" ]]; then
+        printf '%s\n' "${_LIVE_ID_CACHE[$session_id]}"
+        return 0
+    fi
+    local result="$registered" tty sid pid _cwd ptty
+    tty=$(session_tmux display-message -t "$session_id" -p '#{pane_tty}' 2>/dev/null) || tty=""
+    if [[ -n "$tty" ]]; then
+        [[ -n "$_LIVE_PROCS_SNAPSHOT" ]] || _LIVE_PROCS_SNAPSHOT=$(list_live_claude_processes)
+        while IFS=$'\t' read -r sid pid _cwd; do
+            [[ -n "$pid" ]] || continue
+            ptty=$(_pid_tty "$pid")
+            [[ -n "$ptty" ]] || continue
+            if [[ "/dev/$ptty" == "$tty" ]]; then
+                result="$sid"
+                break
+            fi
+        done <<<"$_LIVE_PROCS_SNAPSHOT"
+    fi
+    _LIVE_ID_CACHE[$session_id]="$result"
+    printf '%s\n' "$result"
 }
 
 # Live claude processes, from Claude's own per-process files
@@ -486,6 +553,13 @@ count_unregistered_processes_in_dir() {
         # informative and most alarming.
         [[ -n "$self_pid" && "$_pid" == "$self_pid" ]] && continue
         [[ -n "$self_sid" && "$sid" == "$self_sid" ]] && continue
+        # A claude inside a Tower pane is managed even when its session id
+        # is not the one Tower launched (it switched session in place).
+        local ptty
+        ptty=$(_pid_tty "$_pid")
+        if [[ -n "$ptty" ]] && grep -qxF -- "/dev/$ptty" <<<"$(_tower_pane_ttys)"; then
+            continue
+        fi
         # One session can hold several live pids, in several dirs (a resumed
         # session leaves its old process running). The mark counts SESSIONS
         # you cannot see, so each id contributes at most one.
