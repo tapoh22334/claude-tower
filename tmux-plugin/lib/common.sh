@@ -339,6 +339,89 @@ nav_redirect_view() {
     return 0
 }
 
+# ----------------------------------------------------------------------------
+# Handing the user back from a full-screen view (Tile, Tail)
+#
+# A view runs as a window inside a real tower_* session, and the person is
+# attached to that session. The way back must not be `tmux attach-session`
+# run from inside the view's pane: that spawns a client inside the session it
+# attaches to, the Navigator comes up nested, and opening a view again from
+# there attaches the session to itself — each level one status line smaller
+# (#37). Instead, detach the OUTER client with -E so the next attach runs in
+# the person's terminal, outside every pane; the view script then exits and
+# its window closes.
+# ----------------------------------------------------------------------------
+
+# The tty of the client the person is looking through. Among the clients of
+# the session this pane lives in, skip any whose tty is a pane on the
+# Navigator server — that is the view pane's own nested client, and
+# detaching it would strand the Navigator's right-hand pane. Most recent
+# activity wins among the rest (they just pressed the key). Fails if none.
+_view_outer_client_tty() {
+    local session nav_ttys tty _rest
+    session=$(session_tmux display-message -p '#{session_name}' 2>/dev/null) || return 1
+    [[ -n "$session" ]] || return 1
+    nav_ttys=$(nav_tmux list-panes -a -F '#{pane_tty}' 2>/dev/null || true)
+    while read -r tty _rest; do
+        [[ -n "$tty" ]] || continue
+        if [[ -n "$nav_ttys" ]] && grep -qxF -- "$tty" <<<"$nav_ttys"; then
+            continue
+        fi
+        echo "$tty"
+        return 0
+    done < <(session_tmux list-clients -t "$session" -F '#{client_tty} #{client_activity}' 2>/dev/null | sort -k2,2nr)
+    return 1
+}
+
+# Detach the outer client and run $1 in its place. No client found: nothing
+# to hand over — the caller exits and the window closes; the person, if they
+# are attached at all, is left on the session's other window.
+_view_handoff() {
+    local cmd="$1" tty
+    tty=$(_view_outer_client_tty) || return 1
+    session_tmux detach-client -t "$tty" -E "$cmd" 2>/dev/null || return 1
+}
+
+view_return_to_navigator() {
+    _view_handoff "TMUX= tmux -L '$TOWER_NAV_SOCKET' attach-session -t '$TOWER_NAV_SESSION'" || true
+    return 0
+}
+
+# Quit from a view: hand the outer client to the caller session, or to a
+# tower_* session that is NOT the one hosting this view (the old fallback
+# took `list-sessions | head -1`, which is exactly the hosting session — the
+# self-attach that made panes shrink). With nothing sensible to go to, just
+# detach.
+view_quit_navigator() {
+    local caller here target=""
+    caller=$(get_nav_caller)
+    here=$(session_tmux display-message -p '#{session_name}' 2>/dev/null || echo "")
+    if [[ -n "$caller" ]]; then
+        if session_tmux has-session -t "$caller" 2>/dev/null; then
+            target="TMUX= tmux -L '$TOWER_SESSION_SOCKET' attach-session -t '$caller'"
+        elif TMUX= tmux has-session -t "$caller" 2>/dev/null; then
+            target="TMUX= tmux attach-session -t '$caller'"
+        fi
+    fi
+    if [[ -z "$target" ]]; then
+        local s
+        while read -r s; do
+            [[ -n "$s" && "$s" != "$here" ]] || continue
+            target="TMUX= tmux -L '$TOWER_SESSION_SOCKET' attach-session -t '$s'"
+            break
+        done < <(session_tmux list-sessions -F '#{session_name}' 2>/dev/null | grep '^tower_' || true)
+    fi
+    if [[ -n "$target" ]]; then
+        _view_handoff "$target" || true
+    else
+        local tty
+        if tty=$(_view_outer_client_tty); then
+            session_tmux detach-client -t "$tty" 2>/dev/null || true
+        fi
+    fi
+    return 0
+}
+
 # True if this process is the Navigator list pane that currently owns the
 # shared state files.
 #
