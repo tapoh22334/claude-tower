@@ -419,6 +419,95 @@ view_quit_navigator() {
     return 0
 }
 
+# ----------------------------------------------------------------------------
+# Sweeping Navigator processes that lost their terminal (#30)
+#
+# q only detaches, the pane-exited hook respawns, and a tmux server going
+# away leaves list/view loops running with no pane behind them. They spin
+# until their own EOF guard fires — one burned 40% CPU for eight days. When
+# the Navigator opens, any Tower script of ours whose tty is not a pane on
+# either Tower server is nobody's, and is asked to stop.
+# ----------------------------------------------------------------------------
+
+# Signal traps for the long-running Navigator loops. A trap that only
+# restores the terminal and returns lets the loop CONTINUE after SIGTERM
+# (bash resumes after the handler; read comes back with rc>128, which the
+# key reader files as a timeout) — so the sweep below could not stop the very
+# loops it was written for. Restore on EXIT, and make INT/TERM exit.
+nav_install_signal_traps() {
+    local restore="${1:-:}"
+    # shellcheck disable=SC2064  # expand now: the restore snippet is a literal
+    trap "$restore" EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+}
+
+# Value of environment variable $2 in process $1, from /proc. Empty when
+# unset; fails when the process's environment cannot be read (not Linux, not
+# ours, gone) — callers treat that as "do not touch".
+_proc_env() {
+    local pid="$1" name="$2" line
+    [[ -r "/proc/$pid/environ" ]] || return 1
+    while IFS= read -r -d '' line; do
+        if [[ "$line" == "$name="* ]]; then
+            printf '%s\n' "${line#*=}"
+            return 0
+        fi
+    done <"/proc/$pid/environ"
+    printf '\n'
+    return 0
+}
+
+# Does process $1 belong to THIS Tower (same socket pair)? A second Tower on
+# overridden sockets has its own panes on servers we do not list, and its
+# loops must not read as orphans to us. Unreadable environment: not ours.
+_proc_is_this_tower() {
+    local pid="$1" nav sess
+    nav=$(_proc_env "$pid" CLAUDE_TOWER_NAV_SOCKET) || return 1
+    sess=$(_proc_env "$pid" CLAUDE_TOWER_SESSION_SOCKET) || return 1
+    [[ "$nav" == "${CLAUDE_TOWER_NAV_SOCKET:-}" && "$sess" == "${CLAUDE_TOWER_SESSION_SOCKET:-}" ]]
+}
+
+# Pure: given "pid tty args" lines and the live pane ttys ("/dev/pts/N", one
+# per line), print the pids of Navigator pane loops (list/view, run by a
+# shell) that are not on a live pane. Only those two: tile/tail have a CLI
+# entry point (`tower tile`) that legitimately runs outside any Tower pane,
+# and they stop on their own when their terminal goes. An empty live list
+# prints nothing: a server we cannot see is not a licence to kill.
+_orphan_nav_pids() {
+    local procs="$1" live="$2"
+    [[ -n "$live" ]] || return 0
+    local pid tty args
+    while read -r pid tty args; do
+        [[ -n "$pid" ]] || continue
+        # An interpreter running the script — not an editor or pager that
+        # merely has the path as an argument.
+        [[ "$args" =~ ^([^\ ]*/)?(ba)?sh(\ -[A-Za-z]+)*\ .*tmux-plugin/scripts/(navigator-list|navigator-view)\.sh(\ |$) ]] || continue
+        [[ "$pid" == "$$" ]] && continue
+        if [[ "$tty" == "?" || -z "$tty" ]]; then
+            echo "$pid"
+            continue
+        fi
+        grep -qxF -- "/dev/$tty" <<<"$live" || echo "$pid"
+    done <<<"$procs"
+}
+
+cleanup_orphan_nav_processes() {
+    local procs live_nav live_sess pid
+    # Both servers must answer: a half view of the panes would mark the
+    # other half's loops as orphans.
+    live_nav=$(nav_tmux list-panes -a -F '#{pane_tty}' 2>/dev/null) || return 0
+    live_sess=$(session_tmux list-panes -a -F '#{pane_tty}' 2>/dev/null) || return 0
+    procs=$(ps -U "$(id -u)" -o pid=,tty=,args= 2>/dev/null || true)
+    while read -r pid; do
+        [[ -n "$pid" ]] || continue
+        _proc_is_this_tower "$pid" || continue
+        info_log "Sweeping orphaned Navigator process $pid (no pane behind it)"
+        kill -TERM "$pid" 2>/dev/null || true
+    done < <(_orphan_nav_pids "$procs" "$live_nav"$'\n'"$live_sess")
+    return 0
+}
+
 # True if this process is the Navigator list pane that currently owns the
 # shared state files.
 #

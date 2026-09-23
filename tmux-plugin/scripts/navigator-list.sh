@@ -1573,7 +1573,7 @@ main_loop() {
     # Arm the restore FIRST. With the order reversed, a signal arriving in the
     # gap between disabling echo and installing the handler would leave the
     # user at a shell that no longer echoes what they type.
-    trap 'nav_echo_on; printf "\033[?25h" 2>/dev/null || true' EXIT INT TERM
+    nav_install_signal_traps 'nav_echo_on; printf "\033[?25h" 2>/dev/null || true'
     nav_echo_off
 
     # Take ownership of the shared state files. The newest list pane wins:

@@ -147,6 +147,10 @@ open_navigator() {
         set_nav_caller "$current_session"
     fi
 
+    # Loops left behind by a vanished terminal keep spinning; opening the
+    # Navigator is the moment to clear them out (#30).
+    cleanup_orphan_nav_processes
+
     # Check if Navigator already exists
     if is_nav_session_exists; then
         info_log "Navigator already exists, attaching"

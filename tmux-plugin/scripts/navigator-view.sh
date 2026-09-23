@@ -224,7 +224,7 @@ cleanup() {
 
 # Combine traps: ERR for error handling, EXIT/INT/TERM for cleanup
 trap 'handle_script_error $LINENO' ERR
-trap cleanup EXIT INT TERM
+nav_install_signal_traps cleanup
 
 # ============================================================================
 # Main
