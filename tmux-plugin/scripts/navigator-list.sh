@@ -25,12 +25,14 @@ source "$SCRIPT_DIR/../lib/common.sh"
 
 # Error handler - log and continue instead of exiting
 handle_script_error() {
-    local line="$1"
-    error_log "navigator-list.sh: Error at line $line"
+    local line="$1" file="${2:-navigator-list.sh}"
+    # The Navigator is spread over lib/nav/*.sh now; $LINENO counts within
+    # the file being sourced, so name that file rather than this one.
+    error_log "${file##*/}: Error at line $line"
     # Don't exit - the main loop will continue
 }
 
-trap 'handle_script_error $LINENO' ERR
+trap 'handle_script_error $LINENO "${BASH_SOURCE[0]}"' ERR
 
 # shellcheck source=../lib/nav/nav-render.sh
 source "$SCRIPT_DIR/../lib/nav/nav-render.sh"
