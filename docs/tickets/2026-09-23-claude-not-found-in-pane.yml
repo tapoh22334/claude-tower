@@ -1,0 +1,23 @@
+# 検証: PYTHONPATH=~/.claude/skills/github-tickets/scripts ~/.claude/skills/github-tickets/scripts/apply.sh --verify docs/tickets/2026-09-23-claude-not-found-in-pane.yml
+repo: tapoh22334/claude-tower
+
+project:
+  number: 4
+  owner: tapoh22334
+
+tasks:
+  - title: Tower が起動した pane で claude が見つからないことがある — 起動側の PATH に依存しない
+    labels:
+      - bug
+    body: |
+      ## やること
+      Tower が作ったセッションの pane で `claude --session-id …` が `zsh: command not found: claude` になる。tmux の pane 環境は `new-session` を実行したクライアントの環境を継承するため、ssh 経由の login zsh(`~/.profile` を読まず `~/.local/bin` が PATH に無い)から Tower を操作すると、pane の zsh からは `~/.local/bin/claude` が見えない。普段の GUI 端末では見えるので、Tower で開いたときだけ起きるように見える(2026-09-23 に実測、`/subtask` の診断)。
+
+      Tower は `send-keys "claude …"` で起動を pane のシェルに任せているので、起動側の PATH に左右される。`start_claude_session` で起動するプログラムを絶対パスに解決し(`command -v`、無ければ `~/.local/bin/<name>`)、解決できなければ pane に打ち込む前にエラーとして返す。合わせて `new-session -e PATH=…` で `~/.local/bin` を pane の PATH に足し、pane 内で利用者が手で `claude` と打っても通るようにする。
+
+      利用者のシェル設定側の根本原因(`~/.zshenv` に `~/.local/bin` が無い、`.zshrc` の `npm bin -g` 廃止による PATH 汚染)は Tower の外なので、報告に書くだけで触らない。
+
+      ## 完了条件
+      - [ ] PATH に claude が無い環境から `start_claude_session` を呼んでも、`~/.local/bin/claude` があれば pane にはその絶対パスが打ち込まれる(テストで固定)
+      - [ ] どこにも見つからない場合は send-keys の前に handle_error で失敗し、空のセッションを残さない
+      - [ ] 作られた pane の PATH に `~/.local/bin` が含まれる
