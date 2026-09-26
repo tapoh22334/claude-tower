@@ -58,6 +58,24 @@ count_tower_sessions() {
 # Navigator Setup
 # ============================================================================
 
+# The two loops run as the panes' own commands, not typed into a shell. A
+# shell survives the loop's death, so the pane never counts as dead, the
+# respawn hook never fires, and the person is left looking at a zsh prompt
+# (seen 2026-09-26 15:55 after the list loop exited). With the loop as the
+# pane command, remain-on-exit keeps the dead pane and its pane id, and the
+# pane-died hook from setup_pane_auto_restart runs the same command again.
+# The hook is installed before the split so the list pane is covered from
+# its first breath.
+# Returns 1 when the session could not be created, 2 when the split failed.
+_spawn_navigator_panes() {
+    TMUX= nav_tmux new-session -d -s "$TOWER_NAV_SESSION" -x "$(_term_cols)" -y "$(_term_lines)" \
+        "$(nav_pane_command navigator-list.sh)" || return 1
+    setup_pane_auto_restart
+    nav_tmux split-window -t "$TOWER_NAV_SESSION" -h -l "70%" \
+        "$(nav_pane_command navigator-view.sh)" || return 2
+    nav_tmux select-pane -t "$TOWER_NAV_SESSION:0.0"
+}
+
 # Create Navigator session in dedicated server
 create_navigator() {
     debug_log "Creating Navigator session in -L $TOWER_NAV_SOCKET"
@@ -73,23 +91,7 @@ create_navigator() {
         set_nav_selected "$first_session"
     fi
 
-    # Create new session in Navigator server
-    # Unset TMUX to allow nested tmux
-    TMUX= nav_tmux new-session -d -s "$TOWER_NAV_SESSION" -x "$(_term_cols)" -y "$(_term_lines)"
-
-    # Split into left (list) and right (view) panes
-    nav_tmux split-window -t "$TOWER_NAV_SESSION" -h -l "70%"
-
-    # Set up left pane (session list)
-    nav_tmux send-keys -t "$TOWER_NAV_SESSION:0.0" \
-        "$(nav_pane_command navigator-list.sh)" Enter
-
-    # Set up right pane (view)
-    nav_tmux send-keys -t "$TOWER_NAV_SESSION:0.1" \
-        "$(nav_pane_command navigator-view.sh)" Enter
-
-    # Focus on left pane
-    nav_tmux select-pane -t "$TOWER_NAV_SESSION:0.0"
+    _spawn_navigator_panes
 
     debug_log "Navigator session created"
 }
@@ -309,11 +311,13 @@ open_navigator_direct() {
     set +e
     local create_error=""
 
-    if ! TMUX= nav_tmux new-session -d -s "$TOWER_NAV_SESSION" -x "$(_term_cols)" -y "$(_term_lines)" 2>&1; then
-        create_error="Failed to create Navigator session"
-    elif ! nav_tmux split-window -t "$TOWER_NAV_SESSION" -h -l "70%" 2>&1; then
-        create_error="Failed to split Navigator window"
-    fi
+    local spawn_rc=0
+    _spawn_navigator_panes 2>&1 || spawn_rc=$?
+    case $spawn_rc in
+        0) ;;
+        1) create_error="Failed to create Navigator session" ;;
+        *) create_error="Failed to split Navigator window" ;;
+    esac
 
     if [[ -n "$create_error" ]]; then
         error_log "$create_error"
@@ -340,21 +344,6 @@ open_navigator_direct() {
     fi
 
     set -e
-
-    # Set up left pane (session list)
-    nav_tmux send-keys -t "$TOWER_NAV_SESSION:0.0" \
-        "$(nav_pane_command navigator-list.sh)" Enter
-
-    # Set up right pane (view)
-    nav_tmux send-keys -t "$TOWER_NAV_SESSION:0.1" \
-        "$(nav_pane_command navigator-view.sh)" Enter
-
-    # Focus on left pane
-    nav_tmux select-pane -t "$TOWER_NAV_SESSION:0.0"
-
-    # Setup auto-restart hooks for crashed panes
-    # This ensures Navigator never shows a shell prompt if a pane crashes
-    setup_pane_auto_restart
 
     info_log "Navigator session created, attaching"
 

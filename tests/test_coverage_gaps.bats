@@ -305,30 +305,29 @@ teardown() {
 }
 
 # ============================================================================
-# setup_pane_auto_restart(): unquoted variables inside a nested run-shell string
-# error-recovery.sh:449-455 builds a `run-shell '...'` payload that
-# interpolates $TOWER_NAV_SOCKET, $TOWER_NAV_SESSION, and $script_dir
-# unquoted inside the nested command string. Today these are fixed constants,
-# so this is latent rather than actively triggered — but nothing guards
-# against it if $script_dir (an argument) ever contains a space.
+# setup_pane_auto_restart(): the hook re-runs the pane's own command, so it
+# must not embed a script path (that is what made the old hook aim the
+# wrong script at the wrong pane) and must target the pane that died.
 # ============================================================================
 
-@test "setup_pane_auto_restart: script_dir containing a space does not break the hook command" {
+@test "setup_pane_auto_restart: the hook targets the dead pane and re-runs its own command" {
     captured_hook=""
+    captured_opt=""
     nav_tmux() {
-        if [[ "$1" == "set-hook" ]]; then
-            captured_hook="$*"
-        fi
+        case "$1" in
+            set-hook) captured_hook="$*" ;;
+            set-option) captured_opt="$*" ;;
+        esac
         return 0
     }
 
-    setup_pane_auto_restart "/tmp/dir with space"
+    setup_pane_auto_restart
 
-    # The path reaches tmux inside run-shell '…', so it must be %q-escaped
-    # (backslash form); a literal space or a single quote would break the
-    # hook. Check the escaped form is present and that it round-trips.
-    [[ "$captured_hook" == *'/tmp/dir\ with\ space/navigator-list.sh'* ]]
-    [[ "$captured_hook" != *"'/tmp/dir with space"* ]]
+    [[ "$captured_opt" == *"remain-on-exit on"* ]]
+    [[ "$captured_hook" == *"pane-died"* ]]
+    [[ "$captured_hook" == *'respawn-pane -k -t "#{hook_pane}"'* ]]
+    [[ "$captured_hook" != *"navigator-list.sh"* ]]
+    [[ "$captured_hook" != *"pane_index"* ]]
 }
 
 # ============================================================================

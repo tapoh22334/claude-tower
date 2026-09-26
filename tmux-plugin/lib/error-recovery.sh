@@ -437,22 +437,26 @@ safe_signal_view() {
 # Setup auto-restart hooks for Navigator panes
 # Called after panes are created in navigator.sh
 #
-# This creates tmux hooks that automatically respawn crashed panes
-# so the user never sees a shell prompt in Navigator
+# Bring a Navigator pane back when its loop exits (#63).
+#
+# The panes run navigator-list.sh / navigator-view.sh as their own command
+# (see _spawn_navigator_panes). With remain-on-exit the pane outlives its
+# command, keeps its pane id, and tmux fires pane-died; respawn-pane -k with
+# no command re-runs the command the pane was created with -- including the
+# 2>>...stderr.log part -- so the hook never has to know which pane it is.
+#
+# The earlier pane-exited form could not work: with remain-on-exit off the
+# pane is already gone when the hook runs, #{pane_index} reads 0 for either
+# pane, and respawn-pane was aimed at the survivor ("still active").
 setup_pane_auto_restart() {
-    local script_dir="${1:-$SCRIPT_DIR}"
-
     _log_to_file "INFO" "Setting up pane auto-restart hooks"
 
-    # Hook for when any pane in Navigator exits
-    # Uses respawn-pane to restart the appropriate script
-    nav_tmux set-hook -t "$TOWER_NAV_SESSION" pane-exited \
-        "run-shell 'sleep 0.5 && \
-            if [ #{pane_index} -eq 0 ]; then \
-                tmux -L $TOWER_NAV_SOCKET respawn-pane -t $TOWER_NAV_SESSION:0.0 \"$(nav_pane_command navigator-list.sh "$script_dir")\"; \
-            elif [ #{pane_index} -eq 1 ]; then \
-                tmux -L $TOWER_NAV_SOCKET respawn-pane -t $TOWER_NAV_SESSION:0.1 \"$(nav_pane_command navigator-view.sh "$script_dir")\"; \
-            fi'" 2>/dev/null || true
+    nav_tmux set-option -w -t "$TOWER_NAV_SESSION:0" remain-on-exit on 2>/dev/null || true
+    # The short sleep keeps a loop that dies on startup from respawning in a
+    # hot loop; each death still lands in <script>.stderr.log with the last
+    # command (nav_install_signal_traps).
+    nav_tmux set-hook -t "$TOWER_NAV_SESSION" pane-died \
+        "run-shell 'sleep 0.5; tmux -L $(printf '%q' "$TOWER_NAV_SOCKET") respawn-pane -k -t \"#{hook_pane}\"'" 2>/dev/null || true
 }
 
 # ============================================================================
