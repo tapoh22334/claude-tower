@@ -1,0 +1,22 @@
+# 検証: PYTHONPATH=~/.claude/skills/github-tickets/scripts ~/.claude/skills/github-tickets/scripts/apply.sh --verify docs/tickets/2026-09-26-nav-loop-exit-log.yml
+repo: tapoh22334/claude-tower
+
+project:
+  number: 4
+  owner: tapoh22334
+
+tasks:
+  - issue: 60
+    title: Navigator の list/view ループが終了するとき、理由と終了コードをログに残す
+    labels:
+      - bug
+    body: |
+      ## やること
+      Navigator が何も言わずに消えることがある(2026-09-23 18:52、2026-09-26 14:41/14:44/14:44 の計 4 回。いずれも `claude --resume` の起動から 1 分以内)。ログには view pane の cleanup 行しか残らず、list ループは無言で消える。`q` の Quitting もエラーも掃除処理の Sweeping も無く、隔離環境では再現しない。外からシグナルで殺されているか、tmux サーバーごと消えているかを、次に起きたときに区別できる証拠が要る。
+
+      `nav_install_signal_traps` を、EXIT で「どのスクリプトが終了コード何で終わったか」、HUP/INT/TERM で「どのシグナルを受けたか」を `tower.log` に書くようにする。HUP(端末・サーバー消失)も捕まえて明示的に終了させる。
+
+      ## 完了条件
+      - [ ] list/view が TERM/INT/HUP を受けたとき、シグナル名を含む行が tower.log に残り、プロセスは対応する終了コードで止まる(テストで固定)
+      - [ ] 正常終了(q)でも終了コード付きの行が残る
+      - [ ] 既存の「TERM で実際に止まる」テストが引き続き通る
