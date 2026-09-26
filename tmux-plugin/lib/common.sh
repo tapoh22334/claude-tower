@@ -433,13 +433,41 @@ view_quit_navigator() {
 # restores the terminal and returns lets the loop CONTINUE after SIGTERM
 # (bash resumes after the handler; read comes back with rc>128, which the
 # key reader files as a timeout) — so the sweep below could not stop the very
-# loops it was written for. Restore on EXIT, and make INT/TERM exit.
+# loops it was written for. Restore on EXIT, and make HUP/INT/TERM exit.
+#
+# Every exit is logged with the script's name and how it ended. The Navigator
+# has vanished without a word four times; the view logged its cleanup, the
+# list logged nothing, and nothing said whether a signal came from outside or
+# the tmux server went away underneath. A line per exit is what makes the
+# next one attributable. $2 names the script in that line.
+_NAV_TRAP_NAME=""
 nav_install_signal_traps() {
     local restore="${1:-:}"
-    # shellcheck disable=SC2064  # expand now: the restore snippet is a literal
-    trap "$restore" EXIT
-    trap 'exit 130' INT
-    trap 'exit 143' TERM
+    _NAV_TRAP_NAME="${2:-${TOWER_SCRIPT_NAME:-navigator}}"
+    # The restore snippet is a literal handed in by the caller, so it is
+    # expanded now on purpose; everything else is read when the trap fires.
+    # shellcheck disable=SC2064
+    trap '_nav_log_exit "$_NAV_TRAP_NAME" $?; '"$restore" EXIT
+    trap '_nav_log_signal "$_NAV_TRAP_NAME" HUP; exit 129' HUP
+    trap '_nav_log_signal "$_NAV_TRAP_NAME" INT; exit 130' INT
+    trap '_nav_log_signal "$_NAV_TRAP_NAME" TERM; exit 143' TERM
+}
+
+_nav_log_exit() {
+    # $1 name, $2 the status the shell is exiting with
+    _log_to_file "INFO" "$1: loop exit (status ${2:-?}, pid $$)"
+}
+
+_nav_log_signal() {
+    # $1 name, $2 signal. Log the parent as it is NOW (bash's $PPID is fixed
+    # at startup and does not follow a re-parent): after the tmux server dies
+    # the current parent is init/a subreaper, so "parent 1" alongside SIGHUP
+    # reads as "server gone", while a live parent means someone sent it.
+    local parent="$PPID"
+    if [[ -r /proc/$$/stat ]]; then
+        parent=$(awk '{print $4}' /proc/$$/stat 2>/dev/null || echo "$PPID")
+    fi
+    _log_to_file "INFO" "$1: received SIG$2 (pid $$, parent now $parent, at start $PPID)"
 }
 
 # Value of environment variable $2 in process $1, from /proc. Empty when

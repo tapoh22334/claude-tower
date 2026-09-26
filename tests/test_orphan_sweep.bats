@@ -120,3 +120,57 @@ LIVE='/dev/pts/4
     wait "$pid" || rc=$?
     [ "$rc" -eq 143 ]
 }
+
+# The Navigator has died silently four times: the view logged its cleanup,
+# the list loop logged nothing, and neither said whether it was killed or the
+# server went away under it. The traps must leave a line saying which script
+# ended, how (signal or exit status), so the next death is attributable.
+_trap_probe() {
+    # $1 = what to do after installing the traps (a bash snippet). Sets
+    # PROBE_PID. Output goes to /dev/null: returning the pid through $(...)
+    # would hold the substitution open on the background job's stdout.
+    bash -c '
+        export CLAUDE_TOWER_METADATA_DIR="'"$CLAUDE_TOWER_METADATA_DIR"'"
+        source "'"$PROJECT_ROOT"'/tmux-plugin/lib/common.sh"
+        TOWER_SCRIPT_NAME=probe.sh
+        nav_install_signal_traps ":" probe.sh
+        '"$1"'
+    ' </dev/null >/dev/null 2>&1 &
+    PROBE_PID=$!
+}
+
+@test "traps: TERM leaves a line naming the script and the signal" {
+    _trap_probe 'while :; do read -rsn1 -t 0.2 k || :; done'
+    sleep 0.3
+    kill -TERM "$PROBE_PID"; wait "$PROBE_PID" 2>/dev/null || true
+    run grep 'probe.sh' "$TOWER_LOG_FILE"
+    [[ "$output" == *"TERM"* ]]
+}
+
+@test "traps: HUP (terminal or server gone) is caught, logged and exits 129" {
+    _trap_probe 'while :; do read -rsn1 -t 0.2 k || :; done'
+    sleep 0.3
+    kill -HUP "$PROBE_PID"
+    local rc=0
+    wait "$PROBE_PID" || rc=$?
+    [ "$rc" -eq 129 ]
+    run grep 'probe.sh' "$TOWER_LOG_FILE"
+    [[ "$output" == *"HUP"* ]]
+}
+
+@test "traps: a normal exit logs the exit status" {
+    _trap_probe 'exit 0'
+    wait "$PROBE_PID" 2>/dev/null || true
+    run grep 'probe.sh' "$TOWER_LOG_FILE"
+    [[ "$output" == *"exit"* ]]
+    [[ "$output" == *"status 0"* ]]
+}
+
+@test "traps: a non-zero exit keeps its status and logs it (the log call must not eat it)" {
+    _trap_probe 'exit 3'
+    local rc=0
+    wait "$PROBE_PID" || rc=$?
+    [ "$rc" -eq 3 ]
+    run grep 'probe.sh' "$TOWER_LOG_FILE"
+    [[ "$output" == *"status 3"* ]]
+}
