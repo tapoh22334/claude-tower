@@ -353,3 +353,32 @@ source_navigator_list_functions() {
     [ "$LIST_GENERATION" -eq 42 ]
     [ "$(cat "$(_generation_file)")" = "42" ]
 }
+
+# common.sh runs the list loop under set -e. A bare `return` after a false
+# `[[ … ]] && …` returned 1 from the spawner whenever a rebuild was already
+# running and the caller was the plain tick — and set -e then ended the whole
+# Navigator, silently, within a minute on any real-sized list (#60).
+@test "spawn: a plain tick while a rebuild is running returns 0 (set -e must not end the loop)" {
+    source_navigator_list_functions
+    sleep 30 &
+    local running=$!
+    _REBUILD_PID=$running
+    _REBUILD_DONE_AT=0
+    run _spawn_background_rebuild
+    [ "$status" -eq 0 ]
+    kill "$running" 2>/dev/null; wait "$running" 2>/dev/null || true
+}
+
+@test "spawn: every early return is 0 under set -e" {
+    source_navigator_list_functions
+    build_session_list() { :; }
+    _publish_rebuild() { :; }
+    # just finished → cool-off starts
+    _REBUILD_PID=4194304; _REBUILD_DONE_AT=0
+    ( set -e; _spawn_background_rebuild; echo alive-1 )
+    # inside the cool-off
+    _REBUILD_DONE_AT=$(_now_seconds)
+    ( set -e; _spawn_background_rebuild; echo alive-2 )
+    run bash -c 'echo ok'
+    [ "$status" -eq 0 ]
+}

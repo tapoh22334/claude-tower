@@ -187,17 +187,25 @@ _spawn_background_rebuild() {
         # One is running. It may predate the edit that asked for this, and
         # the generation guard will then refuse its publish — so remember
         # to run another the moment it is gone.
-        [[ -n "$force" ]] && _REBUILD_WANTED=1
-        return
+        #
+        # Explicit status: common.sh puts the whole list loop under set -e,
+        # and a bare `return` after a false `[[ … ]] &&` hands back 1 — which
+        # killed the Navigator silently on every tick that overlapped a
+        # running rebuild (real lists rebuild for seconds; the isolated
+        # tests never did, which is why they stayed green).
+        if [[ -n "$force" ]]; then
+            _REBUILD_WANTED=1
+        fi
+        return 0
     fi
     if [[ -z "$force" && $_REBUILD_WANTED -eq 0 ]]; then
         if [[ -n "$_REBUILD_PID" && $_REBUILD_DONE_AT -eq 0 ]]; then
             # It finished since we last looked; start the cool-off from now.
             _REBUILD_DONE_AT=$now
-            return
+            return 0
         fi
         if ((now - _REBUILD_DONE_AT < REBUILD_MIN_GAP)); then
-            return
+            return 0
         fi
     fi
     _REBUILD_WANTED=0
