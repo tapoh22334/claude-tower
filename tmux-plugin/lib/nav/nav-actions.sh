@@ -21,7 +21,9 @@ focus_view() {
 # stderr: prompts, the numbered picker, "Create? [y/N]", handle_error text,
 # git worktree output. Without this they land in the log and the pane stays
 # blank while it waits for input (#23 by another route). Tests, which have
-# no controlling terminal, keep stderr where bats can capture it.
+# no controlling terminal, keep stderr where bats can capture it. Callers
+# use `2>>`: on Linux `>/dev/stderr` reopens fd 2's file with O_TRUNC, which
+# would wipe the log this is meant to spare.
 _subflow_tty() {
     if { : </dev/tty; } 2>/dev/null; then
         echo /dev/tty
@@ -35,7 +37,7 @@ _subflow_tty() {
 add_session_inline() {
     clear
     local new_id
-    new_id=$(TOWER_ADD_DEFAULT_DIR="$(get_caller_cwd)" "$SCRIPT_DIR/session-add.sh" --print-id 2>"$(_subflow_tty)") || {
+    new_id=$(TOWER_ADD_DEFAULT_DIR="$(get_caller_cwd)" "$SCRIPT_DIR/session-add.sh" --print-id 2>>"$(_subflow_tty)") || {
         return 0  # cancelled or failed; messages already shown
     }
     if [[ -n "$new_id" ]]; then
@@ -66,7 +68,7 @@ fork_session_here() {
         return 0
     fi
     clear
-    new_id=$("$SCRIPT_DIR/session-add.sh" --fork-dir "$dir" --print-id 2>"$(_subflow_tty)") || return 0
+    new_id=$("$SCRIPT_DIR/session-add.sh" --fork-dir "$dir" --print-id 2>>"$(_subflow_tty)") || return 0
     if [[ -n "$new_id" ]]; then
         set_nav_selected "$new_id"
         signal_view_update
@@ -78,7 +80,7 @@ fork_session_here() {
 new_session_pick_dir() {
     clear
     local new_id
-    new_id=$("$SCRIPT_DIR/session-add.sh" --new-in-dir --print-id 2>"$(_subflow_tty)") || return 0
+    new_id=$("$SCRIPT_DIR/session-add.sh" --new-in-dir --print-id 2>>"$(_subflow_tty)") || return 0
     if [[ -n "$new_id" ]]; then
         set_nav_selected "$new_id"
         signal_view_update
