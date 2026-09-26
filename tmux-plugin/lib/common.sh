@@ -434,9 +434,19 @@ view_quit_navigator() {
 # loop exited with status 1 four times in a day, the one line that said why
 # was gone every time (#62). The scripts' own stderr is otherwise silent.
 # $1 = script basename, $2 = scripts dir (default: this Tower's).
+# Single-quoted rather than %q: the respawn hook wraps this in escaped double
+# quotes, where %q's backslash-escapes would survive literally and break a
+# path with a space; single quotes read the same in sh, zsh and inside "…".
 nav_pane_command() {
     local script="$1" dir="${2:-${SCRIPT_DIR:-}}"
-    printf '%q 2>>%q' "$dir/$script" "$TOWER_LOG_DIR/${script%.sh}.stderr.log"
+    local cmd="$dir/$script" log="$TOWER_LOG_DIR/${script%.sh}.stderr.log"
+    # Escape a literal ' for a single-quoted context as '\''. Written with a
+    # quoted pattern and a variable replacement: bash 5.1 (Ubuntu 22.04, CI)
+    # and 5.2+ disagree on how quotes inside ${x//a/b} are parsed.
+    local q="'" sq="'\\''"
+    cmd="${cmd//"$q"/$sq}"
+    log="${log//"$q"/$sq}"
+    printf "'%s' 2>>'%s'" "$cmd" "$log"
 }
 
 # Signal traps for the long-running Navigator loops. A trap that only
