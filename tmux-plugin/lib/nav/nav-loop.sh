@@ -264,10 +264,10 @@ main_loop() {
                     selected_index=$NAV_NEW_INDEX
                     ;;
                 $'\t') # Tab key
-                    switch_to_tile
+                    switch_to_tile || true
                     ;;
                 t)
-                    switch_to_tail
+                    switch_to_tail || true
                     ;;
                 w)
                     # Foreground sub-flow in this pane. On return, the cursor

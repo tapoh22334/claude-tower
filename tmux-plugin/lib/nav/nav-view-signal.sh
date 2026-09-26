@@ -46,7 +46,7 @@ signal_view_update_async() {
         # this newest move and would otherwise leave the view pane waiting on
         # its own 0.1s poll to notice.
         _VIEW_SIGNAL_PENDING=1
-        return
+        return 0
     fi
     _VIEW_SIGNAL_PENDING=0
     { signal_view_update; } >/dev/null 2>&1 &

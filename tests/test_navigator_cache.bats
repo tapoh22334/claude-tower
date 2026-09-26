@@ -369,16 +369,30 @@ source_navigator_list_functions() {
     kill "$running" 2>/dev/null; wait "$running" 2>/dev/null || true
 }
 
-@test "spawn: every early return is 0 under set -e" {
+@test "spawn: every early return is 0 under set -e, including a busy rebuild on a plain tick" {
     source_navigator_list_functions
     build_session_list() { :; }
     _publish_rebuild() { :; }
+    # The path that killed the Navigator: a rebuild still running, no force.
+    sleep 30 &
+    local running=$!
+    _REBUILD_PID=$running; _REBUILD_DONE_AT=0
+    run bash -c 'set -e; source "'"$PROJECT_ROOT"'/tmux-plugin/scripts/navigator-list.sh"; _REBUILD_PID='"$running"'; _REBUILD_DONE_AT=0; _spawn_background_rebuild; echo alive-busy'
+    [[ "$output" == *"alive-busy"* ]]
+    kill "$running" 2>/dev/null; wait "$running" 2>/dev/null || true
     # just finished → cool-off starts
     _REBUILD_PID=4194304; _REBUILD_DONE_AT=0
-    ( set -e; _spawn_background_rebuild; echo alive-1 )
+    ( set -e; _spawn_background_rebuild; echo alive-1 ) | grep -q alive-1
     # inside the cool-off
     _REBUILD_DONE_AT=$(_now_seconds)
-    ( set -e; _spawn_background_rebuild; echo alive-2 )
-    run bash -c 'echo ok'
-    [ "$status" -eq 0 ]
+    ( set -e; _spawn_background_rebuild; echo alive-2 ) | grep -q alive-2
+}
+
+@test "_subflow_tty: names the terminal under a pty and stderr without one" {
+    source_navigator_list_functions
+    run setsid bash -c 'source "'"$PROJECT_ROOT"'/tmux-plugin/scripts/navigator-list.sh"; _subflow_tty' </dev/null
+    [ "$output" = "/dev/stderr" ]
+    command -v script >/dev/null || skip "util-linux script(1) not available"
+    run script -qfec "bash -c 'source \"$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh\"; _subflow_tty'" /dev/null </dev/null
+    [[ "$output" == *"/dev/tty"* ]]
 }

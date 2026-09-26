@@ -1,0 +1,18 @@
+repo: tapoh22334/claude-tower
+project:
+  number: 4
+  owner: tapoh22334
+tasks:
+  - issue: 63
+    title: Navigator の pane が死んだとき、respawn フックが実際に立て直せるようにする
+    labels:
+      - bug
+    body: |
+      ## やること
+      `setup_pane_auto_restart` の pane-exited フックは、`remain-on-exit off`(既定)では pane が window から取り除かれた**後**に発火する。そのとき `#{pane_index}` は 0 を返し、`respawn-pane -t navigator:0.0` は生き残った方の pane を指して `still active` で失敗する(tmux 3.6a で実測)。list ループが死ぬと Navigator は view pane 1 枚のまま残り、利用者は開き直すしかない。#60/#62 の「静かに死ぬ」の見え方の一部はこれ。
+
+      `remain-on-exit on` を Navigator セッションに設定し、pane-died フックで `#{pane_id}` を狙って `respawn-pane -k` する形に変える。死んだ pane は残るので取り違えが起きない。
+
+      ## 完了条件
+      - [ ] list / view のどちらの pane が終了しても、同じ pane が同じスクリプトで立て直されることが実 tmux の integration テストで固定されている
+      - [ ] 立て直しの stderr も `<script>.stderr.log` に落ちる
