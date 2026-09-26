@@ -159,9 +159,8 @@ teardown() {
 # setup_pane_auto_restart(): error-recovery.sh:442
 # ============================================================================
 
-@test "setup_pane_auto_restart: sets remain-on-exit on the target pane" {
-    skip "requires a live tmux pane to inspect pane options — see error-recovery.sh:442-467"
-}
+# setup_pane_auto_restart against a real tmux server is covered by
+# tests/integration/test_pane_respawn.bats.
 
 # ============================================================================
 # tower.sh main(): the top-level CLI dispatcher has zero test references.

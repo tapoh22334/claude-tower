@@ -305,30 +305,36 @@ teardown() {
 }
 
 # ============================================================================
-# setup_pane_auto_restart(): unquoted variables inside a nested run-shell string
-# error-recovery.sh:449-455 builds a `run-shell '...'` payload that
-# interpolates $TOWER_NAV_SOCKET, $TOWER_NAV_SESSION, and $script_dir
-# unquoted inside the nested command string. Today these are fixed constants,
-# so this is latent rather than actively triggered — but nothing guards
-# against it if $script_dir (an argument) ever contains a space.
+# setup_pane_auto_restart(): the hook re-runs the pane's own command, so it
+# must not embed a script path (that is what made the old hook aim the
+# wrong script at the wrong pane) and must target the pane that died.
 # ============================================================================
 
-@test "setup_pane_auto_restart: script_dir containing a space does not break the hook command" {
+@test "setup_pane_auto_restart: the hook targets the dead pane and re-runs its own command" {
     captured_hook=""
+    captured_opt=""
     nav_tmux() {
-        if [[ "$1" == "set-hook" ]]; then
-            captured_hook="$*"
-        fi
+        case "$1" in
+            set-hook) captured_hook="$*" ;;
+            set-option) captured_opt="$*" ;;
+        esac
         return 0
     }
 
+    mkdir -p "$TOWER_NAV_STATE_DIR"
+    echo 1000 >"$TOWER_NAV_STATE_DIR/respawn-0"
+
     setup_pane_auto_restart "/tmp/dir with space"
 
-    # The path reaches tmux inside run-shell '…', so it must be %q-escaped
-    # (backslash form); a literal space or a single quote would break the
-    # hook. Check the escaped form is present and that it round-trips.
-    [[ "$captured_hook" == *'/tmp/dir\ with\ space/navigator-list.sh'* ]]
-    [[ "$captured_hook" != *"'/tmp/dir with space"* ]]
+    # Stale death records from a previous Navigator (same pane ids) are gone.
+    [ ! -e "$TOWER_NAV_STATE_DIR/respawn-0" ]
+    [[ "$captured_opt" == *"remain-on-exit on"* ]]
+    # The script path sits inside run-shell '...' so it must be %q-escaped.
+    [[ "$captured_hook" == *'/tmp/dir\ with\ space/nav-respawn.sh'* ]]
+    [[ "$captured_hook" == *"pane-died"* ]]
+    [[ "$captured_hook" == *'/nav-respawn.sh "#{hook_pane}"'* ]]
+    [[ "$captured_hook" != *"navigator-list.sh"* ]]
+    [[ "$captured_hook" != *"pane_index"* ]]
 }
 
 # ============================================================================
@@ -365,4 +371,39 @@ teardown() {
     local_title=$(printf 'X%.0s' {1..200})  # far longer than ERROR_BOX_WIDTH
     run show_tui_error "$local_title" "short message" "hint"
     [ "$status" -eq 0 ]
+}
+
+# ============================================================================
+# _respawn_allowed(): the limiter behind the pane-died hook.
+# ============================================================================
+
+@test "_respawn_allowed: respawns RESPAWN_MAX deaths in a window, then stops" {
+    source "$PROJECT_ROOT/tmux-plugin/lib/error-recovery.sh"
+    local i
+    for i in 1 2 3 4 5; do
+        _respawn_allowed "%7" $((1000 + i))
+    done
+    run _respawn_allowed "%7" 1006
+    [ "$status" -ne 0 ]
+    [ -f "$TOWER_NAV_STATE_DIR/respawn-7" ]
+}
+
+@test "_respawn_allowed: deaths older than the window are forgotten" {
+    source "$PROJECT_ROOT/tmux-plugin/lib/error-recovery.sh"
+    local i
+    for i in 1 2 3 4 5; do
+        _respawn_allowed "%7" $((1000 + i))
+    done
+    # A minute later the pane dies once more: that is one death, not six.
+    _respawn_allowed "%7" 1100
+    [ "$(wc -l <"$TOWER_NAV_STATE_DIR/respawn-7")" -eq 1 ]
+}
+
+@test "_respawn_allowed: panes are counted separately" {
+    source "$PROJECT_ROOT/tmux-plugin/lib/error-recovery.sh"
+    local i
+    for i in 1 2 3 4 5; do
+        _respawn_allowed "%7" $((1000 + i))
+    done
+    _respawn_allowed "%8" 1006
 }

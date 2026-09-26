@@ -248,7 +248,8 @@ EOF
     '
     [ "$status" -eq 0 ]
 
-    grep -q "sock with space" "${TEST_DIR}/tmp/tmux_calls.log"
+    # The socket name sits inside run-shell '...' so it is %q-escaped.
+    grep -qF 'CLAUDE_TOWER_NAV_SOCKET=sock\ with\ space' "${TEST_DIR}/tmp/tmux_calls.log"
 }
 
 # ============================================================================
