@@ -89,7 +89,10 @@ _count() { [ "$(grep -c "$1" "$RUNLOG")" -ge "$2" ]; }
 @test "respawn: a loop that dies every time is given up on after RESPAWN_MAX tries" {
     TMUX= nav_tmux new-session -d -s "$TOWER_NAV_SESSION" -x 120 -y 30 "sleep 60"
     setup_pane_auto_restart
-    nav_tmux split-window -t "$TOWER_NAV_SESSION" -h -b -l 30% "echo crash >>'$RUNLOG'; exit 1"
+    # Like a real loop that dies on startup, this lives long enough to source
+    # its libraries: tmux 3.2a loses the pane-died event for a respawned
+    # command that exits before the respawn has settled (3.6a does not).
+    nav_tmux split-window -t "$TOWER_NAV_SESSION" -h -b -l 30% "echo crash >>'$RUNLOG'; sleep 0.3; exit 1"
     local pane
     pane=$(nav_tmux display -p -t "$TOWER_NAV_SESSION:0.0" '#{pane_id}')
 
@@ -98,8 +101,8 @@ _count() { [ "$(grep -c "$1" "$RUNLOG")" -ge "$2" ]; }
     # so give the run of five plenty of room.
     _wait_for 30 _count crash $((RESPAWN_MAX + 1)) || {
         echo "runs: $(grep -c crash "$RUNLOG")" >&2
-        echo "state: $(cat "$TOWER_NAV_STATE_DIR"/respawn-* 2>&1 | tr '\n' ' ')" >&2
-        grep -h 'respawn' "$TOWER_LOG_FILE" >&2 || true
+        for f in "$TOWER_NAV_STATE_DIR"/respawn-*; do echo "state $f: $(tr '\n' ' ' <"$f")" >&2; done
+        grep -h 'respawn\|ERROR' "$TOWER_LOG_FILE" | tail -12 >&2 || true
         nav_tmux list-panes -t "$TOWER_NAV_SESSION" -F '#{pane_index} #{pane_id} dead=#{pane_dead} [#{pane_start_command}]' >&2
         false
     }
