@@ -324,9 +324,11 @@ teardown() {
 
     setup_pane_auto_restart "/tmp/dir with space"
 
-    # The unquoted $script_dir interpolation means the hook string's
-    # respawn-pane invocation is not properly shell-quoted for this path.
-    [[ "$captured_hook" == *"/tmp/dir with space"* ]]
+    # The path reaches tmux inside run-shell '…', so it must be %q-escaped
+    # (backslash form); a literal space or a single quote would break the
+    # hook. Check the escaped form is present and that it round-trips.
+    [[ "$captured_hook" == *'/tmp/dir\ with\ space/navigator-list.sh'* ]]
+    [[ "$captured_hook" != *"'/tmp/dir with space"* ]]
 }
 
 # ============================================================================

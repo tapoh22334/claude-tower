@@ -82,11 +82,11 @@ create_navigator() {
 
     # Set up left pane (session list)
     nav_tmux send-keys -t "$TOWER_NAV_SESSION:0.0" \
-        "$SCRIPT_DIR/navigator-list.sh" Enter
+        "$(nav_pane_command navigator-list.sh)" Enter
 
     # Set up right pane (view)
     nav_tmux send-keys -t "$TOWER_NAV_SESSION:0.1" \
-        "$SCRIPT_DIR/navigator-view.sh" Enter
+        "$(nav_pane_command navigator-view.sh)" Enter
 
     # Focus on left pane
     nav_tmux select-pane -t "$TOWER_NAV_SESSION:0.0"
@@ -343,11 +343,11 @@ open_navigator_direct() {
 
     # Set up left pane (session list)
     nav_tmux send-keys -t "$TOWER_NAV_SESSION:0.0" \
-        "$SCRIPT_DIR/navigator-list.sh" Enter
+        "$(nav_pane_command navigator-list.sh)" Enter
 
     # Set up right pane (view)
     nav_tmux send-keys -t "$TOWER_NAV_SESSION:0.1" \
-        "$SCRIPT_DIR/navigator-view.sh" Enter
+        "$(nav_pane_command navigator-view.sh)" Enter
 
     # Focus on left pane
     nav_tmux select-pane -t "$TOWER_NAV_SESSION:0.0"

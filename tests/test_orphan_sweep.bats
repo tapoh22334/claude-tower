@@ -174,3 +174,11 @@ _trap_probe() {
     run grep 'probe.sh' "$TOWER_LOG_FILE"
     [[ "$output" == *"status 3"* ]]
 }
+
+@test "traps: a fatal error logs the command that was running and where" {
+    _trap_probe 'set -u; probe_fn() { echo "$never_set_anywhere"; }; probe_fn'
+    wait "$PROBE_PID" 2>/dev/null || true
+    run grep 'probe.sh' "$TOWER_LOG_FILE"
+    [[ "$output" == *"status 1"* ]]
+    [[ "$output" == *"never_set_anywhere"* ]]
+}

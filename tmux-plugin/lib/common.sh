@@ -429,6 +429,20 @@ view_quit_navigator() {
 # either Tower server is nobody's, and is asked to stop.
 # ----------------------------------------------------------------------------
 
+# The command a Navigator pane runs: the script, with stderr appended to a
+# log next to tower.log. A pane's stderr dies with the pane, so when the list
+# loop exited with status 1 four times in a day, the one line that said why
+# was gone every time (#62). The scripts' own stderr is otherwise silent.
+# $1 = script basename, $2 = scripts dir (default: this Tower's).
+# %q, not single quotes: the respawn hook wraps this in `run-shell '…'`, and
+# a literal ' in the command closes tmux's own quote — a path with a space
+# then fails set-hook outright. %q's backslash form survives every layer
+# (tmux single quote → sh "…" → $SHELL -c) and is valid in the pane's zsh too.
+nav_pane_command() {
+    local script="$1" dir="${2:-${SCRIPT_DIR:-}}"
+    printf '%q 2>>%q' "$dir/$script" "$TOWER_LOG_DIR/${script%.sh}.stderr.log"
+}
+
 # Signal traps for the long-running Navigator loops. A trap that only
 # restores the terminal and returns lets the loop CONTINUE after SIGTERM
 # (bash resumes after the handler; read comes back with rc>128, which the
@@ -447,15 +461,22 @@ nav_install_signal_traps() {
     # The restore snippet is a literal handed in by the caller, so it is
     # expanded now on purpose; everything else is read when the trap fires.
     # shellcheck disable=SC2064
-    trap '_nav_log_exit "$_NAV_TRAP_NAME" $?; '"$restore" EXIT
+    trap '_nav_log_exit "$_NAV_TRAP_NAME" $? "$BASH_COMMAND" "${BASH_SOURCE[0]:-}"; '"$restore" EXIT
     trap '_nav_log_signal "$_NAV_TRAP_NAME" HUP; exit 129' HUP
     trap '_nav_log_signal "$_NAV_TRAP_NAME" INT; exit 130' INT
     trap '_nav_log_signal "$_NAV_TRAP_NAME" TERM; exit 143' TERM
 }
 
 _nav_log_exit() {
-    # $1 name, $2 the status the shell is exiting with
-    _log_to_file "INFO" "$1: loop exit (status ${2:-?}, pid $$)"
+    # $1 name, $2 exit status, $3 the command that was running when the shell
+    # exited, $4 the file it came from. For a fatal error (an unbound
+    # variable under set -u, a failed eval) bash's message goes to the pane's
+    # stderr (now kept in <script>.stderr.log); the command that was
+    # executing is what the trap itself can still see. ($LINENO inside an
+    # EXIT trap is always 1, so it is not recorded.)
+    local where="${4:-}"
+    where="${where##*/}"
+    _log_to_file "INFO" "$1: loop exit (status ${2:-?}, pid $$) last command: ${3:-?} in ${where:-?}"
 }
 
 _nav_log_signal() {
