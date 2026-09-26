@@ -244,12 +244,12 @@ EOF
         tmux() {
             printf "%s\n" "$*" >>"'"${TEST_DIR}"'/tmp/tmux_calls.log"
         }
-        setup_pane_auto_restart
+        setup_pane_auto_restart "/some/script/dir"
     '
     [ "$status" -eq 0 ]
 
     # The socket name sits inside run-shell '...' so it is %q-escaped.
-    grep -qF 'sock\ with\ space' "${TEST_DIR}/tmp/tmux_calls.log"
+    grep -qF 'CLAUDE_TOWER_NAV_SOCKET=sock\ with\ space' "${TEST_DIR}/tmp/tmux_calls.log"
 }
 
 # ============================================================================

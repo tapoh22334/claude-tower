@@ -441,22 +441,57 @@ safe_signal_view() {
 #
 # The panes run navigator-list.sh / navigator-view.sh as their own command
 # (see _spawn_navigator_panes). With remain-on-exit the pane outlives its
-# command, keeps its pane id, and tmux fires pane-died; respawn-pane -k with
-# no command re-runs the command the pane was created with -- including the
-# 2>>...stderr.log part -- so the hook never has to know which pane it is.
+# command, keeps its pane id, and tmux fires pane-died; nav-respawn.sh then
+# does respawn-pane -k with no command, which re-runs the command the pane
+# was created with -- including the 2>>...stderr.log part -- so nothing here
+# has to know which pane it is.
 #
 # The earlier pane-exited form could not work: with remain-on-exit off the
 # pane is already gone when the hook runs, #{pane_index} reads 0 for either
 # pane, and respawn-pane was aimed at the survivor ("still active").
 setup_pane_auto_restart() {
+    local script_dir="${1:-$SCRIPT_DIR}"
     _log_to_file "INFO" "Setting up pane auto-restart hooks"
 
+    # A new Navigator server hands out %0, %1 again, so death records from
+    # the previous one must not count against it.
+    rm -f "$TOWER_NAV_STATE_DIR"/respawn-* 2>/dev/null || true
+
     nav_tmux set-option -w -t "$TOWER_NAV_SESSION:0" remain-on-exit on 2>/dev/null || true
-    # The short sleep keeps a loop that dies on startup from respawning in a
-    # hot loop; each death still lands in <script>.stderr.log with the last
-    # command (nav_install_signal_traps).
+    # The socket is passed explicitly: the hook's shell inherits the server's
+    # environment, which need not carry an override made after it started.
     nav_tmux set-hook -t "$TOWER_NAV_SESSION" pane-died \
-        "run-shell 'sleep 0.5; tmux -L $(printf '%q' "$TOWER_NAV_SOCKET") respawn-pane -k -t \"#{hook_pane}\"'" 2>/dev/null || true
+        "run-shell 'CLAUDE_TOWER_NAV_SOCKET=$(printf '%q' "$TOWER_NAV_SOCKET") $(printf '%q' "$script_dir/nav-respawn.sh") \"#{hook_pane}\"'" 2>/dev/null || true
+}
+
+# How many deaths of one pane are respawned before we stop and leave the dead
+# pane on screen. A loop that dies every time it starts (a syntax error after
+# make reload, metadata that makes build_session_list fail) would otherwise
+# be restarted twice a second forever, with the error scrolling past
+# unreadably. Beyond the limit the pane stays dead, remain-on-exit keeps its
+# last screen, and the reason is in <script>.stderr.log.
+RESPAWN_MAX="${RESPAWN_MAX:-5}"
+RESPAWN_WINDOW="${RESPAWN_WINDOW:-60}"
+
+# _respawn_allowed PANE_ID NOW — record this death and say whether to
+# respawn. Deaths older than RESPAWN_WINDOW seconds are forgotten, so a
+# crash a minute apart is always respawned. The record lives in the
+# Navigator's state dir, keyed by pane id (%12 -> respawn-12), which
+# survives the respawn because the pane does.
+_respawn_allowed() {
+    local pane="$1" now="$2"
+    local file="$TOWER_NAV_STATE_DIR/respawn-${pane#%}"
+    local kept=() t
+    if [[ -f "$file" ]]; then
+        while read -r t; do
+            [[ "$t" =~ ^[0-9]+$ ]] || continue
+            ((now - t < RESPAWN_WINDOW)) && kept+=("$t")
+        done <"$file"
+    fi
+    kept+=("$now")
+    mkdir -p "$TOWER_NAV_STATE_DIR" 2>/dev/null || true
+    printf '%s\n' "${kept[@]}" >"$file" 2>/dev/null || true
+    ((${#kept[@]} <= RESPAWN_MAX))
 }
 
 # ============================================================================

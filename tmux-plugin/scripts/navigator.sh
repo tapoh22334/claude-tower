@@ -64,15 +64,20 @@ count_tower_sessions() {
 # (seen 2026-09-26 15:55 after the list loop exited). With the loop as the
 # pane command, remain-on-exit keeps the dead pane and its pane id, and the
 # pane-died hook from setup_pane_auto_restart runs the same command again.
-# The hook is installed before the split so the list pane is covered from
-# its first breath.
+#
+# The view is created first and the list is split in on the left (-b), so
+# pane 0.0 is still the list and, more to the point, the list loop starts
+# at its final width: its first build bakes the width into the row strings,
+# and a build at full window width would wrap for a couple of seconds.
+# The hook is installed before that split so the list is covered from its
+# first breath.
 # Returns 1 when the session could not be created, 2 when the split failed.
 _spawn_navigator_panes() {
     TMUX= nav_tmux new-session -d -s "$TOWER_NAV_SESSION" -x "$(_term_cols)" -y "$(_term_lines)" \
-        "$(nav_pane_command navigator-list.sh)" || return 1
+        "$(nav_pane_command navigator-view.sh)" || return 1
     setup_pane_auto_restart
-    nav_tmux split-window -t "$TOWER_NAV_SESSION" -h -l "70%" \
-        "$(nav_pane_command navigator-view.sh)" || return 2
+    nav_tmux split-window -t "$TOWER_NAV_SESSION" -h -b -l "30%" \
+        "$(nav_pane_command navigator-list.sh)" || return 2
     nav_tmux select-pane -t "$TOWER_NAV_SESSION:0.0"
 }
 
