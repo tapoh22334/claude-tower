@@ -1,0 +1,32 @@
+repo: tapoh22334/claude-tower
+project:
+  number: 4
+  owner: tapoh22334
+tasks:
+  - issue: 64
+    title: Navigator の n / f / N サブフローの出力が stderr ログに吸われて pane に出ない
+    labels:
+      - bug
+    body: |
+      ## 症状
+      #62 で Navigator の list pane を `navigator-list.sh 2>>navigator-list.stderr.log` で起動するようにした。
+      その結果、pane から起動される `session-add.sh` の対話出力 —— `read -e -p` のプロンプトと
+      readline のエコー、番号付きピッカー、`Create? [y/N]`、`handle_error` の文言、`git worktree add` の出力 ——
+      が全部ログファイルに落ち、`n` を押すと空の pane が入力待ちになる。#23(入力した文字が見えない)の
+      別経路での再発。tower-reviewer が #62 マージ直後のスイープで CONFIRMED HIGH として検出。
+
+      ## 直し方
+      - `nav-actions.sh` の 3 つのサブフロー起動(`add_session_inline` / `fork_session_here` /
+        `new_session_pick_dir`)で `session-add.sh` の stderr を制御端末(`/dev/tty`)へ戻す。
+        端末が無いテスト環境では stderr のまま(bats が拾える)。
+      - `session-add.sh` の `read_line` と番号ピッカーは `TOWER_TTY` が `/dev/tty` のとき明示的に
+        端末へ書く(二重の守り。`tower add` の CLI 経由でも同じ関数を使う)。
+      - 同スイープの残り: `_switch_to_view` が `new-window` 失敗で `return 1` すると継承された
+        `set -e` でループが終わるので `switch_to_tile/tail || true`。`signal_view_update_async` の
+        素の `return` を `return 0` に。「spawn の早期 return は set -e 下で 0」テストが空振り
+        (リビルド中 + force なしの経路を通っていない)だったので実際にその経路を踏む形に直す。
+
+      ## 完了条件
+      - [ ] pty 上で stderr をログに向けた状態で `read_line` を呼ぶと、プロンプトと入力エコーが端末に出て、ログは空(bats)
+      - [ ] 端末あり/なしで `_subflow_tty` が `/dev/tty` / `/dev/stderr` を返す(bats)
+      - [ ] リビルド実行中に force なしで `_spawn_background_rebuild` を呼んでも `set -e` の下で生き残る(bats)

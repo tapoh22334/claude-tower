@@ -16,12 +16,26 @@ focus_view() {
     nav_tmux select-pane -t "$TOWER_NAV_SESSION:0.1"
 }
 
+# Where an interactive sub-flow's stderr goes. The list pane's own stderr is
+# a log file (nav_pane_command), and session-add.sh talks to the person on
+# stderr: prompts, the numbered picker, "Create? [y/N]", handle_error text,
+# git worktree output. Without this they land in the log and the pane stays
+# blank while it waits for input (#23 by another route). Tests, which have
+# no controlling terminal, keep stderr where bats can capture it.
+_subflow_tty() {
+    if { : </dev/tty; } 2>/dev/null; then
+        echo /dev/tty
+    else
+        echo /dev/stderr
+    fi
+}
+
 # Unified add/new flow (session-add.sh). Runs interactively in this pane;
 # fzf draws on the tty, the chosen tower_<id> comes back on stdout.
 add_session_inline() {
     clear
     local new_id
-    new_id=$(TOWER_ADD_DEFAULT_DIR="$(get_caller_cwd)" "$SCRIPT_DIR/session-add.sh" --print-id) || {
+    new_id=$(TOWER_ADD_DEFAULT_DIR="$(get_caller_cwd)" "$SCRIPT_DIR/session-add.sh" --print-id 2>"$(_subflow_tty)") || {
         return 0  # cancelled or failed; messages already shown
     }
     if [[ -n "$new_id" ]]; then
@@ -52,7 +66,7 @@ fork_session_here() {
         return 0
     fi
     clear
-    new_id=$("$SCRIPT_DIR/session-add.sh" --fork-dir "$dir" --print-id) || return 0
+    new_id=$("$SCRIPT_DIR/session-add.sh" --fork-dir "$dir" --print-id 2>"$(_subflow_tty)") || return 0
     if [[ -n "$new_id" ]]; then
         set_nav_selected "$new_id"
         signal_view_update
@@ -64,7 +78,7 @@ fork_session_here() {
 new_session_pick_dir() {
     clear
     local new_id
-    new_id=$("$SCRIPT_DIR/session-add.sh" --new-in-dir --print-id) || return 0
+    new_id=$("$SCRIPT_DIR/session-add.sh" --new-in-dir --print-id 2>"$(_subflow_tty)") || return 0
     if [[ -n "$new_id" ]]; then
         set_nav_selected "$new_id"
         signal_view_update

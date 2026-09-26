@@ -677,3 +677,20 @@ _source_session_add() {
     [ "$status" -eq 0 ]
     [ "$output" = "$existing" ]
 }
+
+@test "read_line: the prompt reaches the terminal even when stderr is a log file" {
+    command -v script >/dev/null || skip "util-linux script(1) not available"
+    # The Navigator pane's stderr is redirected to a log; bash's read -p and
+    # readline echo write to stderr, so without an explicit tty target the
+    # prompt and the typed text vanish from the screen.
+    cat >"$BATS_TEST_TMPDIR/inner.sh" <<EOF
+source '$SESSION_ADD'
+stty -echo
+read_line v 'Dir: ' 2>'$BATS_TEST_TMPDIR/stderr.log'
+printf 'got=%s\\n' "\$v"
+EOF
+    run script -qfec "bash '$BATS_TEST_TMPDIR/inner.sh'" /dev/null <<<"typed"
+    [[ "$output" == *"Dir: typed"* ]]
+    [[ "$output" == *"got=typed"* ]]
+    [[ ! -s "$BATS_TEST_TMPDIR/stderr.log" ]]
+}

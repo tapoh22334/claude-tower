@@ -10,7 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/common.sh"
 
 PRINT_ID=0
-MODE="pick"      # pick (default) | fork-dir | new-in-dir | in-dir
+MODE="pick" # pick (default) | fork-dir | new-in-dir | in-dir
 FORK_DIR=""
 TARGET_DIR=""
 SESSION_NAME=""
@@ -90,12 +90,30 @@ tty_echo_on() {
     stty echo <"$TOWER_TTY" 2>/dev/null || true
 }
 
-# read_line VAR PROMPT — prompt on stderr, one line into VAR. Fails at EOF.
+# read_line VAR PROMPT — prompt to the terminal, one line into VAR. Fails at
+# EOF. The prompt and readline's echo go to stderr, and the Navigator pane's
+# stderr is now a log file (navigator-list.stderr.log) — so they are sent to
+# the tty explicitly, or the person types blind into an empty pane (#23
+# again, by a different route).
 read_line() {
     local __var="$1" __prompt="${2:-}"
     tty_echo_on
-    # shellcheck disable=SC2229
-    read -e -r -p "$__prompt" "$__var" <"$TOWER_TTY"
+    if [[ "$TOWER_TTY" == /dev/tty ]]; then
+        # shellcheck disable=SC2229,SC2094  # the tty is a device, not a file
+        read -e -r -p "$__prompt" "$__var" <"$TOWER_TTY" 2>"$TOWER_TTY"
+    else
+        # shellcheck disable=SC2229
+        read -e -r -p "$__prompt" "$__var" <"$TOWER_TTY"
+    fi
+}
+
+# Where prompt text (not data) goes: the tty in real use, stderr under test.
+_prompt_out() {
+    if [[ "$TOWER_TTY" == /dev/tty ]]; then
+        cat >"$TOWER_TTY"
+    else
+        cat >&2
+    fi
 }
 
 have_fzf() {
@@ -138,8 +156,8 @@ pick_with_numbers() {
     done
     local i
     for i in "${!lines[@]}"; do
-        printf '%2d) %s\n' "$((i + 1))" "${lines[$i]}" >&2
-    done
+        printf '%2d) %s\n' "$((i + 1))" "${lines[$i]}"
+    done | _prompt_out
     local choice
     read_line choice "$(printf 'Select [1-%d], empty to cancel (install fzf for fuzzy search): ' "${#lines[@]}")" || return 1
     [[ "$choice" =~ ^[0-9]+$ ]] || return 1
