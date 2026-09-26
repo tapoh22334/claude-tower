@@ -434,19 +434,13 @@ view_quit_navigator() {
 # loop exited with status 1 four times in a day, the one line that said why
 # was gone every time (#62). The scripts' own stderr is otherwise silent.
 # $1 = script basename, $2 = scripts dir (default: this Tower's).
-# Single-quoted rather than %q: the respawn hook wraps this in escaped double
-# quotes, where %q's backslash-escapes would survive literally and break a
-# path with a space; single quotes read the same in sh, zsh and inside "…".
+# %q, not single quotes: the respawn hook wraps this in `run-shell '…'`, and
+# a literal ' in the command closes tmux's own quote — a path with a space
+# then fails set-hook outright. %q's backslash form survives every layer
+# (tmux single quote → sh "…" → $SHELL -c) and is valid in the pane's zsh too.
 nav_pane_command() {
     local script="$1" dir="${2:-${SCRIPT_DIR:-}}"
-    local cmd="$dir/$script" log="$TOWER_LOG_DIR/${script%.sh}.stderr.log"
-    # Escape a literal ' for a single-quoted context as '\''. Written with a
-    # quoted pattern and a variable replacement: bash 5.1 (Ubuntu 22.04, CI)
-    # and 5.2+ disagree on how quotes inside ${x//a/b} are parsed.
-    local q="'" sq="'\\''"
-    cmd="${cmd//"$q"/$sq}"
-    log="${log//"$q"/$sq}"
-    printf "'%s' 2>>'%s'" "$cmd" "$log"
+    printf '%q 2>>%q' "$dir/$script" "$TOWER_LOG_DIR/${script%.sh}.stderr.log"
 }
 
 # Signal traps for the long-running Navigator loops. A trap that only
@@ -467,7 +461,7 @@ nav_install_signal_traps() {
     # The restore snippet is a literal handed in by the caller, so it is
     # expanded now on purpose; everything else is read when the trap fires.
     # shellcheck disable=SC2064
-    trap '_nav_log_exit "$_NAV_TRAP_NAME" $? "$BASH_COMMAND" "${BASH_SOURCE[0]:-}:${LINENO:-}"; '"$restore" EXIT
+    trap '_nav_log_exit "$_NAV_TRAP_NAME" $? "$BASH_COMMAND" "${BASH_SOURCE[0]:-}"; '"$restore" EXIT
     trap '_nav_log_signal "$_NAV_TRAP_NAME" HUP; exit 129' HUP
     trap '_nav_log_signal "$_NAV_TRAP_NAME" INT; exit 130' INT
     trap '_nav_log_signal "$_NAV_TRAP_NAME" TERM; exit 143' TERM
@@ -475,13 +469,14 @@ nav_install_signal_traps() {
 
 _nav_log_exit() {
     # $1 name, $2 exit status, $3 the command that was running when the shell
-    # exited, $4 where. For a fatal error (an unbound variable under set -u,
-    # a failed eval) the message goes to the pane's stderr and dies with the
-    # pane; the command that was executing is the one thing the trap can
-    # still see, and it is what turns "status 1" into a line number.
+    # exited, $4 the file it came from. For a fatal error (an unbound
+    # variable under set -u, a failed eval) bash's message goes to the pane's
+    # stderr (now kept in <script>.stderr.log); the command that was
+    # executing is what the trap itself can still see. ($LINENO inside an
+    # EXIT trap is always 1, so it is not recorded.)
     local where="${4:-}"
     where="${where##*/}"
-    _log_to_file "INFO" "$1: loop exit (status ${2:-?}, pid $$) last command: ${3:-?} at ${where:-?}"
+    _log_to_file "INFO" "$1: loop exit (status ${2:-?}, pid $$) last command: ${3:-?} in ${where:-?}"
 }
 
 _nav_log_signal() {
