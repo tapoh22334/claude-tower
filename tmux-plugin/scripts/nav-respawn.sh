@@ -18,7 +18,14 @@ if _respawn_allowed "$pane" "$(date +%s)"; then
     _log_to_file "INFO" "nav-respawn.sh: pane $pane died, respawning"
     # A short pause so a loop that dies on startup does not spin hot.
     sleep 0.5
-    nav_tmux respawn-pane -k -t "$pane"
+    # Only a pane that is still dead: a new Navigator on the same socket
+    # hands out the same pane ids, and this hook may be left over from the
+    # old one.
+    if [[ "$(nav_tmux display-message -p -t "$pane" '#{pane_dead}' 2>/dev/null)" == 1 ]]; then
+        nav_tmux respawn-pane -k -t "$pane"
+    else
+        _log_to_file "INFO" "nav-respawn.sh: pane $pane is not dead any more, leaving it"
+    fi
 else
     _log_to_file "ERROR" "nav-respawn.sh: pane $pane died $RESPAWN_MAX times in ${RESPAWN_WINDOW}s; leaving it dead. See $TOWER_LOG_DIR/navigator-*.stderr.log"
     nav_tmux display-message -d 0 "Navigator pane $pane keeps dying; not restarting. See $TOWER_LOG_DIR/navigator-*.stderr.log" 2>/dev/null || true
