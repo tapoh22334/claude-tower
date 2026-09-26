@@ -449,9 +449,9 @@ setup_pane_auto_restart() {
     nav_tmux set-hook -t "$TOWER_NAV_SESSION" pane-exited \
         "run-shell 'sleep 0.5 && \
             if [ #{pane_index} -eq 0 ]; then \
-                tmux -L $TOWER_NAV_SOCKET respawn-pane -t $TOWER_NAV_SESSION:0.0 \"$script_dir/navigator-list.sh\"; \
+                tmux -L $TOWER_NAV_SOCKET respawn-pane -t $TOWER_NAV_SESSION:0.0 \"$(nav_pane_command navigator-list.sh "$script_dir")\"; \
             elif [ #{pane_index} -eq 1 ]; then \
-                tmux -L $TOWER_NAV_SOCKET respawn-pane -t $TOWER_NAV_SESSION:0.1 \"$script_dir/navigator-view.sh\"; \
+                tmux -L $TOWER_NAV_SOCKET respawn-pane -t $TOWER_NAV_SESSION:0.1 \"$(nav_pane_command navigator-view.sh "$script_dir")\"; \
             fi'" 2>/dev/null || true
 }
 
