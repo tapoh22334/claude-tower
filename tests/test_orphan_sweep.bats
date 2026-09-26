@@ -165,3 +165,12 @@ _trap_probe() {
     [[ "$output" == *"exit"* ]]
     [[ "$output" == *"status 0"* ]]
 }
+
+@test "traps: a non-zero exit keeps its status and logs it (the log call must not eat it)" {
+    _trap_probe 'exit 3'
+    local rc=0
+    wait "$PROBE_PID" || rc=$?
+    [ "$rc" -eq 3 ]
+    run grep 'probe.sh' "$TOWER_LOG_FILE"
+    [[ "$output" == *"status 3"* ]]
+}

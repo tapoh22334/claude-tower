@@ -459,9 +459,15 @@ _nav_log_exit() {
 }
 
 _nav_log_signal() {
-    # $1 name, $2 signal. The parent is the pane's shell (or tmux itself),
-    # which helps tell "server gone" from "someone sent a signal".
-    _log_to_file "INFO" "$1: received SIG$2 (pid $$, parent $PPID)"
+    # $1 name, $2 signal. Log the parent as it is NOW (bash's $PPID is fixed
+    # at startup and does not follow a re-parent): after the tmux server dies
+    # the current parent is init/a subreaper, so "parent 1" alongside SIGHUP
+    # reads as "server gone", while a live parent means someone sent it.
+    local parent="$PPID"
+    if [[ -r /proc/$$/stat ]]; then
+        parent=$(awk '{print $4}' /proc/$$/stat 2>/dev/null || echo "$PPID")
+    fi
+    _log_to_file "INFO" "$1: received SIG$2 (pid $$, parent now $parent, at start $PPID)"
 }
 
 # Value of environment variable $2 in process $1, from /proc. Empty when
