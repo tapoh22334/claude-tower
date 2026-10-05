@@ -94,7 +94,7 @@ test:
 # (-t) when stdout is actually a terminal, so it runs non-interactively in
 # CI/non-tty contexts without erroring on `the input device is not a TTY`.
 test-docker: docker-test
-	docker run --rm $$( [ -t 1 ] && echo -it ) claude-tower-test bats tests/ tests/integration/
+	docker run --rm $$( [ -t 1 ] && echo -it ) claude-tower-test bats tests/ tests/integration/ tests/e2e/
 
 # ============================================================================
 # Docker Build

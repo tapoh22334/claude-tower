@@ -1,0 +1,3 @@
+# value-forge pipeline settings (see ~/.claude/skills/vf-*)
+engine: native
+acceptance_runner: "bash value/001-tower-session-cli/acceptance/run.sh"

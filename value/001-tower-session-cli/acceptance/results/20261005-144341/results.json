@@ -1,0 +1,118 @@
+{
+ "run": "20261005-144341",
+ "runner": "bats tests/e2e/test_acceptance_001.bats",
+ "scenarios": [
+  {
+   "name": "セッションの中から引数なしで自分の名前を付け替える",
+   "status": "pass",
+   "requirements": [
+    "REQ-001-001",
+    "REQ-001-002",
+    "REQ-001-003",
+    "REQ-001-005",
+    "REQ-001-013"
+   ],
+   "userflow": "UF-001-001"
+  },
+  {
+   "name": "Tower の外で --session なしの rename は失敗して何も変えない",
+   "status": "pass",
+   "requirements": [
+    "REQ-001-020"
+   ],
+   "userflow": "UF-001-001"
+  },
+  {
+   "name": "付けた名前を --clear で外す",
+   "status": "pass",
+   "requirements": [
+    "REQ-001-004",
+    "REQ-001-013"
+   ],
+   "userflow": "UF-001-002"
+  },
+  {
+   "name": "別プロジェクトで新セッションを開始し要約を最初のプロンプトとして渡す",
+   "status": "pass",
+   "requirements": [
+    "REQ-001-006",
+    "REQ-001-007",
+    "REQ-001-008",
+    "REQ-001-010",
+    "REQ-001-013"
+   ],
+   "userflow": "UF-001-003"
+  },
+  {
+   "name": "Navigator が動作していれば open 後に view が新セッションに切り替わる",
+   "status": "pass",
+   "requirements": [
+    "REQ-001-009"
+   ],
+   "userflow": "UF-001-003"
+  },
+  {
+   "name": "Navigator が動作していなくても open は成功する",
+   "status": "pass",
+   "requirements": [
+    "REQ-001-028"
+   ],
+   "userflow": "UF-001-003"
+  },
+  {
+   "name": "存在しないディレクトリへの open は失敗しセッションを作らない",
+   "status": "pass",
+   "requirements": [
+    "REQ-001-023"
+   ],
+   "userflow": "UF-001-003"
+  },
+  {
+   "name": "新しいプロジェクトを 1 コマンドで始める",
+   "status": "pass",
+   "requirements": [
+    "REQ-001-011",
+    "REQ-001-012",
+    "REQ-001-013"
+   ],
+   "userflow": "UF-001-004"
+  },
+  {
+   "name": "既に存在する名前での project new は失敗し何も触らない",
+   "status": "pass",
+   "requirements": [
+    "REQ-001-025"
+   ],
+   "userflow": "UF-001-004"
+  },
+  {
+   "name": "スキルから非対話で呼べる文面と契約が揃っている",
+   "status": "pass",
+   "requirements": [
+    "REQ-001-014",
+    "REQ-001-016"
+   ],
+   "userflow": "UF-001-005"
+  },
+  {
+   "name": "入力が不正なときは理由と終了コードで区別できて失敗する",
+   "status": "pass",
+   "requirements": [
+    "REQ-001-021",
+    "REQ-001-022",
+    "REQ-001-024",
+    "REQ-001-026",
+    "REQ-001-027"
+   ],
+   "userflow": "UF-001-005"
+  },
+  {
+   "name": "help に 3 コマンドが載っている",
+   "status": "pass",
+   "requirements": [
+    "REQ-001-015"
+   ],
+   "userflow": "UF-001-006"
+  }
+ ]
+}
