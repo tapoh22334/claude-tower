@@ -98,13 +98,15 @@
     かつ 引き継ぎ要約の型(目的・決めたこと・次にやること・参照ファイル)を含む
     かつ 標準入力を閉じて tower rename --session tower_A x を実行しても確認待ちにならず完走する
 
-  @UF-001-005 @REQ-001-021 @REQ-001-022 @REQ-001-024 @REQ-001-026 @REQ-001-027 @core
+  @UF-001-005 @REQ-001-021 @REQ-001-022 @REQ-001-024 @REQ-001-026 @REQ-001-027 @REQ-001-029 @core
   シナリオ: 入力が不正なときは理由と終了コードで区別できて失敗する
     もし 空の名前で tower rename --session tower_A "" を実行する
     ならば 終了コードは 2 である
     もし 登録されていない id で tower rename --session tower_zzz x を実行する
     ならば 終了コードは 1 である
     もし 読めないプロンプトファイルで tower open foo --prompt-file /nonexistent を実行する
+    ならば 終了コードは 1 でありセッションは作られない
+    もし 空の標準入力で tower open foo --prompt-file - を実行する
     ならば 終了コードは 1 でありセッションは作られない
     もし 不正な名前で tower project new ../evil を実行する
     ならば 終了コードは 2 であり何も作られない

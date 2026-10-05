@@ -3,8 +3,8 @@
 > この文書は `generate-trace.py` の生成物。**手で編集しない。**
 > 直したくなったら元の ID かスクリプトを直す。
 
-- 要求 25 件 / ユーザフロー 6 件 / シナリオ 12 件
-- 実行結果: 20261005-144341
+- 要求 26 件 / ユーザフロー 6 件 / シナリオ 12 件
+- 実行結果: 20261005-145917
 - 穴: **0 件**
 
 ## 追跡表
@@ -36,6 +36,7 @@
 | REQ-001-026 | Unwanted | E-011 | UF-001-006 | 1 | scripts/project-new.sh(名前検証 → exit 2) … | 通過 |
 | REQ-001-027 | Unwanted | E-011 | UF-001-006 | 1 | scripts/project-new.sh(`git init` 失敗 →… | 通過 |
 | REQ-001-028 | Unwanted | E-007 / UF-001-003 | UF-001-003 | 1 | lib/session-open.sh(`nav_tmux has-sess… | 通過 |
+| REQ-001-029 | Unwanted | E-006 / E-011(レビュー指摘: 空の位置引数と MAX_ARG_STRLEN 超過) | UF-001-006 | 1 | lib/session-open.sh `prompt_to_file`(空… | 通過 |
 
 ## 穴
 
@@ -43,4 +44,4 @@
 
 ## 中核フローの要求
 
-中核 22 件中 **22 件が通過**。
+中核 23 件中 **23 件が通過**。

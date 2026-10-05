@@ -114,3 +114,25 @@ _sessions() { session_tmux list-sessions -F '#{session_name}' 2>/dev/null | grep
     run --separate-stderr timeout 20 env -u TMUX -u TMUX_PANE "$T" open "$PROJ" </dev/null
     [ "$status" -eq 0 ]
 }
+
+@test "open: an empty prompt (empty stdin) exits 1 and creates no session" {
+    run --separate-stderr bash -c "env -u TMUX -u TMUX_PANE '$T' open '$PROJ' --prompt-file - </dev/null"
+    [ "$status" -eq 1 ]
+    [[ "$stderr" == *"empty"* ]]
+    [ "$(_sessions)" -eq 0 ]
+    [ -z "$(ls -A "$TOWER_METADATA_DIR" 2>/dev/null | grep prompt)" ]
+}
+
+@test "open: a directory given as the prompt file exits 1 and creates no session" {
+    run --separate-stderr env -u TMUX -u TMUX_PANE "$T" open "$PROJ" --prompt-file "$BATS_TEST_TMPDIR"
+    [ "$status" -eq 1 ]
+    [ "$(_sessions)" -eq 0 ]
+}
+
+@test "open: a prompt over the size limit exits 1 and creates no session" {
+    head -c 150000 /dev/zero | tr '\0' 'a' >"$BATS_TEST_TMPDIR/big.txt"
+    run --separate-stderr env -u TMUX -u TMUX_PANE "$T" open "$PROJ" --prompt-file "$BATS_TEST_TMPDIR/big.txt"
+    [ "$status" -eq 1 ]
+    [[ "$stderr" == *"too large"* ]]
+    [ "$(_sessions)" -eq 0 ]
+}

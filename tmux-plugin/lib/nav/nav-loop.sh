@@ -321,7 +321,16 @@ main_loop() {
             local synced
             synced=$(get_nav_selected)
             if [[ -n "$synced" && "${SESSION_IDS[$selected_index]:-}" != "$synced" ]]; then
-                selected_index=$(get_selection_index)
+                if _session_listed "$synced"; then
+                    selected_index=$(get_selection_index)
+                else
+                    # An outside writer (`tower open`) selected a session this
+                    # list has not seen yet. get_selection_index would answer
+                    # 0 and the highlight would jump to the first row while
+                    # Enter/D act on the new id. Hold the highlight and fetch
+                    # the row now instead of waiting for the next cool-off.
+                    _spawn_background_rebuild force
+                fi
             fi
 
             # Clamp selection

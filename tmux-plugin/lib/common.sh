@@ -1006,14 +1006,18 @@ set_session_name() {
     [[ -f "$metadata_file" ]] || return 1
     name="${name//$'\n'/ }"
     name="${name//$'\r'/ }"
-    local tmp="${metadata_file}.$$"
-    {
+    local tmp="${metadata_file}.$$" rc=0
+    # if/then rather than a trailing `&& mv`: a caller that still has set -e
+    # (the Navigator loops) must not die on a failed mv.
+    if {
         grep -v '^session_name=' "$metadata_file" || true
         [[ -n "$name" ]] && echo "session_name=${name}"
         true
-    } >"$tmp" 2>/dev/null &&
-        mv -f "$tmp" "$metadata_file"
-    local rc=$?
+    } >"$tmp" 2>/dev/null && mv -f "$tmp" "$metadata_file"; then
+        rc=0
+    else
+        rc=1
+    fi
     rm -f "$tmp" 2>/dev/null
     return $rc
 }
@@ -1028,8 +1032,10 @@ current_tower_session() {
     [[ -n "${TMUX:-}" && -n "${TMUX_PANE:-}" ]] || return 1
     local sock="${TMUX%%,*}"
     [[ "${sock##*/}" == "$TOWER_SESSION_SOCKET" ]] || return 1
+    # Ask the very server $TMUX names (-S path), not `-L name` resolved
+    # under this process's TMUX_TMPDIR: the pane id is only meaningful there.
     local name
-    name=$(session_tmux display-message -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null) || return 1
+    name=$(TMUX= tmux -S "$sock" display-message -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null) || return 1
     [[ "$name" == tower_* ]] || return 1
     echo "$name"
 }

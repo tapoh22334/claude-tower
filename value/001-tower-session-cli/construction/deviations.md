@@ -13,3 +13,12 @@
 
 非スコープ違反の点検: `gh` 呼び出しなし / 空プロジェクト台帳なし / 元セッションを閉じる処理なし /
 Navigator の UI 追加なし / CLAUDE.md・Issue 初期化なし。`tower project add` は実装していない。
+
+## レビュー(tower-reviewer)後の追補
+
+| # | 内容 | 種別 | 理由 |
+|---|---|---|---|
+| 7 | list ループの resync: `selected` が一覧に無い id なら index を動かさず `_spawn_background_rebuild force` | 欠陥修正(CONFIRMED) | CLI が未一覧の id を書くと `get_selection_index` が 0 を返し、ハイライトが先頭行へ飛んで Enter/D が新 id に作用する窓(≤2 s)ができていた |
+| 8 | `prompt_to_file` が cat 失敗・空白のみ・100 KiB 超を exit 1 で拒否(REQ-001-029 を追加) | 欠陥修正(CONFIRMED) | 空の `""` 位置引数や `argument list too long` が pane 側で起き、CLI は成功を返していた |
+| 9 | `current_tower_session` は `$TMUX` のソケット path(`-S`)に問い合わせる | 堅牢化(PLAUSIBLE) | `-L 名前` は呼び手の `TMUX_TMPDIR` で解決され、別サーバに届き得る |
+| 10 | `set_session_name` の `mv` を if/then に | 堅牢化(PLAUSIBLE) | `set -e` を保つ呼び手(将来の Navigator キー)が mv 失敗で死なないように |

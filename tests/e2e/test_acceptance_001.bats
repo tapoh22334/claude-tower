@@ -175,6 +175,9 @@ _inside() {
     run --separate-stderr env -u TMUX -u TMUX_PANE "$T" open "$FOO" --prompt-file /nonexistent
     [ "$status" -eq 1 ]
     [ "$(_tower_count)" -eq "$n0" ]
+    run --separate-stderr bash -c "env -u TMUX -u TMUX_PANE '$T' open '$FOO' --prompt-file - </dev/null"
+    [ "$status" -eq 1 ]
+    [ "$(_tower_count)" -eq "$n0" ]
     run --separate-stderr env -u TMUX -u TMUX_PANE "$T" project new ../evil
     [ "$status" -eq 2 ]
     [ -z "$(ls -A "$TOWER_PROJECTS_DIR")" ]

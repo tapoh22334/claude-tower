@@ -29,4 +29,5 @@ engine: native(superpowers TDD。spec-kit は使っていない: vf-construct �
 | REQ-001-025 | scripts/project-new.sh(`-e` 検査 → exit 1) | test_project_new.bats, e2e |
 | REQ-001-026 | scripts/project-new.sh(名前検証 → exit 2) | test_project_new.bats, e2e |
 | REQ-001-027 | scripts/project-new.sh(`git init` 失敗 → exit 1、ディレクトリ残置) | test_project_new.bats, e2e |
+| REQ-001-029 | lib/session-open.sh `prompt_to_file`(空・上限検査) | test_tower_open.bats, e2e |
 | REQ-001-028 | lib/session-open.sh(`nav_tmux has-session` ガード) | test_tower_open.bats, e2e |
