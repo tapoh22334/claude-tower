@@ -114,7 +114,19 @@ tower add                      # open the picker
 tower add .                    # start a session here, no prompts
 tower add /path/to/project -n api   # ...somewhere else, with a name
 tower rm <id>                  # unregister; the directory is untouched
+
+tower rename "payments 移行"   # rename the session you are in (Navigator row)
+tower rename --clear --session <id>   # back to the first-prompt title
+tower open ~/working/foo --prompt-file -   # new session there; stdin = first prompt
+tower project new bar          # ~/working/bar + git init + first session
 ```
+
+The last three are meant to be run from *inside* a session — by you, or by
+Claude through the bundled `skills/tower` skill ("この名前にして", "foo で続けて",
+"新しいプロジェクト bar を始めて"). They never prompt; the new or renamed
+session id is the only thing on stdout. `open` and `project new` move the
+Navigator's selection to the new session and leave the one you are in alone.
+To make the skill available: `ln -s "$PWD/skills/tower" ~/.claude/skills/tower`.
 
 `tower` lives at `tmux-plugin/scripts/tower`. Removing a session only drops
 Tower's registry entry — the transcript survives, so `n` can re-add it.

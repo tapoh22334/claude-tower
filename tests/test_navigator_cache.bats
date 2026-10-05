@@ -396,3 +396,22 @@ source_navigator_list_functions() {
     run script -qfec "bash -c 'source \"$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh\"; _subflow_tty'" /dev/null </dev/null
     [[ "$output" == *"/dev/tty"* ]]
 }
+
+@test "_session_listed: tells a known row from an id the list has not seen" {
+    source_navigator_list_functions
+    SESSION_IDS=(tower_a tower_b)
+    _session_listed tower_b
+    ! _session_listed tower_new
+    SESSION_IDS=()
+    ! _session_listed tower_a
+}
+
+@test "resync: an unlisted selected id holds the highlight and forces a rebuild instead of jumping to row 0" {
+    # The tick path lives inside main_loop, so pin its shape: the listed
+    # check guards get_selection_index, and the other branch forces a
+    # rebuild (tower open writes an id the cache does not have yet).
+    local src="$PROJECT_ROOT/tmux-plugin/lib/nav/nav-loop.sh"
+    grep -q 'if _session_listed "\$synced"; then' "$src"
+    grep -A1 'if _session_listed "\$synced"; then' "$src" | grep -q 'selected_index=\$(get_selection_index)'
+    grep -A8 'if _session_listed "\$synced"; then' "$src" | grep -q '_spawn_background_rebuild force'
+}

@@ -59,4 +59,4 @@ ENV BATS_LIB_PATH=/opt/bats-libs
 
 # Default command: run unit + integration suites (see Makefile test-docker
 # target for the exact non-interactive invocation used in CI)
-CMD ["bats", "tests/", "tests/integration/"]
+CMD ["bats", "tests/", "tests/integration/", "tests/e2e/"]

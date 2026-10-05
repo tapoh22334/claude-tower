@@ -987,6 +987,69 @@ delete_metadata() {
     if [[ -f "$metadata_file" ]]; then
         rm -f "$metadata_file"
     fi
+    # The initial prompt `tower open` saved for the session (see
+    # start_claude_session) has no reader once the session is gone.
+    rm -f "${TOWER_METADATA_DIR}/${session_id}.prompt" 2>/dev/null || true
+}
+
+# Set (or with an empty name, remove) the Navigator display name of a
+# registered session: the session_name= line in its metadata. Rewrites only
+# that line, atomically, for the same reason record_live_id does -- the
+# Navigator's background rebuild reads these files at any moment, and
+# save_metadata would both re-stamp created_at (the row would look
+# "starting" again) and leave a half-written file visible. Newlines in the
+# name are folded to spaces so the file stays one key per line.
+# Returns 1 when the session has no metadata.
+set_session_name() {
+    local session_id="$1" name="${2:-}"
+    local metadata_file="${TOWER_METADATA_DIR}/${session_id}.meta"
+    [[ -f "$metadata_file" ]] || return 1
+    name="${name//$'\n'/ }"
+    name="${name//$'\r'/ }"
+    local tmp="${metadata_file}.$$" rc=0
+    # if/then rather than a trailing `&& mv`: a caller that still has set -e
+    # (the Navigator loops) must not die on a failed mv.
+    if {
+        grep -v '^session_name=' "$metadata_file" || true
+        [[ -n "$name" ]] && echo "session_name=${name}"
+        true
+    } >"$tmp" 2>/dev/null && mv -f "$tmp" "$metadata_file"; then
+        rc=0
+    else
+        rc=1
+    fi
+    rm -f "$tmp" 2>/dev/null
+    return $rc
+}
+
+# The Tower session (tower_<uuid>) whose pane this process runs in, for
+# `tower rename` without --session. Prints nothing and fails outside tmux, in
+# a pane on another server (the user's own tmux, the Navigator), or in a pane
+# of a session that is not Tower's. The socket is checked by name against
+# TOWER_SESSION_SOCKET rather than trusting $TMUX alone, because the pane id
+# in TMUX_PANE is only meaningful on the server that issued it.
+current_tower_session() {
+    [[ -n "${TMUX:-}" && -n "${TMUX_PANE:-}" ]] || return 1
+    local sock="${TMUX%%,*}"
+    [[ "${sock##*/}" == "$TOWER_SESSION_SOCKET" ]] || return 1
+    # Ask the very server $TMUX names (-S path), not `-L name` resolved
+    # under this process's TMUX_TMPDIR: the pane id is only meaningful there.
+    local name
+    name=$(TMUX= tmux -S "$sock" display-message -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null) || return 1
+    [[ "$name" == tower_* ]] || return 1
+    echo "$name"
+}
+
+# A random v4 uuid for a new Tower session id (claude --session-id takes it).
+generate_uuid() {
+    if command -v uuidgen >/dev/null 2>&1; then
+        uuidgen | tr '[:upper:]' '[:lower:]'
+    elif [[ -r /proc/sys/kernel/random/uuid ]]; then
+        cat /proc/sys/kernel/random/uuid
+    else
+        handle_error "Cannot generate a UUID (need uuidgen or /proc/sys/kernel/random/uuid)"
+        return 1
+    fi
 }
 
 # List all metadata files
@@ -1411,10 +1474,15 @@ _pane_path() {
     printf '%s' "$p"
 }
 
+# Optional $4: a file whose contents become the program's first prompt
+# (`tower open --prompt`). The pane is told to read the file -- the text
+# itself never crosses the send-keys / shell-quoting boundary, so a summary
+# with quotes, dollars or newlines arrives intact.
 start_claude_session() {
     local session_id="$1"
     local working_dir="$2"
     local mode="$3"
+    local prompt_file="${4:-}"
     local claude_id="${session_id#tower_}"
 
     if [[ ! -d "$working_dir" ]]; then
@@ -1451,6 +1519,9 @@ start_claude_session() {
         claude_cmd="$program --resume $(live_claude_id "$session_id")"
     else
         claude_cmd="$program --session-id $claude_id"
+        if [[ -n "$prompt_file" ]]; then
+            claude_cmd+=" \"\$(cat $(printf '%q' "$prompt_file"))\""
+        fi
     fi
     session_tmux send-keys -t "$session_id" "$claude_cmd" C-m
 

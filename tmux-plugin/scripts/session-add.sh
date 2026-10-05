@@ -56,17 +56,6 @@ done
 
 NEW_SENTINEL="[new]    Start a new session"
 
-generate_uuid() {
-    if command -v uuidgen >/dev/null 2>&1; then
-        uuidgen | tr '[:upper:]' '[:lower:]'
-    elif [[ -r /proc/sys/kernel/random/uuid ]]; then
-        cat /proc/sys/kernel/random/uuid
-    else
-        handle_error "Cannot generate a UUID (need uuidgen or /proc/sys/kernel/random/uuid)"
-        return 1
-    fi
-}
-
 # ---------------------------------------------------------------------------
 # Terminal prompts
 #

@@ -1,0 +1,87 @@
+repo: tapoh22334/claude-tower
+project:
+  number: 4
+  owner: tapoh22334
+stories:
+  - issue: 67
+    title: Claude セッションの中から Tower を操作できるようにする(名前変更・別プロジェクトで続行・プロジェクト開始)
+    body: |
+      ## ユーザーストーリー
+      Tower のセッションの中で作業している iwase(と、その中で動く Claude)として、
+      Navigator に戻らずにセッション名を今の作業に合わせ、出てきたアイデアを
+      別プロジェクトの新セッションに文脈ごと移し、新しいプロジェクトを 1 コマンドで
+      始めたい。今は Navigator を往復して手で貼り直している。
+
+      設計記録: `value/001-tower-session-cli/`(orient / articulation / requirements / userflows)。
+      すべて `tower` CLI のサブコマンドとして実装し、スキル `skills/tower` がそれを呼ぶ。
+
+      ## 受入条件
+      - [ ] `tower rename <name>` で Navigator の行名が変わる(セッション内なら対象指定不要)
+      - [ ] `tower open <dir> --prompt-file -` で新セッションがそのディレクトリで始まり、要約が最初のプロンプトになり、Navigator の選択が移る
+      - [ ] `tower project new <name>` でディレクトリ・`git init`・最初のセッションが揃う
+      - [ ] スキル `skills/tower` から上の 3 つが非対話で呼べる
+      - [ ] 受入シナリオ(`value/001-tower-session-cli/acceptance/`)が実 tmux で全通過
+
+      ## 非スコープ
+      GitHub リポジトリ作成、空プロジェクトの台帳、元セッションを閉じる操作、Navigator の UI 追加
+    children:
+      - issue: 68
+        title: tower rename でセッションの Navigator 表示名を付け替える
+        body: |
+          ## やること
+          `tower rename <name> [--session <id>]` / `tower rename --clear`。`--session` 省略時は
+          `TMUX_PANE` から呼び出し元の Tower セッションを解決する。metadata の `session_name`
+          だけを原子的(tmp + mv)に書き換え、`created_at` / `launch_dir` / `live_id` は変えない
+          (`save_metadata` は全体を非原子的に上書きするので使わない)。
+
+          要求: REQ-001-001〜005, 013, 014, 020〜022(`value/001-tower-session-cli/requirements.md`)
+
+          ## 完了条件
+          - [ ] Tower の pane 内で引数なしに自分のセッションが対象になる(bats、実 tmux)
+          - [ ] Tower の外で `--session` 無しは終了コード 2 と文言
+          - [ ] 書き換え後も他キーが保たれる
+          - [ ] Navigator の次回再構築で行名が変わる
+      - issue: 69
+        title: tower project new でディレクトリ作成・git init・最初のセッション開始を 1 コマンドにする
+        body: |
+          ## やること
+          `tower project new <name> [--in <parent>] [--prompt ...]`。既定の親は `~/working`。
+          作成先が既にあれば何も触らず終了コード 1。`<name>` の検証(`/`、先頭 `-` `.` を拒否)。
+          `git init` 失敗時はセッションを開始しない。セッション開始は `session-add.sh` の
+          `start_session_in_dir` を再利用する。
+
+          要求: REQ-001-011, 012, 013, 014, 025〜027
+
+          ## 完了条件
+          - [ ] ディレクトリ・`.git`・tmux セッション・metadata(`launch_dir`)が揃う(bats、実 tmux)
+          - [ ] 既存名・不正名・git 失敗の 3 つの異常系がそれぞれの終了コードで止まり副作用が無い
+      - issue: 70
+        title: tower open で別プロジェクトに新セッションを開始し、要約を最初のプロンプトとして渡す
+        body: |
+          ## やること
+          `tower open <dir> [--prompt <text> | --prompt-file <path|->]`。プロンプトは metadata dir の
+          `<id>.prompt` に保存し、起動コマンドを `claude --session-id <id> "$(cat <file>)"` の形にして
+          引用の問題を避ける。成功後に `set_nav_selected` で Navigator の選択を移し、Navigator
+          サーバが動いていれば `nav_redirect_view` で view を切り替える(無ければ省略して成功)。
+          元セッションには触れない。
+
+          要求: REQ-001-006〜010, 013, 014, 023, 024, 028
+
+          ## 完了条件
+          - [ ] 新セッションが指定ディレクトリで動き、`.prompt` の内容が渡した文字列と一致する(bats、実 tmux)
+          - [ ] `selected` が新セッションを指す。Navigator 未起動でも成功する
+          - [ ] 無いディレクトリ・読めないプロンプトファイルではセッションを作らない
+      - issue: 71
+        title: スキル skills/tower で利用者の一言を tower コマンドに写す
+        body: |
+          ## やること
+          `skills/tower/SKILL.md` を repo に置き、`~/.claude/skills/tower` からシンボリックリンクする。
+          3 つの意図のトリガー語と対応コマンド、引き継ぎ要約の型(目的・決めたこと・次にやること・
+          参照ファイル)、標準出力の id を利用者に報告する手順を書く。README の CLI 節と
+          `tower help` も更新する。
+
+          要求: REQ-001-015, 016
+
+          ## 完了条件
+          - [ ] SKILL.md に 3 つの意図・コマンド・要約の型の見出しがある(bats で文字列検査)
+          - [ ] 実機で「このセッションの名前を○○にして」が 1 往復で成立する

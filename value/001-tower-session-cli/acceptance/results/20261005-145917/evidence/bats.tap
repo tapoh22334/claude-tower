@@ -1,0 +1,79 @@
+1..12
+ok 1 セッションの中から引数なしで自分の名前を付け替える
+ok 2 Tower の外で --session なしの rename は失敗して何も変えない
+ok 3 付けた名前を --clear で外す
+ok 4 別プロジェクトで新セッションを開始し要約を最初のプロンプトとして渡す
+ok 5 Navigator が動作していれば open 後に view が新セッションに切り替わる
+ok 6 Navigator が動作していなくても open は成功する
+ok 7 存在しないディレクトリへの open は失敗しセッションを作らない
+ok 8 新しいプロジェクトを 1 コマンドで始める
+ok 9 既に存在する名前での project new は失敗し何も触らない
+ok 10 スキルから非対話で呼べる文面と契約が揃っている
+ok 11 入力が不正なときは理由と終了コードで区別できて失敗する
+ok 12 help に 3 コマンドが載っている
+
+The following warnings were encountered during tests:
+BW02: Using flags on `run` requires at least BATS_VERSION=1.5.0. Use `bats_require_minimum_version 1.5.0` to fix this message.
+      (from function `bats_warn_minimum_guaranteed_version' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/warnings.bash, line 32,
+       from function `run' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/test_functions.bash, line 348,
+       in test file tests/e2e/test_acceptance_001.bats, line 41)
+BW02: Using flags on `run` requires at least BATS_VERSION=1.5.0. Use `bats_require_minimum_version 1.5.0` to fix this message.
+      (from function `bats_warn_minimum_guaranteed_version' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/warnings.bash, line 32,
+       from function `run' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/test_functions.bash, line 348,
+       in test file tests/e2e/test_acceptance_001.bats, line 57)
+BW02: Using flags on `run` requires at least BATS_VERSION=1.5.0. Use `bats_require_minimum_version 1.5.0` to fix this message.
+      (from function `bats_warn_minimum_guaranteed_version' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/warnings.bash, line 32,
+       from function `run' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/test_functions.bash, line 348,
+       in test file tests/e2e/test_acceptance_001.bats, line 65)
+BW02: Using flags on `run` requires at least BATS_VERSION=1.5.0. Use `bats_require_minimum_version 1.5.0` to fix this message.
+      (from function `bats_warn_minimum_guaranteed_version' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/warnings.bash, line 32,
+       from function `run' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/test_functions.bash, line 348,
+       in test file tests/e2e/test_acceptance_001.bats, line 76)
+BW02: Using flags on `run` requires at least BATS_VERSION=1.5.0. Use `bats_require_minimum_version 1.5.0` to fix this message.
+      (from function `bats_warn_minimum_guaranteed_version' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/warnings.bash, line 32,
+       from function `run' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/test_functions.bash, line 348,
+       in test file tests/e2e/test_acceptance_001.bats, line 102)
+BW02: Using flags on `run` requires at least BATS_VERSION=1.5.0. Use `bats_require_minimum_version 1.5.0` to fix this message.
+      (from function `bats_warn_minimum_guaranteed_version' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/warnings.bash, line 32,
+       from function `run' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/test_functions.bash, line 348,
+       in test file tests/e2e/test_acceptance_001.bats, line 111)
+BW02: Using flags on `run` requires at least BATS_VERSION=1.5.0. Use `bats_require_minimum_version 1.5.0` to fix this message.
+      (from function `bats_warn_minimum_guaranteed_version' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/warnings.bash, line 32,
+       from function `run' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/test_functions.bash, line 348,
+       in test file tests/e2e/test_acceptance_001.bats, line 119)
+BW02: Using flags on `run` requires at least BATS_VERSION=1.5.0. Use `bats_require_minimum_version 1.5.0` to fix this message.
+      (from function `bats_warn_minimum_guaranteed_version' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/warnings.bash, line 32,
+       from function `run' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/test_functions.bash, line 348,
+       in test file tests/e2e/test_acceptance_001.bats, line 126)
+BW02: Using flags on `run` requires at least BATS_VERSION=1.5.0. Use `bats_require_minimum_version 1.5.0` to fix this message.
+      (from function `bats_warn_minimum_guaranteed_version' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/warnings.bash, line 32,
+       from function `run' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/test_functions.bash, line 348,
+       in test file tests/e2e/test_acceptance_001.bats, line 140)
+BW02: Using flags on `run` requires at least BATS_VERSION=1.5.0. Use `bats_require_minimum_version 1.5.0` to fix this message.
+      (from function `bats_warn_minimum_guaranteed_version' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/warnings.bash, line 32,
+       from function `run' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/test_functions.bash, line 348,
+       in test file tests/e2e/test_acceptance_001.bats, line 163)
+BW02: Using flags on `run` requires at least BATS_VERSION=1.5.0. Use `bats_require_minimum_version 1.5.0` to fix this message.
+      (from function `bats_warn_minimum_guaranteed_version' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/warnings.bash, line 32,
+       from function `run' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/test_functions.bash, line 348,
+       in test file tests/e2e/test_acceptance_001.bats, line 171)
+BW02: Using flags on `run` requires at least BATS_VERSION=1.5.0. Use `bats_require_minimum_version 1.5.0` to fix this message.
+      (from function `bats_warn_minimum_guaranteed_version' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/warnings.bash, line 32,
+       from function `run' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/test_functions.bash, line 348,
+       in test file tests/e2e/test_acceptance_001.bats, line 173)
+BW02: Using flags on `run` requires at least BATS_VERSION=1.5.0. Use `bats_require_minimum_version 1.5.0` to fix this message.
+      (from function `bats_warn_minimum_guaranteed_version' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/warnings.bash, line 32,
+       from function `run' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/test_functions.bash, line 348,
+       in test file tests/e2e/test_acceptance_001.bats, line 175)
+BW02: Using flags on `run` requires at least BATS_VERSION=1.5.0. Use `bats_require_minimum_version 1.5.0` to fix this message.
+      (from function `bats_warn_minimum_guaranteed_version' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/warnings.bash, line 32,
+       from function `run' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/test_functions.bash, line 348,
+       in test file tests/e2e/test_acceptance_001.bats, line 178)
+BW02: Using flags on `run` requires at least BATS_VERSION=1.5.0. Use `bats_require_minimum_version 1.5.0` to fix this message.
+      (from function `bats_warn_minimum_guaranteed_version' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/warnings.bash, line 32,
+       from function `run' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/test_functions.bash, line 348,
+       in test file tests/e2e/test_acceptance_001.bats, line 181)
+BW02: Using flags on `run` requires at least BATS_VERSION=1.5.0. Use `bats_require_minimum_version 1.5.0` to fix this message.
+      (from function `bats_warn_minimum_guaranteed_version' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/warnings.bash, line 32,
+       from function `run' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/test_functions.bash, line 348,
+       in test file tests/e2e/test_acceptance_001.bats, line 187)

@@ -266,6 +266,18 @@ build_session_list() {
 }
 
 # Get current selection index from state
+# _session_listed ID — is ID one of the rows this loop currently knows?
+# Distinguishes "selected something else" from "selected something new"
+# (an outside writer such as `tower open`), which get_selection_index
+# cannot: it answers 0 for both.
+_session_listed() {
+    local want="$1" id
+    for id in "${SESSION_IDS[@]:-}"; do
+        [[ "$id" == "$want" ]] && return 0
+    done
+    return 1
+}
+
 get_selection_index() {
     local selected
     selected=$(get_nav_selected)

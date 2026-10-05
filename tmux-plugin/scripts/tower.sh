@@ -8,6 +8,9 @@
 #   (none)      Launch Navigator UI
 #   list        List all sessions
 #   add         Add or create a session
+#   rename      Set or clear a session's Navigator display name
+#   open        Start a new session in a directory (optional initial prompt)
+#   project new Create a project directory, git init, start its first session
 #   delete      Delete session
 #   restore     Restore dormant session(s)
 #   tile        Launch Tile mode
@@ -31,12 +34,24 @@ show_help() {
     cat <<'EOF'
 claude-tower - Parallel Claude Code Orchestrator
 
-Usage: tower.sh list|add|delete|restore|tile|help
+Usage: tower.sh list|add|rename|open|project new|delete|restore|tile|help
 
 Commands:
   (default)     Launch Navigator UI
   list          List all sessions
   add           Add an existing session or start a new one
+  rename        Set the Navigator display name of a session
+    NAME          New name (omit the session inside a Tower pane)
+    --session ID  Target session (required outside a Tower pane)
+    --clear       Remove the name, back to the first-prompt title
+  open          Start a new session in a directory and show it in Navigator
+    DIR           Project directory
+    --prompt TEXT        First prompt for the new session
+    --prompt-file PATH   First prompt from a file (- = stdin)
+  project new   Create DIR under ~/working, git init, start its first session
+    NAME          Project name (one path component)
+    --in PARENT   Parent directory instead of ~/working
+    --prompt / --prompt-file  as for open
   delete        Delete session
     SESSION_ID    Session to delete
     --force       Skip confirmation
@@ -67,6 +82,9 @@ Examples:
   tower.sh list                      # List all sessions
   tower.sh restore feat-login        # Restore a dormant session
   tower.sh delete feat-login         # Delete session
+  tower.sh rename "payments 移行"     # Rename the session you are in
+  tower.sh open ~/working/foo --prompt-file -   # New session there, prompt from stdin
+  tower.sh project new bar           # ~/working/bar + git init + first session
 
 EOF
 }
@@ -87,6 +105,28 @@ main() {
         add)
             shift
             exec "$SCRIPT_DIR/session-add.sh" "$@"
+            ;;
+        rename)
+            shift
+            exec "$SCRIPT_DIR/session-rename.sh" "$@"
+            ;;
+        open)
+            shift
+            exec "$SCRIPT_DIR/session-open.sh" "$@"
+            ;;
+        project)
+            shift
+            case "${1:-}" in
+                new)
+                    shift
+                    exec "$SCRIPT_DIR/project-new.sh" "$@"
+                    ;;
+                *)
+                    handle_error "Unknown project subcommand: ${1:-<none>} (expected: new)"
+                    echo "Run 'tower.sh help' for usage"
+                    exit 2
+                    ;;
+            esac
             ;;
         delete)
             shift

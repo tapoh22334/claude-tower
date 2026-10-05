@@ -278,8 +278,11 @@ _run_nav() {
         export CLAUDE_PROJECTS_DIR="'"$CLAUDE_PROJECTS_DIR"'"
         export CLAUDE_TOWER_SESSION_SOCKET="dash-test-sess-$$"
         # Source everything up to (not including) main, then stub the
-        # heavyweight session starter.
+        # heavyweight session starter. The eval has no BASH_SOURCE, so the
+        # `source ../lib/common.sh` inside the script cannot resolve; load
+        # the library afterwards (generate_uuid lives there).
         eval "$(sed "/^main() {/,\$d" "'"$PROJECT_ROOT"'/tmux-plugin/scripts/session-add.sh" | sed "s/^set -uo pipefail//")" 2>/dev/null
+        source "'"$PROJECT_ROOT"'/tmux-plugin/lib/common.sh" 2>/dev/null
         PRINT_ID=1
         start_claude_session() { echo "started:$1:$2" >&2; return 0; }
         start_session_in_dir "'"$BATS_TEST_TMPDIR"'"
