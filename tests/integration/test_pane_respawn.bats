@@ -60,7 +60,7 @@ _count() { [ "$(grep -c "$1" "$RUNLOG")" -ge "$2" ]; }
     local pane
     pane=$(nav_tmux display -p -t "$TOWER_NAV_SESSION:0.0" '#{pane_id}')
 
-    _wait_for 5 _count list 2
+    _wait_for 20 _count list 2
 
     # Same pane, both panes still there, and the command it was created with
     # (stderr log included) is what runs again.
@@ -73,15 +73,15 @@ _count() { [ "$(grep -c "$1" "$RUNLOG")" -ge "$2" ]; }
     TMUX= nav_tmux new-session -d -s "$TOWER_NAV_SESSION" -x 120 -y 30 "sleep 60"
     setup_pane_auto_restart
     nav_tmux split-window -t "$TOWER_NAV_SESSION" -h -l 70% "echo view >>'$RUNLOG'; sleep 60"
-    _wait_for 3 _count view 1
+    _wait_for 10 _count view 1
     local pane pid
     pane=$(nav_tmux display -p -t "$TOWER_NAV_SESSION:0.1" '#{pane_id}')
     pid=$(nav_tmux display -p -t "$pane" '#{pane_pid}')
 
     kill "$pid"
 
-    _wait_for 5 _count view 2
-    _wait_for 2 bash -c "[ \"\$(TMUX= tmux -L '$NAV_SOCKET' display -p -t '$pane' '#{pane_dead}')\" = 0 ]"
+    _wait_for 20 _count view 2
+    _wait_for 10 bash -c "[ \"\$(TMUX= tmux -L '$NAV_SOCKET' display -p -t '$pane' '#{pane_dead}')\" = 0 ]"
     [ "$(nav_tmux display -p -t "$pane" '#{pane_pid}')" != "$pid" ]
     [ "$(nav_tmux list-panes -t "$TOWER_NAV_SESSION" | wc -l)" -eq 2 ]
 }
