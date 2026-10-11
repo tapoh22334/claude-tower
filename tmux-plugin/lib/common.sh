@@ -331,7 +331,10 @@ nav_redirect_view() {
     view_tty=$(nav_tmux display-message -t "$TOWER_NAV_SESSION:0.1" -p '#{pane_tty}' 2>/dev/null)
     [[ -z "$view_tty" ]] && return 0
 
-    if session_tmux has-session -t "$selected" 2>/dev/null; then
+    # A project row (dir:<path>) is never a session. Decide by the id's
+    # shape, not by has-session: tmux resolves "dir:" as session "dir" by
+    # prefix, so a session named dir* would have been switched to.
+    if [[ "$selected" != dir:* ]] && session_tmux has-session -t "$selected" 2>/dev/null; then
         session_tmux switch-client -c "$view_tty" -t "$selected" 2>/dev/null || true
     else
         session_tmux detach-client -t "$view_tty" 2>/dev/null || true
@@ -1038,14 +1041,24 @@ project_registered() {
     grep -qxF -- "$want" <<<"$all"
 }
 
-# register_project DIR — add DIR (canonical) unless present. Not an error to
-# register twice; callers register on every session start.
-register_project() {
-    local d
-    d=$(canon_project_dir "$1") || return 1
-    ensure_metadata_dir
+# Run "$@" holding the registry lock, when flock exists. Two session starts
+# at once (tower open A / tower open B) would otherwise both read the same
+# list and the later mv would drop the other's entry.
+_with_projects_lock() {
+    if command -v flock >/dev/null 2>&1; then
+        (
+            flock -w 5 9 || exit 1
+            "$@"
+        ) 9>"${TOWER_PROJECTS_FILE}.lock"
+    else
+        "$@"
+    fi
+}
+
+_register_project_locked() {
+    local d="$1" tmp
     project_registered "$d" && return 0
-    local tmp="${TOWER_PROJECTS_FILE}.$$"
+    tmp=$(mktemp "${TOWER_PROJECTS_FILE}.XXXXXX") || return 1
     if { list_projects; echo "$d"; } >"$tmp" 2>/dev/null && mv -f "$tmp" "$TOWER_PROJECTS_FILE"; then
         return 0
     fi
@@ -1053,12 +1066,10 @@ register_project() {
     return 1
 }
 
-# unregister_project DIR — remove DIR. Fails (1) when it was not registered.
-unregister_project() {
-    local d
-    d=$(canon_project_dir "$1") || return 1
+_unregister_project_locked() {
+    local d="$1" tmp
     project_registered "$d" || return 1
-    local tmp="${TOWER_PROJECTS_FILE}.$$"
+    tmp=$(mktemp "${TOWER_PROJECTS_FILE}.XXXXXX") || return 1
     if list_projects | grep -vxF -- "$d" >"$tmp" 2>/dev/null || [[ ! -s "$tmp" ]]; then
         if mv -f "$tmp" "$TOWER_PROJECTS_FILE"; then
             return 0
@@ -1066,6 +1077,22 @@ unregister_project() {
     fi
     rm -f "$tmp" 2>/dev/null
     return 1
+}
+
+# register_project DIR — add DIR (canonical) unless present. Not an error to
+# register twice; callers register on every session start.
+register_project() {
+    local d
+    d=$(canon_project_dir "$1") || return 1
+    ensure_metadata_dir
+    _with_projects_lock _register_project_locked "$d"
+}
+
+# unregister_project DIR — remove DIR. Fails (1) when it was not registered.
+unregister_project() {
+    local d
+    d=$(canon_project_dir "$1") || return 1
+    _with_projects_lock _unregister_project_locked "$d"
 }
 
 # Project dir of a registered session ("" when unknown): the transcript's cwd

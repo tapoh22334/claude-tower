@@ -332,6 +332,14 @@ main_loop() {
             if [[ -n "$synced" && "${SESSION_IDS[$selected_index]:-}" != "$synced" ]]; then
                 if _session_listed "$synced"; then
                     selected_index=$(get_selection_index)
+                elif _row_is_project "$synced"; then
+                    # A project row that is no longer listed was removed
+                    # (`tower project rm` from a shell). No rebuild will bring
+                    # it back, so make the file say what the screen shows.
+                    if [[ -n "${SESSION_IDS[$selected_index]:-}" ]]; then
+                        set_nav_selected "${SESSION_IDS[$selected_index]}"
+                        signal_view_update_async
+                    fi
                 else
                     # An outside writer (`tower open`) selected a session this
                     # list has not seen yet. get_selection_index would answer

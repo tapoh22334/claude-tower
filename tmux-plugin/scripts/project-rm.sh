@@ -61,5 +61,11 @@ unregister_project "$CANON" || {
     handle_error "Could not update the project list"
     exit 1
 }
+# If the Navigator's cursor was on this project, its row is about to go;
+# leave the selection empty rather than pointing at a row that no rebuild
+# will ever list again.
+if [[ "$(get_nav_selected 2>/dev/null)" == "dir:$CANON" ]]; then
+    set_nav_selected ""
+fi
 handle_success "Removed from the Navigator list: $CANON" >&2
 echo "$CANON"

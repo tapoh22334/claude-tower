@@ -72,21 +72,25 @@ show_project_card() {
         branch=$(git -C "$dir" symbolic-ref --short HEAD 2>/dev/null || git -C "$dir" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
     fi
     n=$(project_session_count "$dir")
-    clear
-    echo ""
-    echo -e "  ${C_HEADER}${dname}${C_RESET}"
-    echo ""
-    echo "  Directory : $dir"
+    # Home + clear-to-end-of-line per row + clear-to-end-of-screen, not
+    # `clear`: this is redrawn on a timer while the cursor rests on the
+    # project, and a full clear each time would flicker.
+    local eol=$'\033[K'
+    printf '\033[H'
+    echo "${eol}"
+    echo -e "  ${C_HEADER}${dname}${C_RESET}${eol}"
+    echo "${eol}"
+    echo "  Directory : $dir${eol}"
     if [[ ! -d "$dir" ]]; then
-        echo -e "  ${C_RED}(directory not found — D removes it from the list)${C_RESET}"
+        echo -e "  ${C_RED}(directory not found — D removes it from the list)${C_RESET}${eol}"
     fi
     if [[ -n "$branch" ]]; then
-        echo "  Branch    : $branch"
+        echo "  Branch    : $branch${eol}"
     fi
-    echo "  Sessions  : $n session(s)"
-    echo ""
-    echo -e "  ${C_PANE}n / Enter: new session here    D: remove from list${C_RESET}"
-    echo ""
+    echo "  Sessions  : $n session(s)${eol}"
+    echo "${eol}"
+    echo -e "  ${C_PANE}n / Enter: new session here    D: remove from list${C_RESET}${eol}"
+    printf '\033[J'
 }
 
 # Show error message
@@ -191,6 +195,9 @@ main_loop() {
 
     # Track last attached session to avoid re-attaching to the same active session
     local last_attached=""
+    # When the project card was last drawn (SECONDS); it refreshes every 2s
+    # so a session count change shows while the cursor rests on the project.
+    local last_card_at=-10
 
     while true; do
         # Get currently selected session
@@ -209,9 +216,10 @@ main_loop() {
             # Not cached by last_attached alone — the session count changes
             # while the cursor rests here (a session added or deleted), so
             # redraw on a cadence rather than once.
-            if [[ "$last_attached" != "__project_${selected}__" || $((SECONDS % 2)) -eq 0 ]]; then
+            if [[ "$last_attached" != "__project_${selected}__" ]] || ((SECONDS - last_card_at >= 2)); then
                 show_project_card "${selected#dir:}"
                 last_attached="__project_${selected}__"
+                last_card_at=$SECONDS
             fi
         elif ! session_tmux has-session -t "$selected" 2>/dev/null; then
             # Session doesn't exist in tmux - check if dormant

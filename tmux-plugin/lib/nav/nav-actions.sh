@@ -90,8 +90,13 @@ new_session_in_project() {
 # D on a project row: remove the project from the list, only when it has no
 # session left. Returns 0 when the row was removed, 1 otherwise.
 remove_project_row() {
-    local dir="$1" n
+    local dir="$1" n reg
+    # Rows on screen are what the person sees; the registry count also
+    # includes dead/lost sessions (listed under "unrecoverable", with no
+    # group), which `tower project rm` counts too — the two must agree.
     n=$(_project_member_count "$dir")
+    reg=$(project_session_count "$dir")
+    ((reg > n)) && n=$reg
     if ((n > 0)); then
         _nav_hint "$n session(s) here — delete them first"
         return 1

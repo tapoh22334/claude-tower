@@ -53,7 +53,8 @@ _nav() {
 
 @test "registry: the file is written with tmp+mv and does not collide with *.meta" {
     register_project "$P1"
-    [ -z "$(ls "$TOWER_METADATA_DIR" | grep -v '^projects.list$')" ]
+    # only the list and its lock file; no temp file left behind
+    [ -z "$(ls "$TOWER_METADATA_DIR" | grep -v '^projects.list$' | grep -v '^projects.list.lock$')" ]
     [[ "$(list_metadata)" == "" ]]
 }
 
@@ -343,4 +344,70 @@ _stub_build() {
 @test "project rm: help lists it" {
     run "$T" help
     [[ "$output" == *"project rm"* ]]
+}
+
+# --- review follow-ups --------------------------------------------------------
+
+@test "redirect: a dir: selection never reaches has-session (tmux would prefix-match a session named dir*)" {
+    set_nav_selected "dir:"
+    calls=""
+    session_tmux() { calls+="$1 "; [[ "$1" == has-session ]] && return 0; return 0; }
+    nav_tmux() { [[ "$1" == display-message ]] && echo /dev/pts/99; return 0; }
+    nav_redirect_view
+    [[ "$calls" != *"has-session"* ]]
+    [[ "$calls" != *"switch-client"* ]]
+    [[ "$calls" == *"detach-client"* ]]
+}
+
+@test "project rm: clears the Navigator selection when it pointed at the removed project" {
+    register_project "$P1"
+    set_nav_selected "dir:$(cd "$P1" && pwd -P)"
+    run --separate-stderr env -u TMUX -u TMUX_PANE "$T" project rm "$P1"
+    [ "$status" -eq 0 ]
+    [ -z "$(get_nav_selected)" ]
+    # another selection is left alone
+    register_project "$P2"
+    set_nav_selected "tower_11111111-0000-4000-8000-000000000001"
+    run --separate-stderr env -u TMUX -u TMUX_PANE "$T" project rm "$P2"
+    [ "$(get_nav_selected)" = "tower_11111111-0000-4000-8000-000000000001" ]
+}
+
+@test "resync: an unlisted dir: selection is written back to the cursor row, not rebuilt forever" {
+    local src="$PROJECT_ROOT/tmux-plugin/lib/nav/nav-loop.sh"
+    grep -q 'elif _row_is_project "\$synced"; then' "$src"
+    grep -A6 'elif _row_is_project "\$synced"; then' "$src" | grep -q 'set_nav_selected "\${SESSION_IDS\[\$selected_index\]}"'
+}
+
+@test "keys: D on a header refuses when only dead sessions (registry) remain, matching project rm" {
+    _nav
+    _return_from_subflow() { :; }
+    sleep() { :; }
+    register_project "$P1"
+    local a
+    a=$(cd "$P1" && pwd -P)
+    save_metadata "tower_dddddddd-0000-4000-8000-00000000000d" "" "$a"
+    SESSION_IDS=("dir:$a" tower_dddddddd-0000-4000-8000-00000000000d)
+    SESSION_DISPLAYS=("alpha ───" "dead")
+    SESSION_DIRS=("$a" "")
+    SESSION_HEADERS=("" "")
+    BROKEN_START=1
+    run handle_project_key D "$a" 0
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"1 session"* ]]
+    project_registered "$a"
+}
+
+@test "registry: concurrent registrations do not lose entries" {
+    local i
+    for i in 1 2 3 4 5 6; do mkdir -p "$BATS_TEST_TMPDIR/c/p$i"; done
+    for i in 1 2 3 4 5 6; do register_project "$BATS_TEST_TMPDIR/c/p$i" & done
+    wait
+    [ "$(list_projects | wc -l)" -eq 6 ]
+    [ -z "$(ls "$TOWER_METADATA_DIR" | grep 'projects.list\.' | grep -v lock)" ]
+}
+
+@test "view: the card redraws on a timer without clear, and the loop tracks last_card_at" {
+    local v="$PROJECT_ROOT/tmux-plugin/scripts/navigator-view.sh"
+    ! sed -n '/^show_project_card() {/,/^}/p' "$v" | grep -q '^    clear$'
+    grep -q 'SECONDS - last_card_at >= 2' "$v"
 }

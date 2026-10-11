@@ -1,0 +1,104 @@
+{
+ "run": "20261011-191220",
+ "runner": "bats tests/e2e/test_acceptance_002.bats",
+ "scenarios": [
+  {
+   "name": "プロジェクトのセッションを全部消しても見出しが残る",
+   "status": "pass",
+   "requirements": [
+    "REQ-002-001",
+    "REQ-002-002",
+    "REQ-002-003",
+    "REQ-002-004"
+   ],
+   "userflow": "UF-002-001"
+  },
+  {
+   "name": "台帳が無い初回は現在のプロジェクトで初期化され、壊れた行は無視される",
+   "status": "pass",
+   "requirements": [
+    "REQ-002-005",
+    "REQ-002-024"
+   ],
+   "userflow": "UF-002-001"
+  },
+  {
+   "name": "j/k で見出しにカーソルが止まり selected に dir: が書かれる",
+   "status": "pass",
+   "requirements": [
+    "REQ-002-006",
+    "REQ-002-007",
+    "REQ-002-010"
+   ],
+   "userflow": "UF-002-002"
+  },
+  {
+   "name": "見出しを選ぶと右 pane がプロジェクトのカードを描く",
+   "status": "pass",
+   "requirements": [
+    "REQ-002-008"
+   ],
+   "userflow": "UF-002-002"
+  },
+  {
+   "name": "selected が dir: でも他の view と CLI は落ちない",
+   "status": "pass",
+   "requirements": [
+    "REQ-002-009"
+   ],
+   "userflow": "UF-002-002"
+  },
+  {
+   "name": "見出しだけの一覧や空の一覧でも操作で落ちない",
+   "status": "pass",
+   "requirements": [
+    "REQ-002-025"
+   ],
+   "userflow": "UF-002-002"
+  },
+  {
+   "name": "見出しで n を押すとそのプロジェクトで新セッションが見出し直下に現れて選ばれる",
+   "status": "pass",
+   "requirements": [
+    "REQ-002-011"
+   ],
+   "userflow": "UF-002-003"
+  },
+  {
+   "name": "ディレクトリが消えた見出しで n を押しても失敗してセッションを作らない",
+   "status": "pass",
+   "requirements": [
+    "REQ-002-023"
+   ],
+   "userflow": "UF-002-003"
+  },
+  {
+   "name": "見出しでの D はセッション 0 なら台帳から外し、あれば断る",
+   "status": "pass",
+   "requirements": [
+    "REQ-002-012",
+    "REQ-002-020"
+   ],
+   "userflow": "UF-002-004"
+  },
+  {
+   "name": "tower project rm はセッション 0 のときだけ台帳から外し help に載っている",
+   "status": "pass",
+   "requirements": [
+    "REQ-002-014",
+    "REQ-002-015",
+    "REQ-002-021",
+    "REQ-002-022"
+   ],
+   "userflow": "UF-002-004"
+  },
+  {
+   "name": "見出しで i r t w を押しても何も変わらずヒントが出る",
+   "status": "pass",
+   "requirements": [
+    "REQ-002-013"
+   ],
+   "userflow": "UF-002-005"
+  }
+ ]
+}
