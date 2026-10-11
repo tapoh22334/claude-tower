@@ -992,6 +992,114 @@ delete_metadata() {
     rm -f "${TOWER_METADATA_DIR}/${session_id}.prompt" 2>/dev/null || true
 }
 
+# ----------------------------------------------------------------------------
+# Project registry (value/002-project-rows)
+#
+# The Navigator's groups used to be derived from sessions alone, so a project
+# vanished from the list with its last session. The registry remembers the
+# directories a session was ever started in; a group with zero sessions stays
+# listed as a header row. One canonical absolute path per line. Written with
+# tmp+mv like the metadata files, so a rebuild never reads a half file.
+# ----------------------------------------------------------------------------
+TOWER_PROJECTS_FILE="${TOWER_METADATA_DIR}/projects.list"
+
+# Canonical form of a directory path: absolute, symlinks resolved when it
+# exists, no trailing slash. Prints nothing and fails for a relative path.
+canon_project_dir() {
+    local d="${1:-}"
+    d="${d/#\~/$HOME}"
+    [[ "$d" == /* ]] || return 1
+    if [[ -d "$d" ]]; then
+        d=$(cd -- "$d" 2>/dev/null && pwd -P) || return 1
+    fi
+    d="${d%/}"
+    [[ -z "$d" ]] && d="/"
+    echo "$d"
+}
+
+# Registered project directories, one per line, in file order. Blank and
+# relative lines are skipped (a hand-edited file must not take the list down).
+list_projects() {
+    [[ -f "$TOWER_PROJECTS_FILE" ]] || return 0
+    local line
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        [[ "$line" == /* ]] || continue
+        echo "$line"
+    done <"$TOWER_PROJECTS_FILE"
+}
+
+project_registered() {
+    local want all
+    want=$(canon_project_dir "$1") || return 1
+    # Not `list_projects | grep -q`: grep -q exits on the first match, the
+    # writer gets SIGPIPE on the next line, and under pipefail the pipeline
+    # then fails at random (it did, in bats, timing-dependent).
+    all=$(list_projects)
+    grep -qxF -- "$want" <<<"$all"
+}
+
+# register_project DIR — add DIR (canonical) unless present. Not an error to
+# register twice; callers register on every session start.
+register_project() {
+    local d
+    d=$(canon_project_dir "$1") || return 1
+    ensure_metadata_dir
+    project_registered "$d" && return 0
+    local tmp="${TOWER_PROJECTS_FILE}.$$"
+    if { list_projects; echo "$d"; } >"$tmp" 2>/dev/null && mv -f "$tmp" "$TOWER_PROJECTS_FILE"; then
+        return 0
+    fi
+    rm -f "$tmp" 2>/dev/null
+    return 1
+}
+
+# unregister_project DIR — remove DIR. Fails (1) when it was not registered.
+unregister_project() {
+    local d
+    d=$(canon_project_dir "$1") || return 1
+    project_registered "$d" || return 1
+    local tmp="${TOWER_PROJECTS_FILE}.$$"
+    if list_projects | grep -vxF -- "$d" >"$tmp" 2>/dev/null || [[ ! -s "$tmp" ]]; then
+        if mv -f "$tmp" "$TOWER_PROJECTS_FILE"; then
+            return 0
+        fi
+    fi
+    rm -f "$tmp" 2>/dev/null
+    return 1
+}
+
+# Project dir of a registered session ("" when unknown): the transcript's cwd
+# is the authority, with the launch_dir recorded at registration as the
+# fallback for the first seconds before a transcript exists. nav-build's
+# _session_dir is this (it wraps it so the META_* globals stay local there).
+session_project_dir() {
+    local session_id="$1" jsonl cwd="" claude_id
+    claude_id=$(live_claude_id "$session_id")
+    local META_SESSION_NAME="" META_CREATED_AT="" META_LAUNCH_DIR="" META_LIVE_ID=""
+    if jsonl=$(find_session_jsonl "$claude_id" 2>/dev/null); then
+        cwd=$(get_session_cwd "$jsonl" 2>/dev/null) || cwd=""
+    fi
+    if [[ -z "$cwd" ]] && load_metadata "$session_id" 2>/dev/null; then
+        cwd="$META_LAUNCH_DIR"
+    fi
+    [[ -n "$cwd" ]] && cwd=$(canon_project_dir "$cwd" 2>/dev/null || echo "$cwd")
+    echo "$cwd"
+}
+
+# Number of registered sessions whose project dir is DIR.
+project_session_count() {
+    local want n=0 id
+    want=$(canon_project_dir "$1") || {
+        echo 0
+        return 0
+    }
+    while IFS= read -r id; do
+        [[ -n "$id" ]] || continue
+        [[ "$(session_project_dir "$id")" == "$want" ]] && n=$((n + 1))
+    done < <(list_metadata)
+    echo "$n"
+}
+
 # Set (or with an empty name, remove) the Navigator display name of a
 # registered session: the session_name= line in its metadata. Rewrites only
 # that line, atomically, for the same reason record_live_id does -- the
@@ -1507,6 +1615,9 @@ start_claude_session() {
         handle_error "Failed to create tmux session"
         return 1
     fi
+
+    # The project is remembered from here on, with or without sessions.
+    register_project "$working_dir" || true
 
     _wait_for_shell_ready "$session_id"
     session_tmux send-keys -t "$session_id" C-l

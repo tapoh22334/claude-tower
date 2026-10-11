@@ -128,6 +128,16 @@ session id is the only thing on stdout. `open` and `project new` move the
 Navigator's selection to the new session and leave the one you are in alone.
 To make the skill available: `ln -s "$PWD/skills/tower" ~/.claude/skills/tower`.
 
+### Projects
+
+A project is listed as long as it is in the registry
+(`~/.claude-tower/metadata/projects.list`), which every session start fills
+in for you; deleting a project's last session leaves its header in place.
+The header is a row: `j`/`k` stop on it, the right pane shows the project
+(directory, branch, session count), `n`/`Enter`/`f` start a session there,
+and `D` drops an empty project from the list (`tower project rm <dir>` does
+the same from a shell). The directory itself is never touched.
+
 `tower` lives at `tmux-plugin/scripts/tower`. Removing a session only drops
 Tower's registry entry — the transcript survives, so `n` can re-add it.
 

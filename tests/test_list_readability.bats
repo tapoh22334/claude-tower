@@ -207,7 +207,8 @@ _run_nav() {
         is_session_unread() { return 1; }
         count_unregistered_processes_in_dir() { echo 0; }
         build_session_list
-        printf "%s\n" "${SESSION_HEADERS[0]}"
+        # The header is the project row (row 0) of the group now.
+        printf "%s\n" "${SESSION_DISPLAYS[0]}"
     '
     [ "$status" -eq 0 ]
     [[ "$output" == *"alpha"* ]]
@@ -237,9 +238,10 @@ _run_nav() {
         printf "%s\n" "${SESSION_DIRS[@]}"
     '
     [ "$status" -eq 0 ]
+    # Each group is a header row plus its session row, so every dir twice.
     [ "${lines[0]}" = "/proj/alpha" ]
-    [ "${lines[1]}" = "/proj/mike" ]
-    [ "${lines[2]}" = "/proj/zulu" ]
+    [ "${lines[2]}" = "/proj/mike" ]
+    [ "${lines[4]}" = "/proj/zulu" ]
 }
 
 @test "build_session_list: the unknown-dir group sinks below the named projects" {
@@ -264,6 +266,6 @@ _run_nav() {
     '
     [ "$status" -eq 0 ]
     [ "${lines[0]}" = "/proj/alpha" ]
-    [ "${lines[1]}" = "/proj/zulu" ]
-    [ "${#lines[@]}" -eq 2 ]  # the empty third dir prints as a blank line
+    [ "${lines[2]}" = "/proj/zulu" ]
+    [ "${#lines[@]}" -eq 4 ]  # the unknown group's two dirs print as blank lines
 }

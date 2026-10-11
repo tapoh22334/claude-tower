@@ -46,7 +46,7 @@ _run_nav() {
         list_all_sessions() { echo "tower_x:active"; }
         is_session_unread() { return 0; }
         build_session_list
-        printf "%s\n" "${SESSION_DISPLAYS[0]}" | sed -E "s/\x1b\[[0-9;?]*[a-zA-Z]//g"
+        printf "%s\n" "${SESSION_DISPLAYS[1]}" | sed -E "s/\x1b\[[0-9;?]*[a-zA-Z]//g"
     '
     [ "$status" -eq 0 ]
     [[ "$output" == *"✱ t-x"* ]]
@@ -70,7 +70,7 @@ _run_nav() {
         find_session_jsonl() { echo /dev/null; }
         count_active_subagents() { echo 0; }
         build_session_list
-        printf "%s\n" "${SESSION_DISPLAYS[0]}"
+        printf "%s\n" "${SESSION_DISPLAYS[1]}"
     '
     [ "$status" -eq 0 ]
     # Busy stays the spinner placeholder, not the ✱ state.
@@ -84,7 +84,7 @@ _run_nav() {
         find_session_jsonl() { echo /dev/null; }
         count_active_subagents() { echo 3; }
         build_session_list
-        printf "%s\n" "${SESSION_DISPLAYS[0]}" | sed -E "s/\x1b\[[0-9;?]*[a-zA-Z]//g"
+        printf "%s\n" "${SESSION_DISPLAYS[1]}" | sed -E "s/\x1b\[[0-9;?]*[a-zA-Z]//g"
     '
     [ "$status" -eq 0 ]
     [[ "$output" == *"⚙3"* ]]

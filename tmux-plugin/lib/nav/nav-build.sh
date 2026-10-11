@@ -67,19 +67,31 @@ _session_label() {
 # dir recorded at registration, and only for as long as the transcript has
 # nothing to say.
 _session_dir() {
-    local session_id="$1" jsonl cwd="" claude_id
-    claude_id=$(live_claude_id "$session_id")
-    # `local` on the META_* names: load_metadata assigns them unconditionally,
-    # and this runs mid-loop in build_session_list, so leaking them would let
-    # one row's directory lookup overwrite another row's loaded name.
-    local META_SESSION_NAME="" META_CREATED_AT="" META_LAUNCH_DIR=""
-    if jsonl=$(find_session_jsonl "$claude_id" 2>/dev/null); then
-        cwd=$(get_session_cwd "$jsonl" 2>/dev/null) || cwd=""
-    fi
-    if [[ -z "$cwd" ]] && load_metadata "$session_id" 2>/dev/null; then
-        cwd="$META_LAUNCH_DIR"
-    fi
-    echo "$cwd"
+    session_project_dir "$1"
+}
+
+# ----------------------------------------------------------------------------
+# Project rows (value/002-project-rows)
+#
+# A project's header is a row of its own: id "dir:<path>", display = the
+# header text, SESSION_DIRS = the path. It exists for every registered
+# project, with or without sessions, so the cursor can rest on it and a
+# project does not vanish with its last session. SESSION_HEADERS is kept
+# for the cache format but is always "" now.
+# ----------------------------------------------------------------------------
+_row_is_project() { [[ "${1:-}" == dir:* ]]; }
+_row_project_dir() { printf '%s' "${1#dir:}"; }
+_project_row_id() { printf 'dir:%s' "$1"; }
+
+# Sessions currently listed under project dir $1 (live rows only).
+_project_member_count() {
+    local d="$1" i n=0
+    for ((i = 0; i < ${#SESSION_IDS[@]}; i++)); do
+        [[ "${SESSION_DIRS[$i]}" == "$d" ]] || continue
+        _row_is_project "${SESSION_IDS[$i]}" && continue
+        n=$((n + 1))
+    done
+    echo "$n"
 }
 
 # Build session list: normal states first, broken (dead/lost) last.
@@ -203,19 +215,41 @@ build_session_list() {
 
     # Regroup by project dir: groups sorted by project name so the order is
     # stable across refreshes, with the unknown-dir group pinned last; rows
-    # within a group by id. Headers are precomputed here so spinner ticks can
-    # re-render without touching the process table.
+    # within a group by id. Each group starts with its header row.
+    #
+    # The groups are the union of the dirs the sessions are in and the
+    # project registry, so a registered project with no session still gets
+    # its header row. A missing registry (first run after the upgrade) is
+    # seeded from the sessions on screen, so no group disappears on upgrade.
     local -a dirs_seen=()
     local d seen_d found i j header extern
-    for ((i = 0; i < ${#raw_ids[@]}; i++)); do
-        d="${raw_dirs[$i]}"
+    if [[ ! -f "$TOWER_PROJECTS_FILE" ]]; then
+        for ((i = 0; i < ${#raw_ids[@]}; i++)); do
+            if [[ -n "${raw_dirs[$i]}" ]]; then
+                register_project "${raw_dirs[$i]}" 2>/dev/null || true
+            fi
+        done
+    fi
+    # "${a[@]+"${a[@]}"}" rather than "${a[@]:-}": the latter yields one ""
+    # element for an empty array, which matched the unknown dir "" and
+    # dropped a session with no known dir when it was the first raw row.
+    for d in "${raw_dirs[@]+"${raw_dirs[@]}"}"; do
         found=0
-        for seen_d in "${dirs_seen[@]:-}"; do
+        for seen_d in "${dirs_seen[@]+"${dirs_seen[@]}"}"; do
             if [[ "$seen_d" == "$d" ]]; then found=1; fi
         done
         if [[ $found -eq 1 ]]; then continue; fi
         dirs_seen+=("$d")
     done
+    while IFS= read -r d; do
+        [[ -n "$d" ]] || continue
+        found=0
+        for seen_d in "${dirs_seen[@]+"${dirs_seen[@]}"}"; do
+            if [[ "$seen_d" == "$d" ]]; then found=1; fi
+        done
+        if [[ $found -eq 1 ]]; then continue; fi
+        dirs_seen+=("$d")
+    done < <(list_projects)
 
     # Groups are ordered by _group_sort_key: unknown last, then project name,
     # ties broken by the full path so two same-named projects stay apart.
@@ -233,6 +267,12 @@ build_session_list() {
         extern=$(count_unregistered_processes_in_dir "$d" "$live_procs")
         header=$(_compose_group_header "$d" "$extern")
 
+        # The header row first.
+        SESSION_IDS+=("$(_project_row_id "$d")")
+        SESSION_DISPLAYS+=("$header")
+        SESSION_DIRS+=("$d")
+        SESSION_HEADERS+=("")
+
         # Rows inside a group are ordered by id (strcmp). list_all_sessions
         # hands us live tmux rows in tmux's name order followed by the
         # dormant .meta-only rows, i.e. two blocks; a row seated optimistically
@@ -243,13 +283,13 @@ build_session_list() {
         for ((j = 0; j < ${#raw_ids[@]}; j++)); do
             [[ "${raw_dirs[$j]}" == "$d" ]] && members+=("${raw_ids[$j]}"$'\t'"$j")
         done
+        [[ ${#members[@]} -gt 0 ]] || continue
         while IFS=$'\t' read -r _ j; do
             [[ -n "$j" ]] || continue
             SESSION_IDS+=("${raw_ids[$j]}")
             SESSION_DISPLAYS+=("${raw_displays[$j]}")
             SESSION_DIRS+=("$d")
-            SESSION_HEADERS+=("$header")
-            header=""
+            SESSION_HEADERS+=("")
         done < <(printf '%s\n' "${members[@]}" | LC_ALL=C sort -t $'\t' -k1,1)
     done
 

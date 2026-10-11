@@ -235,7 +235,16 @@ render_list() {
                 body_idx+=(-1)
             fi
             display="${SESSION_DISPLAYS[$i]//$SPIN_PLACEHOLDER/$spin_frame}"
-            if [[ $i -eq $selected_index ]]; then
+            if _row_is_project "${SESSION_IDS[$i]}"; then
+                # A project row is the group header. Selected, it is shown
+                # in reverse video with its own colours stripped (they would
+                # reset the highlight part-way along the line).
+                if [[ $i -eq $selected_index ]]; then
+                    body_lines+=("${NAV_C_SELECTED}$(_strip_ansi_str "$display")${NAV_C_NORMAL}")
+                else
+                    body_lines+=("$display")
+                fi
+            elif [[ $i -eq $selected_index ]]; then
                 body_lines+=("${NAV_C_SELECTED}  ${display} ${NAV_C_NORMAL}")
             else
                 body_lines+=("  ${display}")

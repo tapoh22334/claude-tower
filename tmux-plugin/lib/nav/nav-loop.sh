@@ -170,6 +170,15 @@ main_loop() {
         nav_read_key key "$TICK_INTERVAL" || read_rc=$?
         [[ $read_rc -eq 2 ]] && exit 0
         if [[ $read_rc -eq 0 ]]; then
+            # A project row has its own meaning for most keys (n/Enter/f
+            # start a session there, D removes the project). Movement and
+            # the global keys fall through to the ordinary handlers.
+            local cur_row="${SESSION_IDS[$selected_index]:-}"
+            if _row_is_project "$cur_row" &&
+                handle_project_key "$key" "$(_row_project_dir "$cur_row")" "$selected_index"; then
+                selected_index=$NAV_NEW_INDEX
+                continue
+            fi
             case "$key" in
                 j | $'\x1b')
                     # Handle arrow keys

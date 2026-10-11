@@ -179,17 +179,11 @@ _run_nav() {
         count_unregistered_processes_in_dir() { echo 0; }
         build_session_list
         printf "ids:%s\n" "${SESSION_IDS[*]}"
-        for h in "${SESSION_HEADERS[@]}"; do printf "hdr:[%s]\n" "$h"; done
     '
     [ "$status" -eq 0 ]
-    # alpha sessions regrouped together, first-appearance group order
-    [[ "$output" == *"ids:tower_a1 tower_a2 tower_b1"* ]]
-    # exactly two non-empty headers: alpha then beta
-    local hdrs
-    hdrs=$(grep -c "hdr:\[.\+\]" <<<"$output" || true)
-    [ "$hdrs" -eq 2 ]
-    [[ "$output" == *"alpha"* ]]
-    [[ "$output" == *"beta"* ]]
+    # Each group is its header row (dir:<path>) followed by its sessions,
+    # alpha sessions regrouped together, groups in name order.
+    [[ "$output" == *"ids:dir:/proj/alpha tower_a1 tower_a2 dir:/proj/beta tower_b1"* ]]
 }
 
 @test "build_session_list: group header carries unmanaged-process badge" {
@@ -202,7 +196,7 @@ _run_nav() {
         is_session_unread() { return 1; }
         count_unregistered_processes_in_dir() { echo 2; }
         build_session_list
-        printf "%s\n" "${SESSION_HEADERS[0]}"
+        printf "%s\n" "${SESSION_DISPLAYS[0]}"
     '
     [ "$status" -eq 0 ]
     [[ "$output" == *"⚡2"* ]]
