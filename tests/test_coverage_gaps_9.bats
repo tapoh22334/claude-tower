@@ -335,8 +335,9 @@ EOF
     build_session_list
 
     # Seen -> stays ▶ active, never promoted to the ✱ newmsg state.
-    [[ "${SESSION_DISPLAYS[0]}" == *"▶"* ]]
-    [[ "${SESSION_DISPLAYS[0]}" != *"✱"* ]]
+    # Row 0 is the project row; the session is row 1.
+    [[ "${SESSION_DISPLAYS[1]}" == *"▶"* ]]
+    [[ "${SESSION_DISPLAYS[1]}" != *"✱"* ]]
 }
 
 # ============================================================================

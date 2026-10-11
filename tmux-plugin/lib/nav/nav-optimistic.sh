@@ -33,17 +33,12 @@ _forget_session_row() {
             removed_at=$i
             continue
         fi
-        # The group header belongs to the row that carries it. Removing that
-        # row would take the whole group's heading with it, so hand it to the
-        # next survivor.
-        local head="${SESSION_HEADERS[$i]}"
-        if ((removed_at == i - 1)) && [[ -z "$head" ]]; then
-            head="${SESSION_HEADERS[$removed_at]}"
-        fi
+        # The group header is a row of its own (dir:<path>), so removing a
+        # session never takes the heading with it; the project stays listed.
         ids+=("${SESSION_IDS[$i]}")
         disp+=("${SESSION_DISPLAYS[$i]}")
         dirs+=("${SESSION_DIRS[$i]}")
-        heads+=("$head")
+        heads+=("${SESSION_HEADERS[$i]}")
         if ((BROKEN_START >= 0 && i == BROKEN_START)); then
             broken=$((${#ids[@]} - 1))
         fi
@@ -124,12 +119,19 @@ _remember_session_row() {
     local live_end=$n
     ((BROKEN_START >= 0)) && live_end=$BROKEN_START
 
-    # Within a group the rebuild keeps list-sessions order, which is tmux's
-    # name order (strcmp on tower_<uuid>) — not creation order. Seat the row
-    # where that order puts it, or it moves inside its group a tick later.
-    local at=-1 header="" in_group=0 placed=0
+    # The group starts with its project row (dir:<path>). Within a group
+    # the rebuild keeps id order (strcmp on tower_<uuid>) — not creation
+    # order — so seat the row where that order puts it among the members,
+    # or it moves inside its group a tick later.
+    local at=-1 in_group=0 placed=0 header_row=-1
     for ((i = 0; i < live_end; i++)); do
         [[ "${SESSION_DIRS[$i]}" == "$dir" ]] || continue
+        if _row_is_project "${SESSION_IDS[$i]}"; then
+            header_row=$i
+            in_group=1
+            at=$((i + 1))
+            continue
+        fi
         in_group=1
         ((placed)) && continue
         if [[ "$id" < "${SESSION_IDS[$i]}" ]]; then
@@ -139,35 +141,42 @@ _remember_session_row() {
             at=$((i + 1))
         fi
     done
-    if ((in_group == 1)) && ((at < live_end)) && [[ "${SESSION_DIRS[$at]}" == "$dir" && -n "${SESSION_HEADERS[$at]}" ]]; then
-        # Taking the group's first seat: the header rides on the first row,
-        # so it moves to the new row and the old first row loses it.
-        header="${SESSION_HEADERS[$at]}"
-        SESSION_HEADERS[at]=""
-    fi
+
+    local -a new_ids=() new_disp=() new_dirs=()
     if ((in_group == 0)); then
-        # No group yet: open one, placed by the same order the rebuild uses.
-        header=$(_compose_group_header "$dir" 0)
+        # No group yet: open one — header row then this row — placed by the
+        # same order the rebuild uses, and remember the project.
+        register_project "$dir" 2>/dev/null || true
         at=$live_end
         for ((i = 0; i < live_end; i++)); do
-            [[ -n "${SESSION_HEADERS[$i]}" ]] || continue
+            _row_is_project "${SESSION_IDS[$i]}" || continue
             if _group_sorts_before "$dir" "${SESSION_DIRS[$i]}"; then
                 at=$i
                 break
             fi
         done
+        new_ids+=("$(_project_row_id "$dir")")
+        new_disp+=("$(_compose_group_header "$dir" 0)")
+        new_dirs+=("$dir")
     fi
+    : "$header_row"
 
     local display
     display=$(_compose_row \
         "${NAV_C_DIM}${ICON_STATE_STARTING}${NAV_C_NORMAL}" \
         "$(_session_label "$id")" \
         "")
+    new_ids+=("$id")
+    new_disp+=("$display")
+    new_dirs+=("$dir")
 
     local -a ids=() disp=() dirs=() heads=()
+    local k
     for ((i = 0; i < n; i++)); do
         if ((i == at)); then
-            ids+=("$id"); disp+=("$display"); dirs+=("$dir"); heads+=("$header")
+            for ((k = 0; k < ${#new_ids[@]}; k++)); do
+                ids+=("${new_ids[$k]}"); disp+=("${new_disp[$k]}"); dirs+=("${new_dirs[$k]}"); heads+=("")
+            done
         fi
         ids+=("${SESSION_IDS[$i]}")
         disp+=("${SESSION_DISPLAYS[$i]}")
@@ -175,14 +184,24 @@ _remember_session_row() {
         heads+=("${SESSION_HEADERS[$i]}")
     done
     if ((at >= n)); then
-        ids+=("$id"); disp+=("$display"); dirs+=("$dir"); heads+=("$header")
+        for ((k = 0; k < ${#new_ids[@]}; k++)); do
+            ids+=("${new_ids[$k]}"); disp+=("${new_disp[$k]}"); dirs+=("${new_dirs[$k]}"); heads+=("")
+        done
     fi
     SESSION_IDS=("${ids[@]}")
     SESSION_DISPLAYS=("${disp[@]}")
     SESSION_DIRS=("${dirs[@]}")
     SESSION_HEADERS=("${heads[@]}")
-    ((BROKEN_START >= 0)) && BROKEN_START=$((BROKEN_START + 1))
+    ((BROKEN_START >= 0)) && BROKEN_START=$((BROKEN_START + ${#new_ids[@]}))
     return 0
+}
+
+# Drop the project row for dir $1 (and nothing else: callers only call this
+# for a project with no listed sessions). No-op if absent.
+_forget_project_row() {
+    local target
+    target=$(_project_row_id "$1")
+    _forget_session_row "$target"
 }
 
 # Re-draw an existing row as "starting" (◐). Restoring a session used to show

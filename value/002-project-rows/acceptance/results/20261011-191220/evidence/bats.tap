@@ -1,0 +1,30 @@
+1..11
+ok 1 プロジェクトのセッションを全部消しても見出しが残る
+ok 2 台帳が無い初回は現在のプロジェクトで初期化され、壊れた行は無視される
+ok 3 j/k で見出しにカーソルが止まり selected に dir: が書かれる
+ok 4 見出しを選ぶと右 pane がプロジェクトのカードを描く
+ok 5 selected が dir: でも他の view と CLI は落ちない
+ok 6 見出しだけの一覧や空の一覧でも操作で落ちない
+ok 7 見出しで n を押すとそのプロジェクトで新セッションが見出し直下に現れて選ばれる
+ok 8 ディレクトリが消えた見出しで n を押しても失敗してセッションを作らない
+ok 9 見出しでの D はセッション 0 なら台帳から外し、あれば断る
+ok 10 tower project rm はセッション 0 のときだけ台帳から外し help に載っている
+ok 11 見出しで i r t w を押しても何も変わらずヒントが出る
+
+The following warnings were encountered during tests:
+BW02: Using flags on `run` requires at least BATS_VERSION=1.5.0. Use `bats_require_minimum_version 1.5.0` to fix this message.
+      (from function `bats_warn_minimum_guaranteed_version' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/warnings.bash, line 32,
+       from function `run' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/test_functions.bash, line 348,
+       in test file tests/e2e/test_acceptance_002.bats, line 136)
+BW02: Using flags on `run` requires at least BATS_VERSION=1.5.0. Use `bats_require_minimum_version 1.5.0` to fix this message.
+      (from function `bats_warn_minimum_guaranteed_version' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/warnings.bash, line 32,
+       from function `run' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/test_functions.bash, line 348,
+       in test file tests/e2e/test_acceptance_002.bats, line 223)
+BW02: Using flags on `run` requires at least BATS_VERSION=1.5.0. Use `bats_require_minimum_version 1.5.0` to fix this message.
+      (from function `bats_warn_minimum_guaranteed_version' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/warnings.bash, line 32,
+       from function `run' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/test_functions.bash, line 348,
+       in test file tests/e2e/test_acceptance_002.bats, line 227)
+BW02: Using flags on `run` requires at least BATS_VERSION=1.5.0. Use `bats_require_minimum_version 1.5.0` to fix this message.
+      (from function `bats_warn_minimum_guaranteed_version' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/warnings.bash, line 32,
+       from function `run' in file /home/linuxbrew/.linuxbrew/Cellar/bats-core/1.13.0/lib/bats-core/test_functions.bash, line 348,
+       in test file tests/e2e/test_acceptance_002.bats, line 231)

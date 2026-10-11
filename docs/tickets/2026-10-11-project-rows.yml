@@ -1,0 +1,65 @@
+repo: tapoh22334/claude-tower
+project:
+  number: 4
+  owner: tapoh22334
+stories:
+  - issue: 74
+    title: Navigator でプロジェクトを行として扱う(空でも残る・見出しにカーソル・見出しから n)
+    body: |
+      ## ユーザーストーリー
+      Navigator を使う iwase として、セッションを全部消してもプロジェクトは一覧に残り、
+      プロジェクトの見出しにカーソルを合わせて `n` でそこに新セッションを始めたい。
+      今は見出しがセッションから導出されるだけなので、空になると消え、カーソルも止まらない。
+
+      設計記録: `value/002-project-rows/`。前提になった機能: #67(tower CLI)。
+
+      ## 受入条件
+      - [ ] プロジェクトのセッションを全部 `D` で消しても、見出しが一覧に残る
+      - [ ] j/k で見出しにカーソルが止まり、右 pane にプロジェクトのカード(ディレクトリ・ブランチ・セッション数)が出る
+      - [ ] 見出しで `n` / `f` / `Enter` → そのディレクトリで新セッションが始まり、その行が選ばれる
+      - [ ] 見出しで `D` → セッション 0 のときだけ台帳から外れる。`tower project rm <dir>` でも同じ
+      - [ ] 受入シナリオ(`value/002-project-rows/acceptance/`)が実 tmux で全通過
+
+      ## 非スコープ
+      プロジェクトの並べ替え・折りたたみ、プロジェクト単位の一括操作、GitHub 連携
+    children:
+      - issue: 75
+        title: プロジェクト台帳を導入し、セッション開始時に登録・削除時に残す
+        body: |
+          ## やること
+          `$TOWER_METADATA_DIR/projects.list`(1 行 1 ディレクトリ、正規化した絶対パス)。
+          `start_claude_session`(mode=new)と `tower open` / `project new` / Navigator の `n` `N` `f` で登録。
+          `D` でセッションを消しても残す。`tower project rm <dir>` と見出しでの `D`(セッション 0 のときだけ)で外す。
+          `build_session_list` は台帳のディレクトリも見出しとして並べる(セッション 0 でも)。
+          既存利用者の移行: 初回は現在のセッションの cwd を台帳に取り込む。
+
+          ## 完了条件
+          - [ ] 台帳の読み書きが原子的で、`list_metadata` のグロブと衝突しない(bats)
+          - [ ] セッション 0 のプロジェクトが一覧に出る(bats、`build_session_list`)
+      - issue: 76
+        title: 見出しを行にしてカーソルが止まり、選択時に右 pane がプロジェクトのカードを出す
+        body: |
+          ## やること
+          見出しを `SESSION_IDS` の行(id `dir:<path>`)として載せ、j/k は行を数えるだけにする。
+          `selected` 状態ファイルに `dir:<path>` が入る第 2 種を認め、view / tile / tail / queue /
+          `nav_redirect_view` が `tower_` 以外を安全に扱う(view は nested client を外してカードを描く)。
+          楽観編集(`_remember_session_row`、削除の doomed 行)が見出し行の存在を前提に動く。
+          キャッシュの直列化に行の種類を含める。
+
+          ## 完了条件
+          - [ ] j/k で見出しに止まり、`selected` に `dir:` が書かれる(bats)
+          - [ ] view がカード(ディレクトリ・git ブランチ・セッション数・`n` のヒント)を描く(bats、実 tmux)
+          - [ ] 他の view が `dir:` 選択で落ちない(bats)
+      - issue: 77
+        title: 見出しでのキー操作(n / f / Enter で新セッション、D で台帳から外す)と tower project rm
+        body: |
+          ## やること
+          見出し行での `n` `f` `Enter` → `open_session_in_dir <dir>`(#67 の経路)。新行を楽観的に見出し直下に座らせ選択を移す。
+          見出し行での `D` → セッションがあれば断る文言、0 なら確認して台帳から外す。
+          `i` `r` `t` `w` は見出しでは無視して 1 行のヒントを出す。
+          `tower project rm <dir>`(非対話、セッションがあれば exit 1)。help と README を更新。
+
+          ## 完了条件
+          - [ ] 見出しで n → そのディレクトリの新セッションが見出し直下に出て選ばれる(実 tmux)
+          - [ ] 見出しで D → 0 セッションなら消え、あれば残る(実 tmux)
+          - [ ] `tower project rm` の正常系・異常系(bats)

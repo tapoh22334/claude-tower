@@ -114,7 +114,7 @@ _visible_width() {
         is_session_unread() { return 1; }
         count_unregistered_processes_in_dir() { echo 0; }
         build_session_list
-        printf "%s" "${SESSION_HEADERS[0]}" | sed -E "s/\x1b\[[0-9;?]*[a-zA-Z]//g" | LC_ALL=C wc -c
+        printf "%s" "${SESSION_DISPLAYS[0]}" | sed -E "s/\x1b\[[0-9;?]*[a-zA-Z]//g" | LC_ALL=C wc -c
     '
     [ "$status" -eq 0 ]
     # "alpha" (5) + space + rule, capped at the 80-cell content width, not

@@ -52,6 +52,108 @@ add_session_inline() {
     fi
 }
 
+# ----------------------------------------------------------------------------
+# Project rows (value/002-project-rows)
+# ----------------------------------------------------------------------------
+
+# One line under the list, held long enough to read, for a key that does not
+# apply where the cursor is. The next frame paints over it.
+_nav_hint() {
+    echo ""
+    echo "  ${NAV_C_DIM}$1${NAV_C_NORMAL}"
+    sleep 0.8
+}
+
+# Start a new session in project dir $1 (n / Enter / f on a project row).
+# Seats the row under its header and selects it. Returns 0 even when it
+# could not (the hint is the report), so the loop never dies on it.
+new_session_in_project() {
+    local dir="$1" new_id
+    if [[ -z "$dir" ]]; then
+        _nav_hint "No directory known for this group"
+        return 0
+    fi
+    if [[ ! -d "$dir" ]]; then
+        _nav_hint "Directory not found: $dir (D removes it from the list)"
+        return 0
+    fi
+    clear
+    new_id=$("$SCRIPT_DIR/session-add.sh" --fork-dir "$dir" --print-id 2>>"$(_subflow_tty)") || return 0
+    if [[ -n "$new_id" ]]; then
+        set_nav_selected "$new_id"
+        signal_view_update
+        _remember_session_row "$new_id" "$dir" || true
+    fi
+    return 0
+}
+
+# D on a project row: remove the project from the list, only when it has no
+# session left. Returns 0 when the row was removed, 1 otherwise.
+remove_project_row() {
+    local dir="$1" n reg
+    # Rows on screen are what the person sees; the registry count also
+    # includes dead/lost sessions (listed under "unrecoverable", with no
+    # group), which `tower project rm` counts too — the two must agree.
+    n=$(_project_member_count "$dir")
+    reg=$(project_session_count "$dir")
+    ((reg > n)) && n=$reg
+    if ((n > 0)); then
+        _nav_hint "$n session(s) here — delete them first"
+        return 1
+    fi
+    local term_height dname
+    term_height=$(_term_lines)
+    dname="${dir%/}"
+    dname="${dname##*/}"
+    tput cup "$((term_height - 5))" 0 2>/dev/null || true
+    echo -e "${NAV_C_HEADER}┌─ Remove Project ────────┐${NAV_C_NORMAL}"
+    echo -e "│ Project: ${NAV_C_ACCENT}${dname}${NAV_C_NORMAL}"
+    echo -e "│ ${NAV_C_DIM}(the directory is untouched)${NAV_C_NORMAL}"
+    printf "│ Remove from list? [y/n]: "
+    local confirm=""
+    if ! read -rsn1 -t 10 confirm || [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+        echo ""
+        echo -e "│ ${NAV_C_DIM}Cancelled${NAV_C_NORMAL}"
+        echo -e "${NAV_C_HEADER}└─────────────────────────┘${NAV_C_NORMAL}"
+        sleep 0.4
+        return 1
+    fi
+    echo ""
+    echo -e "${NAV_C_HEADER}└─────────────────────────┘${NAV_C_NORMAL}"
+    unregister_project "$dir" 2>/dev/null || true
+    _forget_project_row "$dir" || true
+    return 0
+}
+
+# Keys pressed while the cursor is on a project row. $1 key, $2 dir,
+# $3 current index. Returns 0 when the key was consumed (NAV_NEW_INDEX holds
+# the cursor), 1 when the ordinary handler should run (j/k/g/G/N/?/q...).
+handle_project_key() {
+    local key="$1" dir="$2" index="$3"
+    NAV_NEW_INDEX="$index"
+    case "$key" in
+        '' | n | f)
+            new_session_in_project "$dir"
+            _return_from_subflow
+            _settle_after_change "$(get_selection_index)" >/dev/null
+            ;;
+        D)
+            if remove_project_row "$dir"; then
+                _settle_after_change "$index" >/dev/null
+            fi
+            _return_from_subflow
+            ;;
+        i | r | t | w | $'\t')
+            _nav_hint "Project row: n/Enter start a session here, D remove from list"
+            _return_from_subflow
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+    return 0
+}
+
 # Fork here: start a brand-new session in the selected session's project
 # dir, no prompts. The new session is registered and selected.
 fork_session_here() {

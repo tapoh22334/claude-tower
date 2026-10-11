@@ -38,6 +38,9 @@ TOWER="${CLAUDE_TOWER_DIR:-$HOME/.tmux/plugins/claude-tower/tmux-plugin}/scripts
   ので聞いてよい)。
 - `project new` の親は既定で `~/working`。別の場所は `--in <parent>`。GitHub 上の
   リポジトリは作らない(利用者が `gh repo create` する)。
+- プロジェクトはセッションが 0 でも Navigator に残る。「foo を一覧から外して」は
+  `$TOWER project rm <dir>`(セッションが残っていれば exit 1 で断られる。
+  ディレクトリは消えない)。
 
 ## 引き継ぎ要約の型(open / project new の `--prompt`)
 

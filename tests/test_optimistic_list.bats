@@ -19,10 +19,13 @@ setup() {
 
     # declare -g: bats runs setup() as a function, so a plain assignment here
     # would be local to it and the arrays would read as unset in the test.
-    declare -ga SESSION_IDS=(tower_a tower_b tower_c tower_d)
-    declare -ga SESSION_DISPLAYS=("row a" "row b" "row c" "row d")
-    declare -ga SESSION_DIRS=(/p/one /p/one /p/two /p/two)
-    declare -ga SESSION_HEADERS=("one ───" "" "two ───" "")
+    # Every group starts with its project row (dir:<path>) whose display is
+    # the header text (value/002-project-rows); SESSION_HEADERS is kept for
+    # the cache format and is always "".
+    declare -ga SESSION_IDS=(dir:/p/one tower_a tower_b dir:/p/two tower_c tower_d)
+    declare -ga SESSION_DISPLAYS=("one ───" "row a" "row b" "two ───" "row c" "row d")
+    declare -ga SESSION_DIRS=(/p/one /p/one /p/one /p/two /p/two /p/two)
+    declare -ga SESSION_HEADERS=("" "" "" "" "" "")
     declare -g BROKEN_START=-1
 }
 
@@ -35,10 +38,11 @@ teardown() {
 _lengths() {
     echo "${#SESSION_IDS[@]} ${#SESSION_DISPLAYS[@]} ${#SESSION_DIRS[@]} ${#SESSION_HEADERS[@]}"
 }
+_ids() { printf '%s ' "${SESSION_IDS[@]}"; }
 
 @test "forget row: removes exactly the named session" {
     _forget_session_row tower_b
-    [ "${#SESSION_IDS[@]}" -eq 3 ]
+    [ "${#SESSION_IDS[@]}" -eq 5 ]
     [[ " ${SESSION_IDS[*]} " != *" tower_b "* ]]
     [[ " ${SESSION_IDS[*]} " == *" tower_a "* ]]
     [[ " ${SESSION_IDS[*]} " == *" tower_d "* ]]
@@ -46,7 +50,7 @@ _lengths() {
 
 @test "forget row: the four arrays stay the same length" {
     _forget_session_row tower_c
-    [ "$(_lengths)" = "3 3 3 3" ]
+    [ "$(_lengths)" = "5 5 5 5" ]
 }
 
 @test "forget row: rows keep their own display and directory" {
@@ -61,50 +65,57 @@ _lengths() {
     done
 }
 
-@test "forget row: deleting a group's first row hands the header to the next" {
-    # tower_c carries "two ───" for the group tower_c/tower_d share. Removing
-    # it must not take the group's heading off the screen.
+@test "forget row: deleting a group's first session keeps the group's header row" {
+    # The header is a row of its own, so removing tower_c leaves "two ───"
+    # right above tower_d.
     _forget_session_row tower_c
-    local i seen=""
-    for ((i = 0; i < ${#SESSION_IDS[@]}; i++)); do
-        [ "${SESSION_IDS[$i]}" = "tower_d" ] && seen="${SESSION_HEADERS[$i]}"
-    done
-    [ "$seen" = "two ───" ]
+    [ "$(_ids)" = "dir:/p/one tower_a tower_b dir:/p/two tower_d " ]
+    [ "${SESSION_DISPLAYS[3]}" = "two ───" ]
 }
 
 @test "forget row: deleting a non-first row leaves headers alone" {
     _forget_session_row tower_d
-    [ "${SESSION_HEADERS[0]}" = "one ───" ]
-    [ "${SESSION_HEADERS[2]}" = "two ───" ]
+    [ "${SESSION_DISPLAYS[0]}" = "one ───" ]
+    [ "${SESSION_DISPLAYS[3]}" = "two ───" ]
 }
 
 @test "forget row: an unknown id changes nothing and reports failure" {
     run _forget_session_row tower_nope
     [ "$status" -ne 0 ]
-    [ "${#SESSION_IDS[@]}" -eq 4 ]
+    [ "${#SESSION_IDS[@]}" -eq 6 ]
 }
 
 @test "forget row: BROKEN_START follows the rows it points at" {
-    declare -g BROKEN_START=2   # tower_c is the first broken row
+    declare -g BROKEN_START=4   # tower_c is the first broken row
     _forget_session_row tower_a
     [ "${SESSION_IDS[$BROKEN_START]}" = "tower_c" ]
 }
 
-@test "forget row: removing the last remaining row empties the list" {
-    declare -ga SESSION_IDS=(tower_only)
-    declare -ga SESSION_DISPLAYS=("only")
-    declare -ga SESSION_DIRS=(/p)
-    declare -ga SESSION_HEADERS=("p ───")
+@test "forget row: removing a group's last session leaves its header row (the project stays listed)" {
+    declare -ga SESSION_IDS=(dir:/p tower_only)
+    declare -ga SESSION_DISPLAYS=("p ───" "only")
+    declare -ga SESSION_DIRS=(/p /p)
+    declare -ga SESSION_HEADERS=("" "")
     _forget_session_row tower_only
+    [ "${#SESSION_IDS[@]}" -eq 1 ]
+    [ "${SESSION_IDS[0]}" = "dir:/p" ]
+}
+
+@test "forget project row: removes the header row of an empty project" {
+    declare -ga SESSION_IDS=(dir:/p)
+    declare -ga SESSION_DISPLAYS=("p ───")
+    declare -ga SESSION_DIRS=(/p)
+    declare -ga SESSION_HEADERS=("")
+    _forget_project_row /p
     [ "${#SESSION_IDS[@]}" -eq 0 ]
 }
 
 @test "settle: clamps the cursor into the shortened list" {
     set_nav_selected tower_d
     _forget_session_row tower_d
-    run _settle_after_change 3
+    run _settle_after_change 5
     [ "$status" -eq 0 ]
-    [ "$output" -le 2 ]
+    [ "$output" -le 4 ]
 }
 
 @test "settle: an empty list clears the selection rather than indexing it" {
@@ -125,27 +136,27 @@ _lengths() {
 
 @test "mark deleting: replaces the row's display, keeps it in the list" {
     _mark_session_deleting tower_b
-    [ "${#SESSION_IDS[@]}" -eq 4 ]
-    [ "${SESSION_IDS[1]}" = "tower_b" ]
-    [ "${SESSION_DISPLAYS[1]}" != "row b" ]
+    [ "${#SESSION_IDS[@]}" -eq 6 ]
+    [ "${SESSION_IDS[2]}" = "tower_b" ]
+    [ "${SESSION_DISPLAYS[2]}" != "row b" ]
 }
 
 @test "mark deleting: the four arrays stay the same length" {
     _mark_session_deleting tower_c
-    [ "$(_lengths)" = "4 4 4 4" ]
+    [ "$(_lengths)" = "6 6 6 6" ]
 }
 
 @test "mark deleting: leaves the row's directory and header alone" {
     _mark_session_deleting tower_c
-    [ "${SESSION_DIRS[2]}" = "/p/two" ]
-    [ "${SESSION_HEADERS[2]}" = "two ───" ]
+    [ "${SESSION_DIRS[4]}" = "/p/two" ]
+    [ "${SESSION_DISPLAYS[3]}" = "two ───" ]
 }
 
 @test "mark deleting: other rows are untouched" {
     _mark_session_deleting tower_b
-    [ "${SESSION_DISPLAYS[0]}" = "row a" ]
-    [ "${SESSION_DISPLAYS[2]}" = "row c" ]
-    [ "${SESSION_DISPLAYS[3]}" = "row d" ]
+    [ "${SESSION_DISPLAYS[1]}" = "row a" ]
+    [ "${SESSION_DISPLAYS[4]}" = "row c" ]
+    [ "${SESSION_DISPLAYS[5]}" = "row d" ]
 }
 
 @test "mark deleting: an unknown id changes nothing and reports failure" {
@@ -161,8 +172,8 @@ _lengths() {
 @test "mark deleting: a failed delete can restore the original row" {
     _mark_session_deleting tower_b
     _restore_session_row tower_b "$MARKED_ROW_BEFORE"
-    [ "${SESSION_DISPLAYS[1]}" = "row b" ]
-    [ "${#SESSION_IDS[@]}" -eq 4 ]
+    [ "${SESSION_DISPLAYS[2]}" = "row b" ]
+    [ "${#SESSION_IDS[@]}" -eq 6 ]
 }
 
 # The mark must survive being taken the way the key handler takes it. An
@@ -174,7 +185,7 @@ _lengths() {
     _mark_session_deleting tower_b || true
     local taken="$MARKED_ROW_BEFORE"
     [ "$taken" = "row b" ]
-    [ "${SESSION_DISPLAYS[1]}" != "row b" ]
+    [ "${SESSION_DISPLAYS[2]}" != "row b" ]
 }
 
 # ---------------------------------------------------------------------------
@@ -190,18 +201,19 @@ _lengths() {
 @test "remember row: a new session lands in the list immediately" {
     _remember_session_row tower_new "/p/three"
     [[ " ${SESSION_IDS[*]} " == *" tower_new "* ]]
-    [ "${#SESSION_IDS[@]}" -eq 5 ]
+    # A new project: its header row and the session row.
+    [ "${#SESSION_IDS[@]}" -eq 8 ]
 }
 
 @test "remember row: the four arrays stay the same length" {
     _remember_session_row tower_new "/p/three"
-    [ "$(_lengths)" = "5 5 5 5" ]
+    [ "$(_lengths)" = "8 8 8 8" ]
 }
 
 @test "remember row: an id already present is not duplicated" {
     run _remember_session_row tower_b "/p/one"
     [ "$status" -ne 0 ]
-    [ "${#SESSION_IDS[@]}" -eq 4 ]
+    [ "${#SESSION_IDS[@]}" -eq 6 ]
 }
 
 @test "remember row: the new row can be found by the selection lookup" {
@@ -236,84 +248,84 @@ _lengths() {
 # for N the metadata just written by save_metadata knows it, so the row can be
 # seated in its group from the first frame.
 # ----------------------------------------------------------------------------
-_ids() { printf '%s ' "${SESSION_IDS[@]}"; }
-
 @test "seat row: joins the end of its existing project group, not the bottom" {
     _remember_session_row tower_new /p/one
-    [ "$(_ids)" = "tower_a tower_b tower_new tower_c tower_d " ]
-    [ "${SESSION_HEADERS[2]}" = "" ]
-    [ "${SESSION_DIRS[2]}" = "/p/one" ]
-    [ "$(_lengths)" = "5 5 5 5" ]
+    [ "$(_ids)" = "dir:/p/one tower_a tower_b tower_new dir:/p/two tower_c tower_d " ]
+    [ "${SESSION_HEADERS[3]}" = "" ]
+    [ "${SESSION_DIRS[3]}" = "/p/one" ]
+    [ "$(_lengths)" = "7 7 7 7" ]
 }
 
 @test "seat row: a dir with no group yet opens a new headed group in name order" {
     _remember_session_row tower_new /p/alpha
-    [ "${SESSION_IDS[0]}" = "tower_new" ]
-    [[ "${SESSION_HEADERS[0]}" == *"alpha"* ]]
-    # The group that used to be first keeps its own header on its own row.
-    [ "${SESSION_IDS[1]}" = "tower_a" ]
-    [[ "${SESSION_HEADERS[1]}" == *"one"* ]]
+    [ "${SESSION_IDS[0]}" = "dir:/p/alpha" ]
+    [[ "${SESSION_DISPLAYS[0]}" == *"alpha"* ]]
+    [ "${SESSION_IDS[1]}" = "tower_new" ]
+    # The group that used to be first keeps its own header row.
+    [ "${SESSION_IDS[2]}" = "dir:/p/one" ]
+    [[ "${SESSION_DISPLAYS[2]}" == *"one"* ]]
 }
 
 @test "seat row: a new group that sorts last goes after the last group, before nothing" {
     _remember_session_row tower_new /p/zeta
-    [ "${SESSION_IDS[4]}" = "tower_new" ]
-    [[ "${SESSION_HEADERS[4]}" == *"zeta"* ]]
+    [ "${SESSION_IDS[6]}" = "dir:/p/zeta" ]
+    [[ "${SESSION_DISPLAYS[6]}" == *"zeta"* ]]
+    [ "${SESSION_IDS[7]}" = "tower_new" ]
 }
 
 @test "seat row: N with no dir argument seats by the metadata launch_dir" {
     save_metadata tower_new "" /p/two
     _remember_session_row tower_new ""
-    [ "$(_ids)" = "tower_a tower_b tower_c tower_d tower_new " ]
-    [ "${SESSION_DIRS[4]}" = "/p/two" ]
-    [ "${SESSION_HEADERS[4]}" = "" ]
+    [ "$(_ids)" = "dir:/p/one tower_a tower_b dir:/p/two tower_c tower_d tower_new " ]
+    [ "${SESSION_DIRS[6]}" = "/p/two" ]
+    [ "${SESSION_HEADERS[6]}" = "" ]
 }
 
 @test "seat row: unknown dir lands in a trailing unknown group, never above a real one" {
     _remember_session_row tower_new ""
-    [ "${SESSION_IDS[4]}" = "tower_new" ]
-    [[ "${SESSION_HEADERS[4]}" == *"unknown"* ]]
+    [ "${SESSION_IDS[6]}" = "dir:" ]
+    [[ "${SESSION_DISPLAYS[6]}" == *"unknown"* ]]
+    [ "${SESSION_IDS[7]}" = "tower_new" ]
 }
 
 @test "seat row: the broken section shifts down when a live row is inserted above it" {
-    BROKEN_START=2
+    BROKEN_START=4
     _remember_session_row tower_new /p/one
-    [ "$BROKEN_START" -eq 3 ]
-    [ "${SESSION_IDS[3]}" = "tower_c" ]
+    [ "$BROKEN_START" -eq 5 ]
+    [ "${SESSION_IDS[5]}" = "tower_c" ]
 }
 
 @test "seat row: a live row never lands inside the broken section" {
     # tower_c/tower_d are the broken tail; /p/two matches their dirs, but
     # a live row must stay in the live part of the list.
-    BROKEN_START=2
+    BROKEN_START=4
     _remember_session_row tower_new /p/two
-    [ "${SESSION_IDS[2]}" = "tower_new" ]
-    [ "$BROKEN_START" -eq 3 ]
+    [ "${SESSION_IDS[4]}" = "tower_new" ]
+    [ "$BROKEN_START" -eq 5 ]
 }
 
 @test "seat row: inside its group the row takes the position tmux name order gives it" {
     # The rebuild keeps list-sessions order inside a group, and tmux lists by
     # name (strcmp). tower_aa sorts between tower_a and tower_b.
     _remember_session_row tower_aa /p/one
-    [ "$(_ids)" = "tower_a tower_aa tower_b tower_c tower_d " ]
-    [ "${SESSION_HEADERS[1]}" = "" ]
-    [[ "${SESSION_HEADERS[0]}" == *"one"* ]]
+    [ "$(_ids)" = "dir:/p/one tower_a tower_aa tower_b dir:/p/two tower_c tower_d " ]
+    [ "${SESSION_HEADERS[2]}" = "" ]
+    [[ "${SESSION_DISPLAYS[0]}" == *"one"* ]]
 }
 
-@test "seat row: a row that names a group's first member takes over its header" {
+@test "seat row: a row sorting first in its group sits right under the header row" {
     _remember_session_row tower_0 /p/one
-    [ "${SESSION_IDS[0]}" = "tower_0" ]
-    # The header stays on the first row of the group — which is now tower_0.
-    [[ "${SESSION_HEADERS[0]}" == *"one"* ]]
-    [ "${SESSION_HEADERS[1]}" = "" ]
+    [ "${SESSION_IDS[0]}" = "dir:/p/one" ]
+    [ "${SESSION_IDS[1]}" = "tower_0" ]
+    [ "${SESSION_IDS[2]}" = "tower_a" ]
 }
 
 @test "seat row: with no dir given, the seat is resolved the way the rebuild resolves it" {
     # n only knows the picker's default; the user may have chosen elsewhere.
     _session_dir() { echo /p/two; }
     _remember_session_row tower_new ""
-    [ "${SESSION_DIRS[4]}" = "/p/two" ]
-    [ "$(_ids)" = "tower_a tower_b tower_c tower_d tower_new " ]
+    [ "${SESSION_DIRS[6]}" = "/p/two" ]
+    [ "$(_ids)" = "dir:/p/one tower_a tower_b dir:/p/two tower_c tower_d tower_new " ]
 }
 
 @test "seat row: no handler passes the caller cwd as the seat dir" {
@@ -336,10 +348,10 @@ _ids() { printf '%s ' "${SESSION_IDS[@]}"; }
     _compose_row() { printf '%s %s' "$1" "$2"; }
     _row_marks() { :; }
     build_session_list
-    [ "$(_ids)" = "tower_a tower_b " ]
+    [ "$(_ids)" = "dir:/p/one tower_a tower_b " ]
     # And the seat lands where that order puts it: after tower_a, before tower_b.
     _remember_session_row tower_aa /p/one
-    [ "$(_ids)" = "tower_a tower_aa tower_b " ]
+    [ "$(_ids)" = "dir:/p/one tower_a tower_aa tower_b " ]
 }
 
 # A Tile/Tail run moves the selection while the list loop sits detached; the

@@ -11,6 +11,7 @@
 #   rename      Set or clear a session's Navigator display name
 #   open        Start a new session in a directory (optional initial prompt)
 #   project new Create a project directory, git init, start its first session
+#   project rm  Remove a project from the Navigator list
 #   delete      Delete session
 #   restore     Restore dormant session(s)
 #   tile        Launch Tile mode
@@ -34,7 +35,7 @@ show_help() {
     cat <<'EOF'
 claude-tower - Parallel Claude Code Orchestrator
 
-Usage: tower.sh list|add|rename|open|project new|delete|restore|tile|help
+Usage: tower.sh list|add|rename|open|project new|project rm|delete|restore|tile|help
 
 Commands:
   (default)     Launch Navigator UI
@@ -52,6 +53,8 @@ Commands:
     NAME          Project name (one path component)
     --in PARENT   Parent directory instead of ~/working
     --prompt / --prompt-file  as for open
+  project rm    Remove a project from the Navigator list (no sessions there)
+    DIR           Project directory; the directory itself is untouched
   delete        Delete session
     SESSION_ID    Session to delete
     --force       Skip confirmation
@@ -121,8 +124,12 @@ main() {
                     shift
                     exec "$SCRIPT_DIR/project-new.sh" "$@"
                     ;;
+                rm)
+                    shift
+                    exec "$SCRIPT_DIR/project-rm.sh" "$@"
+                    ;;
                 *)
-                    handle_error "Unknown project subcommand: ${1:-<none>} (expected: new)"
+                    handle_error "Unknown project subcommand: ${1:-<none>} (expected: new or rm)"
                     echo "Run 'tower.sh help' for usage"
                     exit 2
                     ;;

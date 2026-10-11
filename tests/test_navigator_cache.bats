@@ -413,5 +413,5 @@ source_navigator_list_functions() {
     local src="$PROJECT_ROOT/tmux-plugin/lib/nav/nav-loop.sh"
     grep -q 'if _session_listed "\$synced"; then' "$src"
     grep -A1 'if _session_listed "\$synced"; then' "$src" | grep -q 'selected_index=\$(get_selection_index)'
-    grep -A8 'if _session_listed "\$synced"; then' "$src" | grep -q '_spawn_background_rebuild force'
+    grep -A18 'if _session_listed "\$synced"; then' "$src" | grep -q '_spawn_background_rebuild force'
 }
