@@ -42,6 +42,37 @@ move_selection() {
     echo "$new_index"
 }
 
+# Read the rest of an escape sequence after its ESC, into NAV_ESC_SEQ (empty
+# for a lone Esc). Reads through the CSI final byte, not a fixed count: Home,
+# Delete and modified arrows are four to six bytes, and a fixed two-byte read
+# left the tail to be taken as keys — Ctrl-Left ends in `D`, which opened the
+# delete prompt.
+NAV_ESC_SEQ=""
+nav_read_escape() {
+    local c="" n=0 o=0
+    NAV_ESC_SEQ=""
+    IFS= read -rsn1 -t 0.1 c 2>/dev/null || return 0
+    NAV_ESC_SEQ="$c"
+    case "$c" in
+        '[')
+            # Parameter and intermediate bytes, then one final byte @..~.
+            while ((n++ < 16)); do
+                c=""
+                IFS= read -rsn1 -t 0.05 c 2>/dev/null || return 0
+                NAV_ESC_SEQ+="$c"
+                printf -v o '%d' "'$c"
+                ((o >= 64 && o <= 126)) && return 0
+            done
+            ;;
+        O)
+            c=""
+            IFS= read -rsn1 -t 0.05 c 2>/dev/null || return 0
+            NAV_ESC_SEQ+="$c"
+            ;;
+    esac
+    return 0
+}
+
 # Go to first session
 go_first() {
     if [[ ${#SESSION_IDS[@]} -gt 0 ]]; then
@@ -170,6 +201,23 @@ main_loop() {
         nav_read_key key "$TICK_INTERVAL" || read_rc=$?
         [[ $read_rc -eq 2 ]] && exit 0
         if [[ $read_rc -eq 0 ]]; then
+            NAV_SEARCH_MSG=""
+            # Search keys come before the project-row keys: while a query is
+            # active, n/N mean next/prev match on every kind of row.
+            if [[ "$key" == "/" ]]; then
+                search_prompt "$selected_index"
+                selected_index=$NAV_NEW_INDEX
+                continue
+            fi
+            if [[ -n "$NAV_SEARCH_QUERY" && ( "$key" == n || "$key" == N ) ]]; then
+                if [[ "$key" == n ]]; then
+                    search_step next "$selected_index"
+                else
+                    search_step prev "$selected_index"
+                fi
+                selected_index=$NAV_NEW_INDEX
+                continue
+            fi
             # A project row has its own meaning for most keys (n/Enter/f
             # start a session there, D removes the project). Movement and
             # the global keys fall through to the ordinary handlers.
@@ -183,10 +231,14 @@ main_loop() {
                 j | $'\x1b')
                     # Handle arrow keys
                     if [[ "$key" == $'\x1b' ]]; then
-                        read -rsn2 -t 0.1 arrow || true
-                        case "$arrow" in
-                            '[B') key="j" ;; # Down
-                            '[A') key="k" ;; # Up
+                        nav_read_escape
+                        case "$NAV_ESC_SEQ" in
+                            '[B' | OB) key="j" ;; # Down
+                            '[A' | OA) key="k" ;; # Up
+                            '') # A lone Esc clears the search.
+                                search_clear
+                                continue
+                                ;;
                             *) continue ;;
                         esac
                     fi

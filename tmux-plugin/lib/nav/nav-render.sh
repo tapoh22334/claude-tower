@@ -127,6 +127,14 @@ strip_ansi_seq() {
 # this twice, and `$(printf ... | strip_ansi_seq)` costs a subshell plus a
 # fork+exec each time — measurable once the list is more than a few rows.
 _strip_ansi_str() {
+    _strip_ansi_into "$1"
+    printf '%s' "$NAV_STRIPPED"
+}
+
+# The same, leaving the result in NAV_STRIPPED so a caller that runs per row
+# per frame (the search) does not pay a $(...) fork for each one.
+NAV_STRIPPED=""
+_strip_ansi_into() {
     local s="$1" out="" rest
     while [[ "$s" == *$'\033['* ]]; do
         out+="${s%%$'\033['*}"
@@ -135,7 +143,7 @@ _strip_ansi_str() {
         while [[ -n "$rest" && "$rest" != [a-zA-Z]* ]]; do rest="${rest:1}"; done
         s="${rest:1}"
     done
-    printf '%s' "$out$s"
+    NAV_STRIPPED="$out$s"
 }
 
 # The group header row text for project dir $1 with $2 unmanaged claude
@@ -278,7 +286,13 @@ render_list() {
     output+="${eol}\n"
     # Keep this within 80 cells: a longer footer wraps and the trailing
     # binding is lost on an 80-wide capture.
-    output+="${NAV_C_DIM}j/k:nav ↵/i:input n:add f:fork N:newdir D:del r:resume t:tail w:queue q:quit${NAV_C_NORMAL}${eol}"
+    # While a search is on, the footer says so instead: n/N then mean
+    # next/prev match, and that must be visible before the user presses n.
+    if _search_footer "$selected_index"; then
+        output+="${NAV_C_ACCENT}${NAV_SEARCH_FOOTER}${NAV_C_NORMAL}${eol}"
+    else
+        output+="${NAV_C_DIM}j/k:nav ↵:input /:find n:add f:fork N:dir D:del r:resume t:tail w:queue q:quit${NAV_C_NORMAL}${eol}"
+    fi
 
     # Clear to end of screen code
     local clear_eos
@@ -300,8 +314,8 @@ show_help() {
     echo "  Navigation:"
     echo "    j / ↓      Move down"
     echo "    k / ↑      Move up"
-    echo "    g          Go to first session"
-    echo "    G          Go to last session"
+    echo "    g / G      Go to first / last session"
+    echo "    / text     Search; n / N next / previous match, Esc clears"
     echo ""
     echo "  Actions:"
     echo "    Enter / i  Focus view pane (input mode)"

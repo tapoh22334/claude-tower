@@ -22,7 +22,7 @@ which produced output you have not read.
 │ notes-app ──────────    │                                          │
 │ ○ draft the outline     │                                          │
 │                         │                                          │
-│ j/k:nav ↵/i:input n:add │                                          │
+│ j/k:nav ↵:input /:find  │                                          │
 └─────────────────────────┴──────────────────────────────────────────┘
        List (30%)                        View (70%)
 ```
@@ -64,6 +64,7 @@ highlighted session, `Escape` comes back.
 |-----|--------|
 | `j` / `k` | Move down / up |
 | `g` / `G` | First / last |
+| `/` | Search the list; `n` / `N` jump to the next / previous match while a search is on, `Escape` clears it |
 | `Enter` / `i` | Type into the session |
 | `Escape` | Back to the list (from the right pane) |
 | `n` | Add a session — pick a running one, or start a new one |
