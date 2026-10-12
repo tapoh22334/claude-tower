@@ -107,7 +107,7 @@ _tower_count() { session_tmux list-sessions -F '#{session_name}' 2>/dev/null | g
     nav_redirect_view
     n=50
     local screen=""
-    until [[ "$screen" == *"n / Enter"* ]] || ((n-- == 0)); do
+    until [[ "$screen" == *"a / Enter"* ]] || ((n-- == 0)); do
         command sleep 0.1
         screen=$(nav_tmux capture-pane -p -J -t "$TOWER_NAV_SESSION:0.1" 2>/dev/null || true)
     done
@@ -115,7 +115,7 @@ _tower_count() { session_tmux list-sessions -F '#{session_name}' 2>/dev/null | g
     [[ "$screen" == *"Directory : $FOO"* ]]
     [[ "$screen" == *"Branch"* ]]
     [[ "$screen" == *"0 session"* ]]
-    [[ "$screen" == *"n / Enter"* ]]
+    [[ "$screen" == *"a / Enter"* ]]
     ! session_tmux list-clients -F '#{client_session}' 2>/dev/null | grep -qx "$h"
 }
 
@@ -156,13 +156,13 @@ _tower_count() { session_tmux list-sessions -F '#{session_name}' 2>/dev/null | g
     [ "$NAV_NEW_INDEX" -eq 0 ]
 }
 
-@test "見出しで n を押すとそのプロジェクトで新セッションが見出し直下に現れて選ばれる" {
+@test "見出しで a を押すとそのプロジェクトで新セッションが見出し直下に現れて選ばれる" {
     register_project "$FOO"
     register_project "$BAR"
     build_session_list
     set_nav_selected "dir:$FOO"
     local key
-    for key in "" n f; do
+    for key in "" a f; do
         local before=${#SESSION_IDS[@]}
         handle_project_key "$key" "$FOO" "$(get_selection_index)"
         [ "${#SESSION_IDS[@]}" -eq $((before + 1)) ]
@@ -181,7 +181,7 @@ _tower_count() { session_tmux list-sessions -F '#{session_name}' 2>/dev/null | g
     done
 }
 
-@test "ディレクトリが消えた見出しで n を押しても失敗してセッションを作らない" {
+@test "ディレクトリが消えた見出しで a を押しても失敗してセッションを作らない" {
     local gone="$BATS_TEST_TMPDIR/w/gone"
     mkdir -p "$gone"
     gone=$(cd "$gone" && pwd -P)
@@ -191,7 +191,7 @@ _tower_count() { session_tmux list-sessions -F '#{session_name}' 2>/dev/null | g
     [ "$(_ids)" = "dir:$gone " ]
     local n0
     n0=$(_tower_count)
-    run handle_project_key n "$gone" 0
+    run handle_project_key a "$gone" 0
     [ "$status" -eq 0 ]
     [[ "$output" == *"Directory not found"* ]]
     [ "$(_tower_count)" -eq "$n0" ]

@@ -179,6 +179,19 @@ _compose_group_header() {
 # Rendering
 # ============================================================================
 
+# Screen rows line $1 (may contain ANSI) takes in a $2-column terminal.
+_wrapped_rows() {
+    local cols="${2:-80}" w
+    ((cols < 1)) && cols=1
+    _strip_ansi_into "$1"
+    w=$(str_display_width "$NAV_STRIPPED")
+    if ((w <= cols)); then
+        echo 1
+    else
+        echo $(((w + cols - 1) / cols))
+    fi
+}
+
 # Render session list (double-buffered to prevent flicker)
 render_list() {
     local selected_index="$1"
@@ -188,12 +201,6 @@ render_list() {
     # rebuild (which can be seconds away).
     _reset_width_cache
     term_height=$(_term_lines)
-    # Row budget for the body (session rows + group headers + separator).
-    # Reserve: header (2) + footer (2). If the frame is even one line
-    # taller than the terminal, every redraw scrolls the screen and the
-    # refresh loop turns into an endless upward crawl.
-    local max_lines=$((term_height - 4))
-    [[ $max_lines -lt 1 ]] && max_lines=1
 
     # Build output in variable first (double buffering)
     local output=""
@@ -220,7 +227,35 @@ render_list() {
     local eol=$'\033[K'
 
     # Header with focus indicator
-    output+="${NAV_C_HEADER}Sessions${NAV_C_NORMAL} ${focus_indicator}${eol}\n"
+    # The search note sits on the header line: the footer has no room left
+    # beside the key list, and the header is where the eye returns anyway.
+    local search_note="" header_line footer_line
+    if _search_status "$selected_index"; then
+        search_note="  ${NAV_C_ACCENT}${NAV_SEARCH_STATUS}${NAV_C_NORMAL}"
+    fi
+    header_line="${NAV_C_HEADER}Sessions${NAV_C_NORMAL} ${focus_indicator}${search_note}"
+
+    # Footer with keybindings (compact). While `/` is open the footer is the
+    # prompt line, as in vim.
+    if _search_footer; then
+        footer_line="${NAV_C_ACCENT}${NAV_SEARCH_FOOTER}${NAV_C_NORMAL}"
+    else
+        footer_line="${NAV_C_DIM}j/k:nav ↵:input /:find a:add f:fork A:dir D:del r:resume t:tail w:queue q:quit${NAV_C_NORMAL}"
+    fi
+
+    # Row budget for the body (session rows + group headers + separator).
+    # Reserve the header and footer at the rows they really take: the list
+    # pane is usually narrower than the 78-cell key list, so the footer wraps,
+    # and a long search note can wrap the header. If the frame is even one
+    # line taller than the terminal, every redraw scrolls the screen — the
+    # header (and the search note on it) scrolls off and the refresh loop
+    # turns into an endless upward crawl.
+    local cols max_lines
+    cols=$(_term_cols)
+    max_lines=$((term_height - 2 - $(_wrapped_rows "$header_line" "$cols") - $(_wrapped_rows "$footer_line" "$cols")))
+    [[ $max_lines -lt 1 ]] && max_lines=1
+
+    output+="${header_line}${eol}\n"
     output+="${eol}\n"
 
     if [[ ${#SESSION_IDS[@]} -eq 0 ]]; then
@@ -280,19 +315,12 @@ render_list() {
         fi
     fi
 
-    # Footer with keybindings (compact). No trailing \n on the last line:
-    # if the frame fills the terminal exactly, a final newline would still
-    # scroll the screen by one row on every redraw.
+    # No trailing \n on the footer: if the frame fills the terminal exactly,
+    # a final newline would still scroll the screen by one row on every
+    # redraw. Keep the key list within 80 cells: a longer footer wraps and
+    # the trailing binding is lost on an 80-wide capture.
     output+="${eol}\n"
-    # Keep this within 80 cells: a longer footer wraps and the trailing
-    # binding is lost on an 80-wide capture.
-    # While a search is on, the footer says so instead: n/N then mean
-    # next/prev match, and that must be visible before the user presses n.
-    if _search_footer "$selected_index"; then
-        output+="${NAV_C_ACCENT}${NAV_SEARCH_FOOTER}${NAV_C_NORMAL}${eol}"
-    else
-        output+="${NAV_C_DIM}j/k:nav ↵:input /:find n:add f:fork N:dir D:del r:resume t:tail w:queue q:quit${NAV_C_NORMAL}${eol}"
-    fi
+    output+="${footer_line}${eol}"
 
     # Clear to end of screen code
     local clear_eos
@@ -315,13 +343,13 @@ show_help() {
     echo "    j / ↓      Move down"
     echo "    k / ↑      Move up"
     echo "    g / G      Go to first / last session"
-    echo "    / text     Search; n / N next / previous match, Esc clears"
+    echo "    / text     Search; n / N next / previous match (empty / clears)"
     echo ""
     echo "  Actions:"
     echo "    Enter / i  Focus view pane (input mode)"
-    echo "    n          Add session (pick existing Claude session or start new)"
+    echo "    a          Add session (pick existing Claude session or start new)"
     echo "    f          Fork: new session in the selected session's directory"
-    echo "    N          New session in a picked project directory"
+    echo "    A          New session in a picked project directory"
     echo "    D          Delete from Tower (Claude's transcript is kept)"
     echo "    r          Resume selected dormant session"
     echo "    Tab / t    Tile view / Tail view (live output)"

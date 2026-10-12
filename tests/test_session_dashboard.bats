@@ -247,12 +247,12 @@ _run_nav() {
     [[ "$output" =~ \+1[7-9]\ more ]]
 }
 
-@test "navigator-list.sh: f and N keys are wired" {
-    run grep -c -E "^                (f|N)\)" "$PROJECT_ROOT/tmux-plugin/lib/nav/nav-loop.sh"
+@test "navigator-list.sh: f and A keys are wired" {
+    run grep -c -E "^                (f|A)\)" "$PROJECT_ROOT/tmux-plugin/lib/nav/nav-loop.sh"
     [ "$output" = "2" ]
     run grep -A 1 "^                f)" "$PROJECT_ROOT/tmux-plugin/lib/nav/nav-loop.sh"
     [[ "$output" == *"fork_session_here"* ]]
-    run grep -A 1 "^                N)" "$PROJECT_ROOT/tmux-plugin/lib/nav/nav-loop.sh"
+    run grep -A 1 "^                A)" "$PROJECT_ROOT/tmux-plugin/lib/nav/nav-loop.sh"
     [[ "$output" == *"new_session_pick_dir"* ]]
 }
 

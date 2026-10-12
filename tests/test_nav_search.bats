@@ -1,6 +1,7 @@
 #!/usr/bin/env bats
-# Navigator `/` search (#82): matching, n/N stepping, the prompt sub-loop,
-# the footer that says n/N have changed meaning, and the loop wiring.
+# Navigator `/` search (#82), vim-style: matching, n/N stepping, the prompt
+# sub-loop, the header note, and the loop wiring (n/N are always search keys;
+# add / new-in-dir moved to a / A).
 
 load 'test_helper'
 
@@ -31,7 +32,8 @@ _fixture() {
     )
     SESSION_HEADERS=()
     BROKEN_START=-1
-    search_clear
+    NAV_SEARCH_QUERY=""
+    NAV_SEARCH_MSG=""
     set_nav_selected "tower_a"
 }
 
@@ -131,7 +133,8 @@ teardown() {
     search_prompt 1 >/dev/null < <(printf 'docx\x7fs\n')
     [ "$NAV_SEARCH_QUERY" = "docs" ]
     [ "$NAV_NEW_INDEX" -eq 2 ]
-    search_clear
+    NAV_SEARCH_QUERY=""
+    NAV_SEARCH_MSG=""
     search_prompt 1 >/dev/null < <(printf 'w\x7f\x7f')
     [ -z "$NAV_SEARCH_QUERY" ]
     [ "$NAV_NEW_INDEX" -eq 1 ]
@@ -189,20 +192,43 @@ teardown() {
     [ "$NAV_SEARCH_MSG" = "no match" ]
 }
 
-@test "footer: shows the key list normally and the search state while searching" {
+@test "step: n with no previous search moves nothing and says so" {
+    source "$NAV" 2>/dev/null || true
+    _fixture
+    search_step next 2
+    [ "$NAV_NEW_INDEX" -eq 2 ]
+    [ "$NAV_SEARCH_MSG" = "no previous search" ]
+    [ "$(get_nav_selected)" = "tower_a" ]
+    run render_list 2
+    [[ "$output" == *"no previous search"* ]]
+}
+
+@test "render: key list always in the footer; search position on the header line" {
     source "$NAV" 2>/dev/null || true
     _fixture
     run render_list 1
-    [[ "$output" == *"/:find"* ]]
-    [[ "$output" == *"n:add"* ]]
+    [[ "$output" == *"/:find a:add"* ]]
+    [[ "$output" == *"A:dir"* ]]
+    [[ "$output" != *"/login"* ]]
     NAV_SEARCH_QUERY="login"
     run render_list 3
-    [[ "$output" == *"/login [2/2]"* ]]
-    [[ "$output" == *"n/N:next/prev esc:clear"* ]]
-    [[ "$output" != *"n:add"* ]]
+    local header
+    header=$(printf '%s' "$output" | head -1)
+    [[ "$header" == *"Sessions"*"/login [2/2]"* ]]
+    [[ "$output" == *"a:add"* ]]
     NAV_SEARCH_QUERY="zzz"
     run render_list 1
     [[ "$output" == *"[no match]"* ]]
+}
+
+@test "render: while / is open the footer is the prompt line" {
+    source "$NAV" 2>/dev/null || true
+    _fixture
+    NAV_SEARCH_PROMPT=1
+    NAV_SEARCH_INPUT="log"
+    run render_list 1
+    [[ "$output" == *"/log▏"* ]]
+    [[ "$output" != *"a:add"* ]]
 }
 
 @test "footer: the normal key list fits in 80 cells" {
@@ -213,7 +239,7 @@ teardown() {
     [ "$(str_display_width "$line")" -le 80 ]
 }
 
-@test "loop: / and active-search n/N are handled before the project-row keys" {
+@test "loop: / and n/N are handled before the project-row keys, unconditionally" {
     local src="$PROJECT_ROOT/tmux-plugin/lib/nav/nav-loop.sh"
     local slash nn proj
     slash=$(grep -n 'search_prompt "\$selected_index"' "$src" | cut -d: -f1)
@@ -222,12 +248,38 @@ teardown() {
     [ -n "$slash" ] && [ -n "$nn" ] && [ -n "$proj" ]
     [ "$slash" -lt "$proj" ]
     [ "$nn" -lt "$proj" ]
-    # n/N fall through to add/new-dir when no query is active
-    grep -q 'if \[\[ -n "\$NAV_SEARCH_QUERY" && ( "\$key" == n' "$src"
+    grep -q 'if \[\[ "\$key" == n || "\$key" == N \]\]; then' "$src"
 }
 
-@test "loop: a lone Esc in the list clears the search" {
+@test "loop: add and new-in-dir live on a and A, not n and N" {
     local src="$PROJECT_ROOT/tmux-plugin/lib/nav/nav-loop.sh"
-    run sed -n "/'') # A lone Esc clears the search./,/;;/p" "$src"
-    [[ "$output" == *"search_clear"* ]]
+    run sed -n '/^                a)$/,/;;/p' "$src"
+    [[ "$output" == *add_session_inline* ]]
+    run sed -n '/^                A)$/,/;;/p' "$src"
+    [[ "$output" == *new_session_pick_dir* ]]
+    ! grep -qE '^                (n|N)\)$' "$src"
+}
+
+@test "render: on a narrow pane the wrapped header and footer still fit, so the search note stays on screen" {
+    source "$NAV" 2>/dev/null || true
+    _fixture
+    TOWER_TERM_COLS=40
+    TOWER_TERM_LINES=12
+    local i
+    for i in $(seq 1 30); do
+        SESSION_IDS+=("tower_x$i")
+        SESSION_DISPLAYS+=("○ filler session $i")
+    done
+    NAV_SEARCH_QUERY="a-rather-long-query-that-matches-nothing"
+    run render_list 1
+    # Count the screen rows the frame really takes, wrapping included.
+    local rows=0 line w
+    while IFS= read -r line; do
+        _strip_ansi_into "$line"
+        line="${NAV_STRIPPED//$'\033[K'/}"
+        w=$(str_display_width "$line")
+        rows=$((rows + (w <= 40 ? 1 : (w + 39) / 40)))
+    done < <(printf '%s\n' "$output" | sed -E $'s/\033\\[\\?25l//; s/\033\\[H//; s/\033\\[J//')
+    [ "$rows" -le 12 ]
+    [[ "$(printf '%s' "$output" | head -1)" == *"[no match]"* ]]
 }

@@ -202,14 +202,14 @@ main_loop() {
         [[ $read_rc -eq 2 ]] && exit 0
         if [[ $read_rc -eq 0 ]]; then
             NAV_SEARCH_MSG=""
-            # Search keys come before the project-row keys: while a query is
-            # active, n/N mean next/prev match on every kind of row.
+            # Search keys come before the project-row keys: as in vim, n/N
+            # always mean next/prev match, on every kind of row.
             if [[ "$key" == "/" ]]; then
                 search_prompt "$selected_index"
                 selected_index=$NAV_NEW_INDEX
                 continue
             fi
-            if [[ -n "$NAV_SEARCH_QUERY" && ( "$key" == n || "$key" == N ) ]]; then
+            if [[ "$key" == n || "$key" == N ]]; then
                 if [[ "$key" == n ]]; then
                     search_step next "$selected_index"
                 else
@@ -218,7 +218,7 @@ main_loop() {
                 selected_index=$NAV_NEW_INDEX
                 continue
             fi
-            # A project row has its own meaning for most keys (n/Enter/f
+            # A project row has its own meaning for most keys (a/Enter/f
             # start a session there, D removes the project). Movement and
             # the global keys fall through to the ordinary handlers.
             local cur_row="${SESSION_IDS[$selected_index]:-}"
@@ -235,10 +235,6 @@ main_loop() {
                         case "$NAV_ESC_SEQ" in
                             '[B' | OB) key="j" ;; # Down
                             '[A' | OA) key="k" ;; # Up
-                            '') # A lone Esc clears the search.
-                                search_clear
-                                continue
-                                ;;
                             *) continue ;;
                         esac
                     fi
@@ -265,7 +261,7 @@ main_loop() {
                 i)
                     focus_view
                     ;;
-                n)
+                a)
                     add_session_inline
                     _return_from_subflow
                     # The row is already in the arrays (the sub-flow seated
@@ -285,7 +281,7 @@ main_loop() {
                     _settle_after_change "$(get_selection_index)" >/dev/null
                     selected_index=$NAV_NEW_INDEX
                     ;;
-                N)
+                A)
                     new_session_pick_dir
                     _return_from_subflow
                     # The row is already in the arrays (the sub-flow seated

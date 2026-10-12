@@ -20,7 +20,8 @@
 #   Enter  - Full attach to selected session
 #   i      - Input mode (focus on right pane)
 #   Esc    - Return from input mode to list
-#   n      - Create new session
+#   /, n/N - Search, next/previous match
+#   a      - Create new session
 #   d      - Delete session
 #   R      - Restart Claude in session
 #   q      - Quit Navigator
@@ -163,7 +164,7 @@ open_navigator() {
         info_log "Navigator already exists, attaching"
         attach_navigator
     else
-        # Open Navigator even with 0 sessions - user can create with 'n'
+        # Open Navigator even with 0 sessions - user can create with 'a'
         info_log "Creating new Navigator"
         create_navigator
         attach_navigator
@@ -298,7 +299,7 @@ open_navigator_direct() {
     session_count=$(count_tower_sessions)
 
     # Note: We open Navigator even with 0 tower sessions
-    # The list will show empty state, and user can create sessions with 'n'
+    # The list will show empty state, and user can create sessions with 'a'
     info_log "Creating new Navigator (session count: $session_count)"
 
     # Ensure state directory exists
@@ -391,7 +392,8 @@ Keybindings in Navigator:
     Enter        Full attach to selected session
     i            Focus view pane (input mode)
     Esc          Return to list from input mode
-    n            Create new session
+    /, n/N       Search, next/previous match
+    a            Create new session
     d            Delete selected session
     r            Restore selected dormant session
     R            Restore all dormant sessions

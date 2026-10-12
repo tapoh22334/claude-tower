@@ -7,20 +7,19 @@
 # can see is what they can find. Project rows match on the project name their
 # header shows.
 #
-# n and N already mean add / new-in-dir. While a query is active they move
-# between matches instead (as in less and vim); Esc clears the query and gives
-# the keys back. The footer says which mode is on, so the meaning of n is
-# always on screen.
+# As in vim, `/` is a mode only while the query is typed; after Enter the
+# list is back to normal and n/N always mean next/prev match of the last
+# query. They never mean anything else, so a stray n with no query does
+# nothing but say so. The query stays until a new `/` (empty Enter clears it).
 
 NAV_SEARCH_QUERY=""  # committed query; empty = not searching
 NAV_SEARCH_PROMPT=0  # 1 while the `/` prompt is open
 NAV_SEARCH_INPUT=""  # text typed so far at the prompt
 NAV_SEARCH_MSG=""    # one-shot note for the footer ("no match")
-NAV_SEARCH_FOOTER="" # footer text, filled by _search_footer
+NAV_SEARCH_FOOTER="" # prompt line, filled by _search_footer
+NAV_SEARCH_STATUS="" # header note, filled by _search_status
 NAV_SEARCH_HIT=-1    # result of _search_find
 NAV_SEARCH_MATCHES=() # result of _search_matches
-
-_search_active() { [[ -n "$NAV_SEARCH_QUERY" || $NAV_SEARCH_PROMPT -eq 1 ]]; }
 
 # Does row $1 show text containing $2? Compared lower-cased with the colour
 # codes stripped, so a match never depends on how the row is painted.
@@ -73,20 +72,17 @@ _search_jump() {
     signal_view_update_async
 }
 
-# n / N while a query is active. $1 = "next" or "prev", $2 = current index.
+# n / N. $1 = "next" or "prev", $2 = current index.
 search_step() {
     local dir="$1" cur="$2"
     NAV_NEW_INDEX="$cur"
-    if _search_find "$NAV_SEARCH_QUERY" "$cur" "$dir"; then
+    if [[ -z "$NAV_SEARCH_QUERY" ]]; then
+        NAV_SEARCH_MSG="no previous search"
+    elif _search_find "$NAV_SEARCH_QUERY" "$cur" "$dir"; then
         _search_jump "$NAV_SEARCH_HIT"
     else
         NAV_SEARCH_MSG="no match"
     fi
-}
-
-search_clear() {
-    NAV_SEARCH_QUERY=""
-    NAV_SEARCH_MSG=""
 }
 
 # The `/` prompt. Runs its own read loop so the list keeps redrawing under
@@ -152,16 +148,29 @@ search_prompt() {
     NAV_NEW_INDEX="$cur"
 }
 
-# Footer text while searching, into NAV_SEARCH_FOOTER (plain text; the
-# renderer colours it). Returns 1 when no search is on, so the renderer keeps
-# its usual key list. $1 = selected index, for the "[k/m]" position.
+# The prompt line that replaces the footer while `/` is open, into
+# NAV_SEARCH_FOOTER. Returns 1 when the prompt is closed, so the renderer
+# keeps its key list.
 _search_footer() {
-    local sel="$1" q pos="" k
+    local q
     NAV_SEARCH_FOOTER=""
-    _search_active || return 1
-    if [[ $NAV_SEARCH_PROMPT -eq 1 ]]; then
-        q=$(truncate_display "$NAV_SEARCH_INPUT" 50)
-        NAV_SEARCH_FOOTER="/${q}▏  ↵:ok esc:cancel"
+    [[ $NAV_SEARCH_PROMPT -eq 1 ]] || return 1
+    q=$(truncate_display "$NAV_SEARCH_INPUT" 50)
+    NAV_SEARCH_FOOTER="/${q}▏  ↵:ok esc:cancel"
+    return 0
+}
+
+# The search note shown on the header line, into NAV_SEARCH_STATUS: the
+# active query and where the cursor is among its matches ("/log [2/5]"), or
+# a one-shot message. Returns 1 when there is nothing to show. $1 = selected
+# index.
+_search_status() {
+    local sel="$1" q pos="" k
+    NAV_SEARCH_STATUS=""
+    [[ $NAV_SEARCH_PROMPT -eq 1 ]] && return 1
+    if [[ -z "$NAV_SEARCH_QUERY" ]]; then
+        [[ -n "$NAV_SEARCH_MSG" ]] || return 1
+        NAV_SEARCH_STATUS="$NAV_SEARCH_MSG"
         return 0
     fi
     q=$(truncate_display "$NAV_SEARCH_QUERY" 30)
@@ -178,6 +187,6 @@ _search_footer() {
         done
     fi
     [[ -n "$NAV_SEARCH_MSG" ]] && pos="[$NAV_SEARCH_MSG]"
-    NAV_SEARCH_FOOTER="/${q} ${pos}  n/N:next/prev esc:clear"
+    NAV_SEARCH_STATUS="/${q} ${pos}"
     return 0
 }

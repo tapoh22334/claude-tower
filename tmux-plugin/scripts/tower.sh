@@ -74,7 +74,8 @@ Key Bindings (in Navigator):
   Enter         Attach to session
   i             Input mode (send command)
   t             Tile mode (view all)
-  n             New session
+  /, n/N        Search, next/previous match
+  a             New session
   d             Delete session
   r             Restart Claude
   ?             Help
