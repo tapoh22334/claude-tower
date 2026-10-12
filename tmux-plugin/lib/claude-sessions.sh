@@ -616,6 +616,115 @@ count_unregistered_processes_in_dir() {
     echo "$n"
 }
 
+# --- Fork detection --------------------------------------------------------
+# A /fork copies the parent's messages into a NEW sessionId transcript,
+# keeping their uuids but rewriting sessionId; forkedFrom is not persisted.
+# So a fork's first messages share uuids with its parent's transcript in the
+# same slug dir. That shared-uuid overlap is the only on-disk fork signature.
+#
+# How many of the child's leading MESSAGES to compare. A fork's copied
+# prefix always starts at message 1, so a handful is enough; scanning whole
+# transcripts would cost a full read of every sibling on every refresh.
+_FORK_SCAN_LINES=5
+
+# All uuids appearing in the first $_FORK_SCAN_LINES messages of a transcript.
+#
+# Deliberately NOT `grep -o -m N`. -m counts lines that MATCH and skips
+# every non-matching line on the way, so on a transcript whose leading
+# records carry no uuid (queue-operations, summaries) it reads arbitrarily
+# deep and can match a uuid far past the copied prefix — a false parent.
+# A fork's copy always begins at message 1, so what we want is a fixed
+# window on the first N messages: take the lines first, then collect.
+#
+# (The 2026-08-27 review read -m as counting matches rather than matching
+# lines. It does not — but the skipping behaviour above is the real bug,
+# and `head` fixes both readings.)
+_fork_scan_uuids() {
+    local jsonl="$1"
+    head -n "$_FORK_SCAN_LINES" -- "$jsonl" 2>/dev/null \
+        | grep -o '"uuid":"[^"]*"' | sort -u
+}
+
+# Recover a fork's parent Claude sessionId.
+# Output: parent sessionId (returns 1, no output, when not a fork).
+#
+# Match rule: another *.jsonl in the same slug dir, mtime no newer than the
+# child's, sharing at least one of the child's first-N uuids.
+#
+# Nearest-older wins: of several sharing candidates the one closest in time
+# to the child is the session it was actually forked from — the others are
+# that parent's own ancestors, which carry the same copied prefix.
+#
+# Tie-break: candidates that share an mtime (forking seconds after the parent
+# was written is common, and mtime has 1s resolution here) are ordered by
+# sessionId, lexically smallest first. Arbitrary but STABLE — the previous
+# `>=` let glob order decide, so the same on-disk state could name different
+# parents across runs and the fork row's label flickered. Correctness does
+# not depend on which of two same-second candidates is chosen; determinism
+# does.
+#
+# Cost: one head+grep per sibling transcript in the dir, bounded by
+# $_FORK_SCAN_LINES lines each — never a full transcript read.
+find_fork_parent() {
+    local child_id="$1"
+    local child_jsonl child_dir child_mtime
+    child_jsonl=$(find_session_jsonl "$child_id") || return 1
+    child_dir="${child_jsonl%/*}"
+    child_mtime=$(stat -c %Y -- "$child_jsonl" 2>/dev/null) || return 1
+
+    local child_uuids
+    child_uuids=$(_fork_scan_uuids "$child_jsonl")
+    [[ -n "$child_uuids" ]] || return 1
+
+    local best="" best_mtime=-1 f cand_id cand_mtime
+    for f in "$child_dir"/*.jsonl; do
+        [[ -f "$f" ]] || continue
+        [[ "$f" == "$child_jsonl" ]] && continue
+        cand_id="${f##*/}"
+        cand_id="${cand_id%.jsonl}"
+        [[ "$cand_id" =~ ^[0-9a-f-]{36}$ ]] || continue
+        cand_mtime=$(stat -c %Y -- "$f" 2>/dev/null) || continue
+        ((cand_mtime <= child_mtime)) || continue
+        # Only a strictly better (or tie-break-winning) candidate is worth
+        # the grep, so screen on mtime before reading the file.
+        if ((cand_mtime < best_mtime)); then
+            continue
+        elif ((cand_mtime == best_mtime)) && [[ -n "$best" && ! "$cand_id" < "$best" ]]; then
+            continue
+        fi
+        _fork_scan_uuids "$f" | grep -qxF -f <(printf '%s\n' "$child_uuids") || continue
+        best="$cand_id"
+        best_mtime=$cand_mtime
+    done
+    [[ -n "$best" ]] || return 1
+    printf '%s\n' "$best"
+}
+
+# Live, unregistered forks whose directory is $1.
+# Output: <child_sid>\t<parent_sid>\t<pid>   one line per fork.
+#
+# $2 (optional): a pre-fetched live-process table (the output of
+# list_live_claude_processes), same contract as
+# count_unregistered_processes_in_dir. build_session_list asks about every
+# project dir in one refresh; without the snapshot each call rescans
+# ~/.claude/sessions from scratch. Falls back to a fresh scan when omitted.
+list_fork_sessions() {
+    local dir="$1"
+    local table="${2-}"
+    local sid pid cwd parent
+    if [[ -z "${2+set}" ]]; then
+        table=$(list_live_claude_processes)
+    fi
+    while IFS=$'\t' read -r sid pid cwd; do
+        [[ -z "$sid" ]] && continue
+        [[ "$cwd" == "$dir" ]] || continue
+        has_metadata "tower_${sid}" && continue
+        parent=$(find_fork_parent "$sid") || continue
+        printf '%s\t%s\t%s\n' "$sid" "$parent" "$pid"
+    done <<<"$table"
+    return 0
+}
+
 # Count of a session's subagents active within TOWER_BUSY_WINDOW.
 count_active_subagents() {
     local jsonl="$1"
