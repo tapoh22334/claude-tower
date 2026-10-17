@@ -1,0 +1,19 @@
+# Navigator 一覧のスクロール。#82(検索)のレビューで見つかった既存の描画制約。
+# 検証: PYTHONPATH=~/.claude/skills/github-tickets/scripts ~/.claude/skills/github-tickets/scripts/apply.sh --verify docs/tickets/2026-10-12-nav-scroll.yml
+repo: tapoh22334/claude-tower
+
+project:
+  number: 4
+  owner: tapoh22334
+
+tasks:
+  - issue: 83
+    title: Navigator の一覧が画面に収まらないとき選択行が常に見えるようにする
+    body: |
+      ## やること
+      一覧が端末より長いと、render_list は先頭から入るだけ描いて残りを「... +N more」にまとめる。スクロール位置を持たないため、カーソルがその下の行に移るとハイライトが画面に出ない。ビューペインはその行のセッションに切り替わり、Enter や D も見えない行に対して効く。j/k/G でも起きる制約だが、`/` 検索と n/N(#82)では画面外の一致へ直接飛ぶので踏みやすくなった。選択行が常に描画範囲に入るよう、描画の開始位置を選択に追従させる。
+
+      ## 完了条件
+      - [ ] 一覧が端末より長いとき、j/k/g/G/n/N のどれでカーソルを動かしても選択行が画面に表示される
+      - [ ] 隠れている行があることが上下どちらについても分かる
+      - [ ] フレームが端末の高さを超えない(描画のたびに画面がずり上がらない)

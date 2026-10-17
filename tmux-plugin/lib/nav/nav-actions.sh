@@ -64,7 +64,7 @@ _nav_hint() {
     sleep 0.8
 }
 
-# Start a new session in project dir $1 (n / Enter / f on a project row).
+# Start a new session in project dir $1 (a / Enter / f on a project row).
 # Seats the row under its header and selects it. Returns 0 even when it
 # could not (the hint is the report), so the loop never dies on it.
 new_session_in_project() {
@@ -127,12 +127,12 @@ remove_project_row() {
 
 # Keys pressed while the cursor is on a project row. $1 key, $2 dir,
 # $3 current index. Returns 0 when the key was consumed (NAV_NEW_INDEX holds
-# the cursor), 1 when the ordinary handler should run (j/k/g/G/N/?/q...).
+# the cursor), 1 when the ordinary handler should run (j/k/g/G/A/?/q...).
 handle_project_key() {
     local key="$1" dir="$2" index="$3"
     NAV_NEW_INDEX="$index"
     case "$key" in
-        '' | n | f)
+        '' | a | f)
             new_session_in_project "$dir"
             _return_from_subflow
             _settle_after_change "$(get_selection_index)" >/dev/null
@@ -144,7 +144,7 @@ handle_project_key() {
             _return_from_subflow
             ;;
         i | r | t | w | $'\t')
-            _nav_hint "Project row: n/Enter start a session here, D remove from list"
+            _nav_hint "Project row: a/Enter start a session here, D remove from list"
             _return_from_subflow
             ;;
         *)
@@ -304,7 +304,7 @@ restore_selected() {
     if ! has_metadata "$selected"; then
         # No metadata - can't restore
         echo ""
-        echo "  ${NAV_C_DIM}Not registered — press n to add${NAV_C_NORMAL}"
+        echo "  ${NAV_C_DIM}Not registered — press a to add${NAV_C_NORMAL}"
         sleep 0.3
         return 0
     fi

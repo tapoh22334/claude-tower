@@ -46,6 +46,8 @@ source "$SCRIPT_DIR/../lib/nav/nav-view-signal.sh"
 source "$SCRIPT_DIR/../lib/nav/nav-optimistic.sh"
 # shellcheck source=../lib/nav/nav-actions.sh
 source "$SCRIPT_DIR/../lib/nav/nav-actions.sh"
+# shellcheck source=../lib/nav/nav-search.sh
+source "$SCRIPT_DIR/../lib/nav/nav-search.sh"
 # shellcheck source=../lib/nav/nav-loop.sh
 source "$SCRIPT_DIR/../lib/nav/nav-loop.sh"
 

@@ -89,7 +89,7 @@ show_project_card() {
     fi
     echo "  Sessions  : $n session(s)${eol}"
     echo "${eol}"
-    echo -e "  ${C_PANE}n / Enter: new session here    D: remove from list${C_RESET}${eol}"
+    echo -e "  ${C_PANE}a / Enter: new session here    D: remove from list${C_RESET}${eol}"
     printf '\033[J'
 }
 

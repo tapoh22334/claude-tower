@@ -127,6 +127,14 @@ strip_ansi_seq() {
 # this twice, and `$(printf ... | strip_ansi_seq)` costs a subshell plus a
 # fork+exec each time — measurable once the list is more than a few rows.
 _strip_ansi_str() {
+    _strip_ansi_into "$1"
+    printf '%s' "$NAV_STRIPPED"
+}
+
+# The same, leaving the result in NAV_STRIPPED so a caller that runs per row
+# per frame (the search) does not pay a $(...) fork for each one.
+NAV_STRIPPED=""
+_strip_ansi_into() {
     local s="$1" out="" rest
     while [[ "$s" == *$'\033['* ]]; do
         out+="${s%%$'\033['*}"
@@ -135,7 +143,7 @@ _strip_ansi_str() {
         while [[ -n "$rest" && "$rest" != [a-zA-Z]* ]]; do rest="${rest:1}"; done
         s="${rest:1}"
     done
-    printf '%s' "$out$s"
+    NAV_STRIPPED="$out$s"
 }
 
 # The group header row text for project dir $1 with $2 unmanaged claude
@@ -171,6 +179,19 @@ _compose_group_header() {
 # Rendering
 # ============================================================================
 
+# Screen rows line $1 (may contain ANSI) takes in a $2-column terminal.
+_wrapped_rows() {
+    local cols="${2:-80}" w
+    ((cols < 1)) && cols=1
+    _strip_ansi_into "$1"
+    w=$(str_display_width "$NAV_STRIPPED")
+    if ((w <= cols)); then
+        echo 1
+    else
+        echo $(((w + cols - 1) / cols))
+    fi
+}
+
 # Render session list (double-buffered to prevent flicker)
 render_list() {
     local selected_index="$1"
@@ -180,12 +201,6 @@ render_list() {
     # rebuild (which can be seconds away).
     _reset_width_cache
     term_height=$(_term_lines)
-    # Row budget for the body (session rows + group headers + separator).
-    # Reserve: header (2) + footer (2). If the frame is even one line
-    # taller than the terminal, every redraw scrolls the screen and the
-    # refresh loop turns into an endless upward crawl.
-    local max_lines=$((term_height - 4))
-    [[ $max_lines -lt 1 ]] && max_lines=1
 
     # Build output in variable first (double buffering)
     local output=""
@@ -212,7 +227,35 @@ render_list() {
     local eol=$'\033[K'
 
     # Header with focus indicator
-    output+="${NAV_C_HEADER}Sessions${NAV_C_NORMAL} ${focus_indicator}${eol}\n"
+    # The search note sits on the header line: the footer has no room left
+    # beside the key list, and the header is where the eye returns anyway.
+    local search_note="" header_line footer_line
+    if _search_status "$selected_index"; then
+        search_note="  ${NAV_C_ACCENT}${NAV_SEARCH_STATUS}${NAV_C_NORMAL}"
+    fi
+    header_line="${NAV_C_HEADER}Sessions${NAV_C_NORMAL} ${focus_indicator}${search_note}"
+
+    # Footer with keybindings (compact). While `/` is open the footer is the
+    # prompt line, as in vim.
+    if _search_footer; then
+        footer_line="${NAV_C_ACCENT}${NAV_SEARCH_FOOTER}${NAV_C_NORMAL}"
+    else
+        footer_line="${NAV_C_DIM}j/k:nav ↵:input /:find a:add f:fork A:dir D:del r:resume t:tail w:queue q:quit${NAV_C_NORMAL}"
+    fi
+
+    # Row budget for the body (session rows + group headers + separator).
+    # Reserve the header and footer at the rows they really take: the list
+    # pane is usually narrower than the 78-cell key list, so the footer wraps,
+    # and a long search note can wrap the header. If the frame is even one
+    # line taller than the terminal, every redraw scrolls the screen — the
+    # header (and the search note on it) scrolls off and the refresh loop
+    # turns into an endless upward crawl.
+    local cols max_lines
+    cols=$(_term_cols)
+    max_lines=$((term_height - 2 - $(_wrapped_rows "$header_line" "$cols") - $(_wrapped_rows "$footer_line" "$cols")))
+    [[ $max_lines -lt 1 ]] && max_lines=1
+
+    output+="${header_line}${eol}\n"
     output+="${eol}\n"
 
     if [[ ${#SESSION_IDS[@]} -eq 0 ]]; then
@@ -272,13 +315,12 @@ render_list() {
         fi
     fi
 
-    # Footer with keybindings (compact). No trailing \n on the last line:
-    # if the frame fills the terminal exactly, a final newline would still
-    # scroll the screen by one row on every redraw.
+    # No trailing \n on the footer: if the frame fills the terminal exactly,
+    # a final newline would still scroll the screen by one row on every
+    # redraw. Keep the key list within 80 cells: a longer footer wraps and
+    # the trailing binding is lost on an 80-wide capture.
     output+="${eol}\n"
-    # Keep this within 80 cells: a longer footer wraps and the trailing
-    # binding is lost on an 80-wide capture.
-    output+="${NAV_C_DIM}j/k:nav ↵/i:input n:add f:fork N:newdir D:del r:resume t:tail w:queue q:quit${NAV_C_NORMAL}${eol}"
+    output+="${footer_line}${eol}"
 
     # Clear to end of screen code
     local clear_eos
@@ -300,14 +342,14 @@ show_help() {
     echo "  Navigation:"
     echo "    j / ↓      Move down"
     echo "    k / ↑      Move up"
-    echo "    g          Go to first session"
-    echo "    G          Go to last session"
+    echo "    g / G      Go to first / last session"
+    echo "    / text     Search; n / N next / previous match (empty / clears)"
     echo ""
     echo "  Actions:"
     echo "    Enter / i  Focus view pane (input mode)"
-    echo "    n          Add session (pick existing Claude session or start new)"
+    echo "    a          Add session (pick existing Claude session or start new)"
     echo "    f          Fork: new session in the selected session's directory"
-    echo "    N          New session in a picked project directory"
+    echo "    A          New session in a picked project directory"
     echo "    D          Delete from Tower (Claude's transcript is kept)"
     echo "    r          Resume selected dormant session"
     echo "    Tab / t    Tile view / Tail view (live output)"

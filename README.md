@@ -22,7 +22,7 @@ which produced output you have not read.
 │ notes-app ──────────    │                                          │
 │ ○ draft the outline     │                                          │
 │                         │                                          │
-│ j/k:nav ↵/i:input n:add │                                          │
+│ j/k:nav ↵:input /:find  │                                          │
 └─────────────────────────┴──────────────────────────────────────────┘
        List (30%)                        View (70%)
 ```
@@ -64,11 +64,12 @@ highlighted session, `Escape` comes back.
 |-----|--------|
 | `j` / `k` | Move down / up |
 | `g` / `G` | First / last |
+| `/` `n` `N` | Search the list, then jump to the next / previous match (as in vim; an empty `/` clears it) |
 | `Enter` / `i` | Type into the session |
 | `Escape` | Back to the list (from the right pane) |
-| `n` | Add a session — pick a running one, or start a new one |
+| `a` | Add a session — pick a running one, or start a new one |
 | `f` | Another session in the same directory (fresh conversation) |
-| `N` | New session in a directory you pick |
+| `A` | New session in a directory you pick |
 | `D` | Unregister (the directory is left alone) |
 | `r` | Resume a dormant session |
 | `Tab` `t` `w` | Tile / Tail / Queue view |
@@ -92,7 +93,7 @@ highlighted session, `Escape` comes back.
 45-second window, so a long tool call looks idle.
 
 The last two are transient, and they exist so an action never looks like it
-did nothing. `◐` appears the instant you press `n`, `f`, `N` or `r` — before
+did nothing. `◐` appears the instant you press `a`, `f`, `A` or `r` — before
 Claude has written anything to read a real state from — and `⌫` marks the row
 you are deleting while the delete runs.
 
@@ -134,12 +135,12 @@ A project is listed as long as it is in the registry
 (`~/.claude-tower/metadata/projects.list`), which every session start fills
 in for you; deleting a project's last session leaves its header in place.
 The header is a row: `j`/`k` stop on it, the right pane shows the project
-(directory, branch, session count), `n`/`Enter`/`f` start a session there,
+(directory, branch, session count), `a`/`Enter`/`f` start a session there,
 and `D` drops an empty project from the list (`tower project rm <dir>` does
 the same from a shell). The directory itself is never touched.
 
 `tower` lives at `tmux-plugin/scripts/tower`. Removing a session only drops
-Tower's registry entry — the transcript survives, so `n` can re-add it.
+Tower's registry entry — the transcript survives, so `a` can re-add it.
 
 ## Configuration
 

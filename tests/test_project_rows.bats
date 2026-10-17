@@ -190,7 +190,7 @@ _stub_build() {
 
 # --- keys on a header row ---------------------------------------------------
 
-@test "keys: n/Enter/f on a header start a session in that dir and seat it under the header" {
+@test "keys: a/Enter/f on a header start a session in that dir and seat it under the header" {
     _nav
     signal_view_update() { :; }
     signal_view_update_async() { :; }
@@ -223,7 +223,7 @@ _stub_build() {
     SESSION_DIRS=(/no/such/dir)
     SESSION_HEADERS=("")
     BROKEN_START=-1
-    run handle_project_key n /no/such/dir 0
+    run handle_project_key a /no/such/dir 0
     [ "$status" -eq 0 ]
     [[ "$output" == *"Directory not found"* ]]
     [ "${#SESSION_IDS[@]}" -eq 1 ]
@@ -313,7 +313,7 @@ _stub_build() {
     [[ "$output" == *"Directory : $P1"* ]]
     [[ "$output" == *"Branch    : feature/x"* ]]
     [[ "$output" == *"1 session"* ]]
-    [[ "$output" == *"n / Enter"* ]]
+    [[ "$output" == *"a / Enter"* ]]
 }
 
 # --- tower project rm -------------------------------------------------------

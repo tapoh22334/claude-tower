@@ -192,11 +192,12 @@ render_navigator_list() {
     [ "$status" -eq 0 ]
 
     [[ "$output" == *"Sessions"* ]]
-    # Footer reflects the current 5-state-era keybindings (n:add, D:del,
+    # Footer reflects the current 5-state-era keybindings (a:add, D:del,
     # r:resume - not the removed R:restore-all)
     [[ "$output" == *"j/k:nav"* ]]
-    [[ "$output" == *"i:input"* ]]
-    [[ "$output" == *"n:add"* ]]
+    [[ "$output" == *"↵:input"* ]]
+    [[ "$output" == *"/:find"* ]]
+    [[ "$output" == *"a:add"* ]]
     [[ "$output" == *"D:del"* ]]
     [[ "$output" == *"r:resume"* ]]
     [[ "$output" == *"w:queue"* ]]
