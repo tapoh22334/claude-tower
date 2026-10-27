@@ -98,7 +98,23 @@ teardown() {
     [ "$output" = "$(stat -c %Y -- "${sub}/agent-x.jsonl")" ]
 }
 
-@test "get_session_activity: background task output mtime wins when newer" {
+@test "get_session_activity: background agent output (symlink) wins when newer" {
+    local f
+    f=$(create_mock_jsonl "-home-user-proj" "$UUID_A" "/home/user/proj")
+    touch -d "2020-01-01 00:00:00" "$f"
+    local agent="${BATS_TEST_TMPDIR}/agent-x.jsonl"
+    echo '{}' > "$agent"
+    local tasks="${TMPDIR:-/tmp}/claude-$(id -u)/-home-user-proj/${UUID_A}/tasks"
+    mkdir -p "$tasks"
+    ln -s "$agent" "${tasks}/a.output"
+    run get_session_activity "$f"
+    rm -rf "${TMPDIR:-/tmp}/claude-$(id -u)/-home-user-proj"
+    [ "$output" = "$(stat -c %Y -- "$agent")" ]
+}
+
+@test "get_session_activity: background shell output does not count" {
+    # A dev server or a stuck polling loop writes its task output for as
+    # long as it runs, with Claude itself idle at the prompt.
     local f
     f=$(create_mock_jsonl "-home-user-proj" "$UUID_A" "/home/user/proj")
     touch -d "2020-01-01 00:00:00" "$f"
@@ -106,8 +122,8 @@ teardown() {
     mkdir -p "$tasks"
     echo x > "${tasks}/a.output"
     run get_session_activity "$f"
-    [ "$output" = "$(stat -c %Y -- "${tasks}/a.output")" ]
     rm -rf "${TMPDIR:-/tmp}/claude-$(id -u)/-home-user-proj"
+    [ "$output" = "$(stat -c %Y -- "$f")" ]
 }
 
 @test "is_session_busy: true for freshly touched transcript" {

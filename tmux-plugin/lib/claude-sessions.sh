@@ -109,10 +109,16 @@ session_has_messages() {
 }
 
 # Newest activity epoch across the transcript, its subagents, and its
-# background-task outputs. Background Agent runs write outside the projects
+# background-agent outputs. Background Agent runs write outside the projects
 # dir (under $TMPDIR/claude-<uid>/<slug>/<id>/tasks/) while the parent
 # transcript idles — checking only the jsonl would show a working session
 # as idle.
+#
+# Only the symlinks in tasks/ count: those are agent runs (they point at the
+# agent's transcript). Regular files there are background shell output — a
+# dev server or a stuck polling loop writes one for as long as it runs, with
+# Claude idle at the prompt, and counting them kept such a session spinning
+# indefinitely (#85).
 get_session_activity() {
     local jsonl="$1"
     local latest=0 f
@@ -130,7 +136,7 @@ get_session_activity() {
     done
 
     for f in "${TMPDIR:-/tmp}/claude-${EUID}/${slug}/${session_id}/tasks"/*.output; do
-        [[ -f "$f" ]] && batch+=("$f")
+        [[ -L "$f" && -f "$f" ]] && batch+=("$f")
     done
 
     # One stat for the whole batch instead of one per file. A busy session can
