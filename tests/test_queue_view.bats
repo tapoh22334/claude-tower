@@ -67,6 +67,20 @@ _run_queue() {
     [[ "$output" != *"CALLED"* ]]
 }
 
+@test "load_queue: the process snapshot does not outlive the load" {
+    _run_queue '
+        list_all_session_ids() { echo tower_a; }
+        list_live_claude_processes() { echo RESCAN >&2; }
+        get_wait_state() { echo input; }
+        wait_since() { echo 1000; }
+        _queue_label() { echo t; }
+        format_relative_time() { echo "x ago"; }
+        load_queue 2>/dev/null
+        is_claude_process_alive a 2>&1 || true
+    '
+    [[ "$output" == *"RESCAN"* ]]
+}
+
 @test "render_frame: j/k redraws do not look up each row again" {
     # Each row's label reads its transcript; doing that on every keypress
     # made j/k take ~0.4s with 22 rows (#86).

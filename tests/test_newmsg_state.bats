@@ -89,3 +89,15 @@ _run_nav() {
     [ "$status" -eq 0 ]
     [[ "$output" == *"⚙3"* ]]
 }
+
+@test "build_session_list: the process snapshot does not outlive the build" {
+    # Actions run later in the same shell (resume's "already running
+    # elsewhere?" check) must rescan, not read a table up to a refresh old.
+    _run_nav '
+        list_all_sessions() { echo "tower_x:dormant"; }
+        list_live_claude_processes() { echo RESCAN >&2; }
+        build_session_list 2>/dev/null
+        is_claude_process_alive x 2>&1 || true
+    '
+    [[ "$output" == *"RESCAN"* ]]
+}

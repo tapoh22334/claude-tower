@@ -107,6 +107,9 @@ teardown() {
     local tasks="${TMPDIR:-/tmp}/claude-$(id -u)/-home-user-proj/${UUID_A}/tasks"
     mkdir -p "$tasks"
     ln -s "$agent" "${tasks}/a.output"
+    # The link was made when the agent started; the agent wrote since.
+    touch -h -d "2020-01-02 00:00:00" "${tasks}/a.output"
+    touch -d "2020-01-03 00:00:00" "$agent"
     run get_session_activity "$f"
     rm -rf "${TMPDIR:-/tmp}/claude-$(id -u)/-home-user-proj"
     [ "$output" = "$(stat -c %Y -- "$agent")" ]

@@ -114,8 +114,11 @@ session_has_messages() {
 # transcript idles — checking only the jsonl would show a working session
 # as idle.
 #
-# Only the symlinks in tasks/ count: those are agent runs (they point at the
-# agent's transcript). Regular files there are background shell output — a
+# Only the symlinks in tasks/ count: those are agent runs, pointing at the
+# agent's transcript — usually under this session's subagents/ (already in
+# the batch), but a forked or resumed session's link can point into another
+# session's. stat follows them (-L): the link's own mtime is only when the
+# agent started. Regular files there are background shell output — a
 # dev server or a stuck polling loop writes one for as long as it runs, with
 # Claude idle at the prompt, and counting them kept such a session spinning
 # indefinitely (#85).
@@ -147,7 +150,7 @@ get_session_activity() {
     while IFS= read -r t; do
         [[ "$t" =~ ^[0-9]+$ ]] || continue
         ((t > latest)) && latest=$t
-    done < <(stat -c %Y -- "${batch[@]}" 2>/dev/null)
+    done < <(stat -L -c %Y -- "${batch[@]}" 2>/dev/null)
 
     echo "$latest"
 }
