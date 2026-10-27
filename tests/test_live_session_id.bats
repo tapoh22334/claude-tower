@@ -123,3 +123,21 @@ LIVE1="11111111-1111-4111-8111-111111111111"
     run start_claude_session tower_reg-0000 "$BATS_TEST_TMPDIR" resume
     [[ "$output" == *"--resume $LIVE1"* ]]
 }
+
+@test "live id: is_claude_process_alive reads the build's process table, not a rescan" {
+    # A rescan walks ~/.claude/sessions with a ps per entry (~0.5s here);
+    # the queue and the list ask once per paneless row (#86).
+    build_live_id_map
+    list_live_claude_processes() { echo x >>"$BATS_TEST_TMPDIR/rescan.calls"; }
+    is_claude_process_alive "$LIVE1"
+    ! is_claude_process_alive "33333333-3333-4333-8333-333333333333"
+    [ ! -e "$BATS_TEST_TMPDIR/rescan.calls" ]
+}
+
+@test "live id: the process table is kept even when no pane exists" {
+    session_tmux() { case "$1" in list-panes) return 0 ;; *) return 1 ;; esac; }
+    build_live_id_map
+    list_live_claude_processes() { echo x >>"$BATS_TEST_TMPDIR/rescan.calls"; }
+    is_claude_process_alive "$LIVE1"
+    [ ! -e "$BATS_TEST_TMPDIR/rescan.calls" ]
+}

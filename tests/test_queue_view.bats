@@ -36,7 +36,7 @@ _run_queue() {
 @test "load_queue: orders waiters longest-wait-first and skips non-waiters" {
     _run_queue '
         # a: waited longest (oldest since), b: newest, c: not waiting.
-        list_all_sessions() { echo "tower_a:active"; echo "tower_b:active"; echo "tower_c:active"; }
+        list_all_session_ids() { echo tower_a; echo tower_b; echo tower_c; }
         get_wait_state() { case "$1" in tower_c) echo "" ;; *) echo input ;; esac; }
         wait_since() { case "$1" in tower_a) echo 1000 ;; tower_b) echo 5000 ;; esac; }
         format_relative_time() { echo "x ago"; }
@@ -47,6 +47,39 @@ _run_queue() {
     # a (since 1000, older) before b (since 5000); c excluded entirely.
     [[ "$output" == *"tower_a tower_b"* ]]
     [[ "$output" != *"tower_c"* ]]
+}
+
+@test "load_queue: does not compute display states it never shows" {
+    # list_all_sessions runs get_display_state per session (~0.7s for 24);
+    # the queue only needs the ids (#86).
+    _run_queue '
+        list_all_session_ids() { echo tower_a; }
+        list_all_sessions() { echo CALLED >&2; echo "tower_a:active"; }
+        list_live_claude_processes() { :; }
+        get_wait_state() { echo input; }
+        wait_since() { echo 1000; }
+        format_relative_time() { echo "x ago"; }
+        load_queue
+        printf "%s\n" "${QUEUE_IDS[*]}"
+    '
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"tower_a"* ]]
+    [[ "$output" != *"CALLED"* ]]
+}
+
+@test "render_frame: j/k redraws do not look up each row again" {
+    # Each row's label reads its transcript; doing that on every keypress
+    # made j/k take ~0.4s with 22 rows (#86).
+    _run_queue '
+        QUEUE_IDS=(tower_a tower_b tower_c); QUEUE_KINDS=(input input input); QUEUE_AGES=(1m 2m 3m)
+        _queue_label() { echo L >>"'"$BATS_TEST_TMPDIR"'/label.calls"; echo "t"; }
+        render_frame >/dev/null
+        handle_key() { SELECTED_INDEX=$(( (SELECTED_INDEX + 1) % 3 )); }
+        for i in 1 2 3 4 5; do handle_key j; render_frame >/dev/null; done
+        grep -c "" "'"$BATS_TEST_TMPDIR"'/label.calls"
+    '
+    [ "$status" -eq 0 ]
+    [ "${lines[-1]}" -eq 3 ]
 }
 
 @test "build_queue_frame: empty queue shows the caught-up message" {

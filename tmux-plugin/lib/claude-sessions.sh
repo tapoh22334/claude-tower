@@ -355,10 +355,14 @@ _live_session_id() {
 # launched a week ago.
 #
 # LIVE_ID_MAP lines: "<tower_id>\t<live claude id>". TOWER_PANE_TTYS lines:
-# "/dev/pts/N" for every pane on the session server.
+# "/dev/pts/N" for every pane on the session server. LIVE_PROCS_TABLE is the
+# build's list_live_claude_processes output, read by is_claude_process_alive
+# once LIVE_PROCS_READY is set.
 # ----------------------------------------------------------------------------
 LIVE_ID_MAP=""
 TOWER_PANE_TTYS=""
+LIVE_PROCS_TABLE=""
+LIVE_PROCS_READY=""
 
 # The sessionId Claude itself records for a pid, straight from its
 # ~/.claude/sessions/<pid>.json — bash-only, no fork. This is the value that
@@ -379,14 +383,20 @@ _json_session_id() {
 build_live_id_map() {
     LIVE_ID_MAP=""
     TOWER_PANE_TTYS=""
+    # Taken before the pane check: paneless (dormant/external) rows are the
+    # ones that ask is_claude_process_alive.
+    local table
+    table=$(list_live_claude_processes)
+    LIVE_PROCS_TABLE="$table"
+    LIVE_PROCS_READY=1
+
     local panes
     panes=$(session_tmux list-panes -a -F '#{session_name}'$'\t''#{pane_tty}' 2>/dev/null) || panes=""
     [[ -n "$panes" ]] || return 0
     TOWER_PANE_TTYS=$(cut -f2 <<<"$panes")
 
     # tty of every live claude pid, one ps for all of them.
-    local table pids="" sid pid _cwd ptys
-    table=$(list_live_claude_processes)
+    local pids="" sid pid _cwd ptys
     while IFS=$'\t' read -r sid pid _cwd; do
         [[ -n "$pid" ]] && pids+="${pids:+,}$pid"
     done <<<"$table"
@@ -476,9 +486,16 @@ list_live_claude_processes() {
 }
 
 # Is a live claude process running this session id (without tower_ prefix)?
+# Reads the build's table when there is one: a rescan costs a kill -0 and a
+# ps per live process, and the list and the queue ask once per paneless row.
 is_claude_process_alive() {
-    local session_id="$1"
-    list_live_claude_processes | grep -q -m 1 "^${session_id}$(printf '\t')"
+    local session_id="$1" table
+    if [[ -n "$LIVE_PROCS_READY" ]]; then
+        table="$LIVE_PROCS_TABLE"
+    else
+        table=$(list_live_claude_processes)
+    fi
+    [[ $'\n'"$table" == *$'\n'"${session_id}"$'\t'* ]]
 }
 
 # --- Wait-queue detection --------------------------------------------------

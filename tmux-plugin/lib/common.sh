@@ -1512,9 +1512,10 @@ get_state_icon() {
 # Session List (v2.0)
 # ============================================================================
 
-# List all tower sessions. Output: session_id:state
-# state: busy|active|dormant|dead|lost
-list_all_sessions() {
+# Every tower session id, live ones first, then registered ones with no
+# tmux session. One per line, no state: for callers that judge each session
+# their own way (the queue) and would only throw get_display_state away.
+list_all_session_ids() {
     local -A seen=()
     local session_id
 
@@ -1522,16 +1523,26 @@ list_all_sessions() {
         [[ -z "$session_id" ]] && continue
         [[ "$session_id" != tower_* ]] && continue
         seen["$session_id"]=1
-        echo "${session_id}:$(get_display_state "$session_id")"
+        echo "$session_id"
     done < <(session_tmux list-sessions -F '#{session_name}' 2>/dev/null || true)
 
     local meta_file
     for meta_file in "${TOWER_METADATA_DIR}"/*.meta; do
         [[ -f "$meta_file" ]] || continue
-        session_id=$(basename "$meta_file" .meta)
+        session_id="${meta_file##*/}"
+        session_id="${session_id%.meta}"
         [[ -n "${seen[$session_id]:-}" ]] && continue
-        echo "${session_id}:$(get_display_state "$session_id")"
+        echo "$session_id"
     done
+}
+
+# List all tower sessions. Output: session_id:state
+# state: busy|active|dormant|dead|lost
+list_all_sessions() {
+    local session_id
+    while IFS= read -r session_id; do
+        echo "${session_id}:$(get_display_state "$session_id")"
+    done < <(list_all_session_ids)
 }
 
 # ============================================================================
