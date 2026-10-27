@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # Unread-as-a-state: a stopped session with new output renders as the
-# newmsg state (✱ left icon), not a separate right-column mark.
+# newmsg state (• left icon), not a separate right-column mark.
 
 load 'test_helper'
 
@@ -13,9 +13,9 @@ teardown() {
     teardown_test_env
 }
 
-@test "get_state_icon: newmsg renders as ✱" {
+@test "get_state_icon: newmsg renders as •" {
     run get_state_icon "newmsg"
-    [ "$output" = "✱" ]
+    [ "$output" = "•" ]
 }
 
 @test "STATE_NEWMSG constant is defined" {
@@ -41,7 +41,7 @@ _run_nav() {
     '
 }
 
-@test "build_session_list: a stopped unread session promotes to the newmsg ✱ icon" {
+@test "build_session_list: a stopped unread session promotes to the newmsg • icon" {
     _run_nav '
         list_all_sessions() { echo "tower_x:active"; }
         is_session_unread() { return 0; }
@@ -49,7 +49,7 @@ _run_nav() {
         printf "%s\n" "${SESSION_DISPLAYS[1]}" | sed -E "s/\x1b\[[0-9;?]*[a-zA-Z]//g"
     '
     [ "$status" -eq 0 ]
-    [[ "$output" == *"✱ t-x"* ]]
+    [[ "$output" == *"• t-x"* ]]
 }
 
 @test "build_session_list: newmsg suppresses the plain ▶ active icon" {
@@ -73,7 +73,7 @@ _run_nav() {
         printf "%s\n" "${SESSION_DISPLAYS[1]}"
     '
     [ "$status" -eq 0 ]
-    # Busy stays the spinner placeholder, not the ✱ state.
+    # Busy stays the spinner placeholder, not the • state.
     [[ "$output" == *"@@SPIN@@"* ]]
 }
 

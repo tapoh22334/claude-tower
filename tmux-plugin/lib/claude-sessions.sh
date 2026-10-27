@@ -932,12 +932,15 @@ init_session_seen() {
 
 # 0 (unread) when activity moved past the seen mark. Busy sessions are the
 # caller's business - it shows a spinner instead of the unread mark.
+# Reads the live transcript, the one mark_session_seen took the mark from:
+# after /clear the launch id's transcript stops moving, and comparing that
+# one hid every later output (#87).
 is_session_unread() {
     local session_id="$1"
     local seen_file="${TOWER_SEEN_DIR}/${session_id}"
     [[ -f "$seen_file" ]] || return 1
     local jsonl activity seen
-    jsonl=$(find_session_jsonl "${session_id#tower_}") || return 1
+    jsonl=$(find_session_jsonl "$(live_claude_id "$session_id")") || return 1
     activity=$(get_session_activity "$jsonl")
     seen=$(cat "$seen_file" 2>/dev/null) || return 1
     [[ "$seen" =~ ^[0-9]+$ ]] || return 1

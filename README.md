@@ -17,7 +17,7 @@ which produced output you have not read.
 │                         │  Claude Code session content             │
 │ claude-tower ──── ⚡1    │  displayed here in real time             │
 │ ⠹ fix the redraw bug    │                                          │
-│ ▶ add queue view    ✱   │  Enter / i to type into it               │
+│ • add queue view        │  Enter / i to type into it               │
 │                         │  Escape to come back                     │
 │ notes-app ──────────    │                                          │
 │ ○ draft the outline     │                                          │
@@ -28,7 +28,7 @@ which produced output you have not read.
 ```
 
 Sessions group under their project. `⚡1` counts live `claude` processes in
-that directory Tower does not manage yet; `✱` marks output you have not seen.
+that directory Tower does not manage yet; `•` marks output you have not seen.
 
 ## Requirements
 
@@ -85,7 +85,7 @@ highlighted session, `Escape` comes back.
 | `◇` | External | Live outside Tower; use its own terminal |
 | `✗` | Dead | Working directory is gone |
 | `?` | Lost | Transcript is gone — press `D` |
-| `✱` | Unread | New output since you last looked |
+| `•` | Unread | New output since you last looked |
 | `◐` | Starting | Just launched; no transcript to read yet |
 | `⌫` | Deleting | A delete is running against this row |
 

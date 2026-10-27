@@ -108,10 +108,26 @@ LIVE1="11111111-1111-4111-8111-111111111111"
     build_live_id_map
     find_session_jsonl() { echo "$1" >>"$BATS_TEST_TMPDIR/lookups"; return 1; }
     mark_session_seen tower_reg-0000 || true
-    is_session_unread tower_reg-0000 || true
     run cat "$BATS_TEST_TMPDIR/lookups"
     [[ "$output" == *"$LIVE1"* ]]
     [[ "$output" != *"reg-0000"* ]]
+}
+
+@test "unread: after /clear, new output is checked on the transcript the mark was taken from" {
+    # The mark is taken from the live (post-/clear) transcript. Checking the
+    # launch id's transcript instead compared it with one that no longer
+    # moves, so the session never read as unread again (#87).
+    build_live_id_map
+    TOWER_SEEN_DIR="$BATS_TEST_TMPDIR/seen"
+    local old new
+    old=$(create_mock_jsonl "-p-one" "reg-0000" "/p/one")
+    new=$(create_mock_jsonl "-p-one" "$LIVE1" "/p/one")
+    touch -d "2020-01-01 00:00:00" "$old"
+    touch -d "2020-01-02 00:00:00" "$new"
+    mark_session_seen tower_reg-0000
+    touch -d "2020-01-03 00:00:00" "$new"
+    run is_session_unread tower_reg-0000
+    [ "$status" -eq 0 ]
 }
 
 @test "resume: r restarts the session the user was last in, not the launch id" {

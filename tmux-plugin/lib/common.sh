@@ -1449,7 +1449,7 @@ readonly ICON_STATE_BUSY="●"
 readonly ICON_STATE_DEAD="✗"
 readonly ICON_STATE_LOST="?"
 readonly ICON_STATE_EXTERNAL="◇"
-readonly ICON_STATE_NEWMSG="✱"
+readonly ICON_STATE_NEWMSG="•"
 readonly ICON_STATE_STARTING="◐"
 readonly ICON_STATE_DELETING="⌫"
 

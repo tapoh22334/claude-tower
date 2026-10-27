@@ -160,7 +160,7 @@ build_session_list() {
 
         # Unread is a STATE, not a right-column mark: a stopped session that
         # produced output since it was last viewed becomes newmsg, shown by
-        # the ✱ left icon like any other state. The right column is left to
+        # the • left icon like any other state. The right column is left to
         # the subagent count alone.
         #
         # busy and starting are deliberately not on this list. Neither can
@@ -192,7 +192,7 @@ build_session_list() {
                 icon="${NAV_C_DIM}${ICON_STATE_STARTING}${NAV_C_NORMAL}"
                 label="${NAV_C_DIM}${label} — starting…${NAV_C_NORMAL}"
                 ;;
-            newmsg)  icon="${NAV_C_ACCENT}✱${NAV_C_NORMAL}" ;;
+            newmsg)  icon="${NAV_C_ACTIVE}${ICON_STATE_NEWMSG}${NAV_C_NORMAL}" ;;
             active)  icon="${NAV_C_ACTIVE}▶${NAV_C_NORMAL}" ;;
             external) icon="${NAV_C_EXTERNAL}◇${NAV_C_NORMAL}" ;;
             dormant) icon="${NAV_C_DORMANT}○${NAV_C_NORMAL}" ;;

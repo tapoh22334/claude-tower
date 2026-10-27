@@ -280,7 +280,7 @@ EOF
     [[ "$output" == *"${SPINNER_FRAMES[1]} working-session"* ]]
 }
 
-@test "build_session_list: busy row embeds the spinner placeholder, stopped unseen row becomes newmsg (✱ state)" {
+@test "build_session_list: busy row embeds the spinner placeholder, stopped unseen row becomes newmsg (• state)" {
     source "$PROJECT_ROOT/tmux-plugin/scripts/navigator-list.sh" 2>/dev/null || true
 
     TOWER_SEEN_DIR="${BATS_TEST_TMPDIR}/seen"
@@ -314,8 +314,8 @@ EOF
     done
 
     [[ "$busy_row" == *"$SPIN_PLACEHOLDER"* ]]
-    # Unread is now a state (✱ left icon), not a right-column mark.
-    [[ "$done_row" == *"✱"* ]]
+    # Unread is now a state (• left icon), not a right-column mark.
+    [[ "$done_row" == *"•"* ]]
 }
 
 @test "build_session_list: selected session is marked seen, so it stays active not newmsg" {
@@ -334,10 +334,10 @@ EOF
 
     build_session_list
 
-    # Seen -> stays ▶ active, never promoted to the ✱ newmsg state.
+    # Seen -> stays ▶ active, never promoted to the • newmsg state.
     # Row 0 is the project row; the session is row 1.
     [[ "${SESSION_DISPLAYS[1]}" == *"▶"* ]]
-    [[ "${SESSION_DISPLAYS[1]}" != *"✱"* ]]
+    [[ "${SESSION_DISPLAYS[1]}" != *"•"* ]]
 }
 
 # ============================================================================
