@@ -1,0 +1,18 @@
+# #91 のレビューで見つかった既存の不整合。切り詰め側と測定側で「…」の幅が食い違う。
+# 検証: PYTHONPATH=~/.claude/skills/github-tickets/scripts ~/.claude/skills/github-tickets/scripts/apply.sh --verify docs/tickets/2026-10-28-ellipsis-cell-width.yml
+repo: tapoh22334/claude-tower
+
+project:
+  number: 4
+  owner: tapoh22334
+
+tasks:
+  - issue: 92
+    title: 切り詰めた「…」の幅を切り詰め側と測定側で揃え、マーク付きの行が予算を超えないようにする
+    body: |
+      ## やること
+      _utf8_walk は切り詰めるとき「…」の分として 1 セルを予約するが、測るときは 3 バイト文字として 2 セルに数える。そのため truncate_display の結果は予算より 1 セル長く測られ、_compose_row の詰め幅が負になって 1 に丸められる。見切れたタイトルに ⚙N などのマークが付く行は、コード自身の計算で端末幅 + 2 セルになる。「…」や「▶」を 1 セルで描く端末ではその分の余白で収まっているが、ambiguous width を 2 セルで描く端末では折り返す。予約する幅と測る幅を同じ値にし、どの端末でも行が予算に収まるようにする。
+
+      ## 完了条件
+      - [ ] 見切れたタイトル + マークの行を _compose_row で組んだとき、コード自身の測定で端末幅を超えない(テストで固定)
+      - [ ] 「…」が 1 セルで描かれる端末での見た目は今と変わらない(右端のマーク列が揃ったまま)

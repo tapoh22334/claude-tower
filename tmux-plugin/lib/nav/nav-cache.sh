@@ -212,10 +212,20 @@ _spawn_background_rebuild() {
     _REBUILD_DONE_AT=0
     local started_at
     started_at=$(_current_generation)
+    # The job has no terminal: bash gives a `&` job /dev/null for stdin, the
+    # row loop reads a pipe, and the output goes to /dev/null below. tput in
+    # there cannot see the pane and falls back to terminfo's 80, so rows
+    # were cut for 80 columns inside a 72-column pane — the row filled the
+    # pane and its ellipsis wrapped onto a second line. Measure here, where
+    # the terminal is, and state the size for the job.
+    local cols lines
+    cols=$(_term_cols)
+    lines=$(_term_lines)
     (
         # Subshell: build_session_list mutates only this copy of the arrays.
         # The publish is refused if an optimistic edit landed while we built,
         # so a pre-edit snapshot can never overwrite what the user just saw.
+        export TOWER_TERM_COLS="$cols" TOWER_TERM_LINES="$lines"
         build_session_list
         _publish_rebuild "$started_at"
     ) >/dev/null 2>&1 &

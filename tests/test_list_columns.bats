@@ -182,3 +182,55 @@ _visible_width() {
     [ "$status" -eq 0 ]
     [ "$output" = "37" ]
 }
+
+# ---------------------------------------------------------------------------
+# The background rebuild has no terminal. bash hands a `&` job /dev/null for
+# stdin and _spawn_background_rebuild sends its output to /dev/null, so tput
+# in there cannot see the pane and reports terminfo's 80 — whatever the pane
+# measures. Rows were then cut for 80 columns inside a 72-column pane: a
+# truncated title filled the pane and its ellipsis wrapped onto a second row.
+# The foreground owns the terminal, so it must state the size for the job.
+
+@test "background rebuild: rows are cut for the pane width, not tput's no-tty 80" {
+    run bash -c '
+        export CLAUDE_TOWER_METADATA_DIR="'"$CLAUDE_TOWER_METADATA_DIR"'"
+        export CLAUDE_PROJECTS_DIR="'"$CLAUDE_PROJECTS_DIR"'"
+        export CLAUDE_TOWER_NAV_SOCKET="col-test-nav-$$"
+        export CLAUDE_TOWER_SESSION_SOCKET="col-test-sess-$$"
+        unset TOWER_TERM_COLS TOWER_TERM_LINES
+        source "'"$PROJECT_ROOT"'/tmux-plugin/scripts/navigator-list.sh"
+        set +e
+        # tput answers the pane width (57) only where the terminal is
+        # attached; /dev/zero on stdin stands in for it here. The job gets
+        # /dev/null (bash gives a `&` job that) and its row loop a pipe, so
+        # there tput can only fall back to terminfo (80), as it does live.
+        tput() { case "$1" in
+            cols) if [[ /dev/stdin -ef /dev/zero ]]; then echo 57; else echo 80; fi ;;
+            lines) echo 40 ;;
+            ed) printf "" ;;
+            *) : ;; esac; }
+        list_all_sessions() { echo "tower_a1:active"; }
+        live_claude_id() { echo "$1"; }
+        get_session_title() { printf "%0100d\n" 0; }   # 100 cells, must be cut
+        _session_dir() { echo "/proj/alpha"; }
+        mark_session_seen() { :; }
+        init_session_seen() { :; }
+        is_session_unread() { return 1; }
+        count_unregistered_processes_in_dir() { echo 0; }
+        _spawn_background_rebuild force
+        wait "$_REBUILD_PID"
+        _load_session_state || { echo "no cache published"; exit 1; }
+        # Row 0 is the project group header; the session row follows it.
+        for ((i = 0; i < ${#SESSION_IDS[@]}; i++)); do
+            [[ "${SESSION_IDS[$i]}" == "tower_a1" ]] && break
+        done
+        plain=$(printf "%s" "${SESSION_DISPLAYS[$i]}" | sed -E "s/\x1b\[[0-9;?]*[a-zA-Z]//g")
+        # The renderer adds the two-space indent; measure the row as drawn.
+        str_display_width "  $plain"
+    ' </dev/zero
+    [ "$status" -eq 0 ]
+    local measured="${lines[${#lines[@]}-1]}"
+    echo "measured row width: $measured" >&3
+    # A row cut for the 57-column pane fits in it. Cut for 80 it is ~73.
+    [ "$measured" -le 57 ]
+}
