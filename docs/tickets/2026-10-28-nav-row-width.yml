@@ -1,0 +1,18 @@
+# Navigator の行が端末幅を超えて折り返す不具合。利用者報告。
+# 検証: PYTHONPATH=~/.claude/skills/github-tickets/scripts ~/.claude/skills/github-tickets/scripts/apply.sh --verify docs/tickets/2026-10-28-nav-row-width.yml
+repo: tapoh22334/claude-tower
+
+project:
+  number: 4
+  owner: tapoh22334
+
+tasks:
+  - issue: 91
+    title: Navigator の行を一覧ペインの実際の幅で切り詰める
+    body: |
+      ## やること
+      一覧ペインが 80 桁より狭いと、見切れたタイトルの行がペイン幅いっぱいまで描かれ、末尾の「…」が次の行に折り返して 1 セッションが 2 行になる。行を組み立てているのはバックグラウンドの再構築で、その子プロセスには端末がない(stdin は /dev/null、出力も /dev/null)ため、tput cols がペイン幅を答えられず terminfo の 80 に落ちる。端末を持つ前面側が幅を測って再構築に渡し、行がどの幅のペインでも 1 行に収まるようにする。
+
+      ## 完了条件
+      - [ ] 80 桁より狭い一覧ペインで、見切れたタイトルの行が「…」まで含めて 1 行に収まる
+      - [ ] バックグラウンド再構築が端末幅を知らずに行を切る経路が残っていない(テストで固定)
