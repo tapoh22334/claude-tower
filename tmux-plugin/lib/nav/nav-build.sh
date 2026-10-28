@@ -138,11 +138,11 @@ build_session_list() {
     # unmanaged-process count would otherwise rescan ~/.claude/sessions (a
     # kill -0 + grep per entry) once for every project group; one snapshot,
     # reused, replaces N full rescans per refresh.
-    local live_procs
-    live_procs=$(list_live_claude_processes)
     # Resolve which session each pane is really running, once for this
-    # build (see live_claude_id). Bare call: it writes globals.
+    # build (see live_claude_id). Bare call: it writes globals, the process
+    # table among them.
     build_live_id_map
+    local live_procs="$LIVE_PROCS_TABLE"
 
     # The selected session is on screen in the view pane: whatever it has
     # produced counts as seen. Everything else gets a baseline mark so a
@@ -160,7 +160,7 @@ build_session_list() {
 
         # Unread is a STATE, not a right-column mark: a stopped session that
         # produced output since it was last viewed becomes newmsg, shown by
-        # the ✱ left icon like any other state. The right column is left to
+        # the • left icon like any other state. The right column is left to
         # the subagent count alone.
         #
         # busy and starting are deliberately not on this list. Neither can
@@ -192,7 +192,7 @@ build_session_list() {
                 icon="${NAV_C_DIM}${ICON_STATE_STARTING}${NAV_C_NORMAL}"
                 label="${NAV_C_DIM}${label} — starting…${NAV_C_NORMAL}"
                 ;;
-            newmsg)  icon="${NAV_C_ACCENT}✱${NAV_C_NORMAL}" ;;
+            newmsg)  icon="${NAV_C_ACTIVE}${ICON_STATE_NEWMSG}${NAV_C_NORMAL}" ;;
             active)  icon="${NAV_C_ACTIVE}▶${NAV_C_NORMAL}" ;;
             external) icon="${NAV_C_EXTERNAL}◇${NAV_C_NORMAL}" ;;
             dormant) icon="${NAV_C_DORMANT}○${NAV_C_NORMAL}" ;;
@@ -212,6 +212,9 @@ build_session_list() {
         raw_dirs+=("$dir")
         raw_displays+=("$(_compose_row "$icon" "$label" "$marks")")
     done < <(list_all_sessions)
+    # The table is this build's. Actions run later in this shell (resume's
+    # "already running elsewhere?" check) must see a fresh one.
+    LIVE_PROCS_READY=""
 
     # Regroup by project dir: groups sorted by project name so the order is
     # stable across refreshes, with the unknown-dir group pinned last; rows

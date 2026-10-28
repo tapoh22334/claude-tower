@@ -73,36 +73,75 @@ QUEUE_IDS=()
 QUEUE_KINDS=()
 QUEUE_AGES=()
 SELECTED_INDEX=0
+# Composed rows, built once per load (and again only if the width changes):
+# a label reads its session's transcript, so composing on every j/k redraw
+# made each keypress cost one transcript scan per row (#86).
+QUEUE_LABELS=()
+QUEUE_ROWS=()
+QUEUE_ROWS_WIDTH=""
+
+# One session's queue line, or nothing when it is not waiting:
+# "<wait_since>\t<id>\t<kind>\t<label>". The label is looked up here, not
+# at draw time, so it rides the same parallel job as the wait check.
+_queue_entry() {
+    local session_id="$1" kind since label
+    kind=$(get_wait_state "$session_id")
+    [[ -z "$kind" ]] && return 0
+    since=$(wait_since "$session_id")
+    label=$(_queue_label "$session_id")
+    printf '%s\t%s\t%s\t%s\n' "$since" "$session_id" "$kind" "$label"
+}
 
 # Collect waiting sessions and order them by wait duration, longest first.
-# Emits "<wait_since>\t<id>\t<kind>" per waiter, sorts numerically ascending
-# on wait_since (smaller epoch = older = waited longer), fills the arrays.
+# Sorts numerically ascending on wait_since (smaller epoch = older = waited
+# longer) and fills the arrays.
+#
+# Each session is checked in its own background job. The checks are
+# independent and each spends its time waiting on tmux and the filesystem
+# (~25-60ms apiece); one after another they made opening the queue take
+# about a second with two dozen sessions (#86). Lines are far below
+# PIPE_BUF, so concurrent writers cannot interleave inside one.
 load_queue() {
     QUEUE_IDS=()
     QUEUE_KINDS=()
     QUEUE_AGES=()
+    QUEUE_LABELS=()
+    QUEUE_ROWS=()
+    QUEUE_ROWS_WIDTH=""
 
-    local now session_id _state kind since
-    now=$(date +%s)
+    local session_id kind since label live ids
+    ids=$(list_all_session_ids)
+    live=$'\n'$(session_tmux list-sessions -F '#{session_name}' 2>/dev/null || true)$'\n'
 
-    while IFS=$'\t' read -r since session_id kind; do
+    # A paneless session asks is_claude_process_alive, and each rescan of the
+    # process table costs ~0.5s. Take it once, and only when it will be read.
+    while IFS= read -r session_id; do
+        [[ -z "$session_id" || "$live" == *$'\n'"$session_id"$'\n'* ]] && continue
+        LIVE_PROCS_TABLE=$(list_live_claude_processes)
+        LIVE_PROCS_READY=1
+        break
+    done <<<"$ids"
+
+    while IFS=$'\t' read -r since session_id kind label; do
         [[ -z "$session_id" ]] && continue
         QUEUE_IDS+=("$session_id")
         QUEUE_KINDS+=("$kind")
+        QUEUE_LABELS+=("$label")
         # "5d ago" -> "5d": the queue's age column is tight and every row
         # is an age, so the " ago" suffix is redundant noise.
         local reltime
         reltime=$(format_relative_time "$since")
         QUEUE_AGES+=("${reltime% ago}")
     done < <(
-        while IFS=: read -r session_id _state; do
-            [[ -z "$session_id" ]] && continue
-            kind=$(get_wait_state "$session_id")
-            [[ -z "$kind" ]] && continue
-            since=$(wait_since "$session_id")
-            printf '%s\t%s\t%s\n' "$since" "$session_id" "$kind"
-        done < <(list_all_sessions) | sort -t "$(printf '\t')" -k1,1n
+        {
+            while IFS= read -r session_id; do
+                [[ -z "$session_id" ]] && continue
+                _queue_entry "$session_id" &
+            done <<<"$ids"
+            wait
+        } | sort -t "$(printf '\t')" -k1,1n
     )
+    LIVE_PROCS_READY=""
 
     local count=${#QUEUE_IDS[@]}
     if [[ $count -eq 0 ]]; then
@@ -122,10 +161,11 @@ _content_width() {
 
 # Compose one queue row: "<icon> <label><pad><age>", age right-aligned in a
 # fixed column. Label truncated to the remaining width (display cells).
+# $4 (optional): the content width, when the caller already has it.
 _queue_row() {
-    local icon="$1" label="$2" age="$3"
-    local width budget label_w pad_w
-    width=$(_content_width)
+    local icon="$1" label="$2" age="$3" width="${4-}"
+    local budget label_w pad_w
+    [[ -n "$width" ]] || width=$(_content_width)
     budget=$((width - 4 - Q_AGE_COL))
     ((budget < 10)) && budget=10
     label=$(truncate_display "$label" "$budget")
@@ -162,11 +202,14 @@ build_queue_frame() {
     if ((count > avail)); then shown=$((avail - 1)); fi
     ((shown < 1)) && shown=1
 
-    local idx icon label row
+    # Normally already composed by render_frame; composing here keeps the
+    # frame correct when called on its own (the result is not kept — this
+    # runs under $(...)).
+    _compose_queue_rows
+
+    local idx row
     for ((idx = 0; idx < shown; idx++)); do
-        icon=$(_wait_icon "${QUEUE_KINDS[$idx]}")
-        label=$(_queue_label "${QUEUE_IDS[$idx]}")
-        row=$(_queue_row "$icon" "$label" "${QUEUE_AGES[$idx]}")
+        row="${QUEUE_ROWS[$idx]}"
         if [[ $idx -eq $SELECTED_INDEX ]]; then
             printf '\n%s' "${REVERSE}${row}${NC}${eol}"
         else
@@ -178,8 +221,27 @@ build_queue_frame() {
     fi
 }
 
+# Fill QUEUE_ROWS for the current width, unless it already is. Call it bare,
+# not under $(...): the arrays it fills would be discarded with the subshell.
+_compose_queue_rows() {
+    local width idx icon label
+    width=$(_content_width)
+    if [[ "$QUEUE_ROWS_WIDTH" == "$width" && ${#QUEUE_ROWS[@]} -eq ${#QUEUE_IDS[@]} ]]; then
+        return 0
+    fi
+    QUEUE_ROWS=()
+    for ((idx = 0; idx < ${#QUEUE_IDS[@]}; idx++)); do
+        icon=$(_wait_icon "${QUEUE_KINDS[$idx]}")
+        label="${QUEUE_LABELS[$idx]-}"
+        [[ -n "${QUEUE_LABELS[$idx]+set}" ]] || label=$(_queue_label "${QUEUE_IDS[$idx]}")
+        QUEUE_ROWS+=("$(_queue_row "$icon" "$label" "${QUEUE_AGES[$idx]}" "$width")")
+    done
+    QUEUE_ROWS_WIDTH="$width"
+}
+
 render_frame() {
     local term_height term_width frame clear_eos
+    _compose_queue_rows
     term_height=$(_term_lines)
     term_width=$(_term_cols)
     frame=$(build_queue_frame "$term_height" "$term_width")

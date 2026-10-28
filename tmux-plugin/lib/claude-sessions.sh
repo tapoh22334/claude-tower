@@ -109,10 +109,19 @@ session_has_messages() {
 }
 
 # Newest activity epoch across the transcript, its subagents, and its
-# background-task outputs. Background Agent runs write outside the projects
+# background-agent outputs. Background Agent runs write outside the projects
 # dir (under $TMPDIR/claude-<uid>/<slug>/<id>/tasks/) while the parent
 # transcript idles — checking only the jsonl would show a working session
 # as idle.
+#
+# Only the symlinks in tasks/ count: those are agent runs, pointing at the
+# agent's transcript — usually under this session's subagents/ (already in
+# the batch), but a forked or resumed session's link can point into another
+# session's. stat follows them (-L): the link's own mtime is only when the
+# agent started. Regular files there are background shell output — a
+# dev server or a stuck polling loop writes one for as long as it runs, with
+# Claude idle at the prompt, and counting them kept such a session spinning
+# indefinitely (#85).
 get_session_activity() {
     local jsonl="$1"
     local latest=0 f
@@ -130,7 +139,7 @@ get_session_activity() {
     done
 
     for f in "${TMPDIR:-/tmp}/claude-${EUID}/${slug}/${session_id}/tasks"/*.output; do
-        [[ -f "$f" ]] && batch+=("$f")
+        [[ -L "$f" && -f "$f" ]] && batch+=("$f")
     done
 
     # One stat for the whole batch instead of one per file. A busy session can
@@ -141,7 +150,7 @@ get_session_activity() {
     while IFS= read -r t; do
         [[ "$t" =~ ^[0-9]+$ ]] || continue
         ((t > latest)) && latest=$t
-    done < <(stat -c %Y -- "${batch[@]}" 2>/dev/null)
+    done < <(stat -L -c %Y -- "${batch[@]}" 2>/dev/null)
 
     echo "$latest"
 }
@@ -349,10 +358,14 @@ _live_session_id() {
 # launched a week ago.
 #
 # LIVE_ID_MAP lines: "<tower_id>\t<live claude id>". TOWER_PANE_TTYS lines:
-# "/dev/pts/N" for every pane on the session server.
+# "/dev/pts/N" for every pane on the session server. LIVE_PROCS_TABLE is the
+# build's list_live_claude_processes output, read by is_claude_process_alive
+# once LIVE_PROCS_READY is set.
 # ----------------------------------------------------------------------------
 LIVE_ID_MAP=""
 TOWER_PANE_TTYS=""
+LIVE_PROCS_TABLE=""
+LIVE_PROCS_READY=""
 
 # The sessionId Claude itself records for a pid, straight from its
 # ~/.claude/sessions/<pid>.json — bash-only, no fork. This is the value that
@@ -373,14 +386,20 @@ _json_session_id() {
 build_live_id_map() {
     LIVE_ID_MAP=""
     TOWER_PANE_TTYS=""
+    # Taken before the pane check: paneless (dormant/external) rows are the
+    # ones that ask is_claude_process_alive.
+    local table
+    table=$(list_live_claude_processes)
+    LIVE_PROCS_TABLE="$table"
+    LIVE_PROCS_READY=1
+
     local panes
     panes=$(session_tmux list-panes -a -F '#{session_name}'$'\t''#{pane_tty}' 2>/dev/null) || panes=""
     [[ -n "$panes" ]] || return 0
     TOWER_PANE_TTYS=$(cut -f2 <<<"$panes")
 
     # tty of every live claude pid, one ps for all of them.
-    local table pids="" sid pid _cwd ptys
-    table=$(list_live_claude_processes)
+    local pids="" sid pid _cwd ptys
     while IFS=$'\t' read -r sid pid _cwd; do
         [[ -n "$pid" ]] && pids+="${pids:+,}$pid"
     done <<<"$table"
@@ -470,9 +489,16 @@ list_live_claude_processes() {
 }
 
 # Is a live claude process running this session id (without tower_ prefix)?
+# Reads the build's table when there is one: a rescan costs a kill -0 and a
+# ps per live process, and the list and the queue ask once per paneless row.
 is_claude_process_alive() {
-    local session_id="$1"
-    list_live_claude_processes | grep -q -m 1 "^${session_id}$(printf '\t')"
+    local session_id="$1" table
+    if [[ -n "$LIVE_PROCS_READY" ]]; then
+        table="$LIVE_PROCS_TABLE"
+    else
+        table=$(list_live_claude_processes)
+    fi
+    [[ $'\n'"$table" == *$'\n'"${session_id}"$'\t'* ]]
 }
 
 # --- Wait-queue detection --------------------------------------------------
@@ -909,12 +935,15 @@ init_session_seen() {
 
 # 0 (unread) when activity moved past the seen mark. Busy sessions are the
 # caller's business - it shows a spinner instead of the unread mark.
+# Reads the live transcript, the one mark_session_seen took the mark from:
+# after /clear the launch id's transcript stops moving, and comparing that
+# one hid every later output (#87).
 is_session_unread() {
     local session_id="$1"
     local seen_file="${TOWER_SEEN_DIR}/${session_id}"
     [[ -f "$seen_file" ]] || return 1
     local jsonl activity seen
-    jsonl=$(find_session_jsonl "${session_id#tower_}") || return 1
+    jsonl=$(find_session_jsonl "$(live_claude_id "$session_id")") || return 1
     activity=$(get_session_activity "$jsonl")
     seen=$(cat "$seen_file" 2>/dev/null) || return 1
     [[ "$seen" =~ ^[0-9]+$ ]] || return 1

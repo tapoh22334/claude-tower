@@ -131,9 +131,10 @@ setup() {
     [[ "$output" == *"function"* ]]
 }
 
-@test "list_all_sessions: uses session_tmux for list-sessions" {
+@test "list_all_session_ids: uses session_tmux for list-sessions" {
+    # list_all_sessions enumerates through it.
     local func_def
-    func_def=$(declare -f list_all_sessions)
+    func_def=$(declare -f list_all_session_ids)
 
     [[ "$func_def" == *"session_tmux list-sessions"* ]]
 }

@@ -40,7 +40,7 @@ readonly NAV_MAX_WIDTH="${TOWER_LIST_MAX_WIDTH:-80}"
 # Floor so a narrow pane still leaves room for a readable label; below this
 # the content simply overflows the pane rather than collapsing to nothing.
 readonly NAV_MIN_WIDTH="${TOWER_LIST_MIN_WIDTH:-50}"
-# Right-hand status column (unread ✱ + subagent ⚙N), fixed so the marks
+# Right-hand status column (subagent ⚙N), fixed so the marks
 # line up down the list instead of floating after each title.
 readonly NAV_RIGHT_COL=6
 
@@ -358,7 +358,7 @@ show_help() {
     echo ""
     # Keep the help under 24 rows total: at 24 printed lines the final
     # newline scrolls the title off a default-size terminal.
-    echo "  States:    ${SPINNER_FRAMES[0]} working  ✱ new output  ▶ waiting  ○ dormant  ◇ external  ✗/? gone"
+    echo "  States:    ${SPINNER_FRAMES[0]} working  • new output  ▶ waiting  ○ dormant  ◇ external  ✗/? gone"
     echo "  Marks:     ⚙N active subagents (right)   ⚡N unmanaged claude in dir (header)"
     echo ""
     echo -e "${NAV_C_DIM}Press any key to continue...${NAV_C_NORMAL}"
