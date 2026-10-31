@@ -304,7 +304,6 @@ source_navigator_list_functions() {
     _settle_after_change 0
     [ "$_REBUILD_PID" != "4194304" ]
     kill -0 "$_REBUILD_PID" 2>/dev/null || true
-    wait 2>/dev/null || true
 }
 
 @test "settle: with a rebuild still running, queues one for the moment it ends" {
@@ -331,7 +330,6 @@ source_navigator_list_functions() {
     _spawn_background_rebuild
     [ "$_REBUILD_PID" != "$running" ]
     [ "$_REBUILD_WANTED" -eq 0 ]
-    wait 2>/dev/null || true
 }
 
 @test "tick: a rebuild that just finished still starts the cool-off when nothing was forced" {
@@ -414,4 +412,44 @@ source_navigator_list_functions() {
     grep -q 'if _session_listed "\$synced"; then' "$src"
     grep -A1 'if _session_listed "\$synced"; then' "$src" | grep -q 'selected_index=\$(get_selection_index)'
     grep -A18 'if _session_listed "\$synced"; then' "$src" | grep -q '_spawn_background_rebuild force'
+}
+
+# ---------------------------------------------------------------------------
+# main_loop never returns, so bash never cleans a finished `&` job out of its
+# job table, and everything the loop does afterwards slows with the table's
+# size: at 20,000 jobs (about 41 hours open) a frame took 171 ms instead of
+# 26 ms. Long-lived loops must not leave their helpers in the table.
+
+# Returns the status rather than being negated at the call site: set -e does
+# not stop on a failing `! cmd`, so `! in_table "$pid"` could never fail a test.
+_job_table_lacks() {
+    jobs -p >"$BATS_TEST_TMPDIR/jobs"
+    ! grep -qx "$1" "$BATS_TEST_TMPDIR/jobs"
+}
+
+@test "job table: a background rebuild is not left in it, and still coalesces" {
+    source_navigator_list_functions
+    build_session_list() { sleep 1; }
+    _publish_rebuild() { :; }
+    _spawn_background_rebuild force
+    local pid=$_REBUILD_PID
+    _job_table_lacks "$pid"
+    # Out of the table is not out of reach: the PID guard must still see it.
+    kill -0 "$pid"
+    _spawn_background_rebuild
+    [ "$_REBUILD_PID" = "$pid" ]
+    kill "$pid" 2>/dev/null || true
+}
+
+@test "job table: a view redirect is not left in it, and still coalesces" {
+    source_navigator_list_functions
+    signal_view_update() { sleep 1; }
+    signal_view_update_async
+    local pid=$_VIEW_SIGNAL_PID
+    _job_table_lacks "$pid"
+    kill -0 "$pid"
+    signal_view_update_async
+    [ "$_VIEW_SIGNAL_PID" = "$pid" ]
+    [ "$_VIEW_SIGNAL_PENDING" -eq 1 ]
+    kill "$pid" 2>/dev/null || true
 }

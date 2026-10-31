@@ -1,0 +1,94 @@
+# 検証: PYTHONPATH=~/.claude/skills/github-tickets/scripts ~/.claude/skills/github-tickets/scripts/apply.sh --verify docs/tickets/2026-10-31-nav-job-table.yml
+repo: tapoh22334/claude-tower
+
+project:
+  number: 4
+  owner: tapoh22334
+
+tasks:
+  - issue: 96
+    title: 長時間動かしても Navigator の操作が遅くならないようにする
+    labels:
+      - kind::bug
+    body: |
+      ## やること
+      Navigator を開いたままにすると j/k の反応が徐々に遅くなり、41 時間動いた list ループは待機中でも 0.2 コアを使っていた。同じキャッシュを読む新品のループは 0.02 コアで、差は 10 倍ある。
+
+      原因は bash のジョブ表である。list ループの `main_loop` は関数から戻らないため、`&` で起動して終わったジョブが表から消えず、以後の処理がその件数に比例して遅くなる。rebuild は数秒ごとに起動するので、件数は開いている時間に比例して増える。
+
+      実測(同じ 42 行のキャッシュ、実際の list 関数):
+
+      | 過去のジョブ数 | RSS | render_list | _load_session_state |
+      |---|---|---|---|
+      | 0 | 5.9 MB | 26 ms | 9 ms |
+      | 5,000 | 7.5 MB | 51 ms | 34 ms |
+      | 20,000 | 12.3 MB | 171 ms | 172 ms |
+
+      生きているループの RSS は 12.3 MB で、2 万件の行とほぼ一致する。起動したジョブを `disown` すると、2 万件後も RSS 6.5 MB、render 41 ms、load 16 ms のまま(3 本並列で測定)で増えない。
+
+      list ループと queue から起動するバックグラウンドジョブが、ループの寿命にわたってジョブ表に残らないようにする。
+
+      ## 完了条件
+      - [ ] rebuild、view への通知、queue の追従で起動したジョブがジョブ表に残らない(テストで固定)
+      - [ ] 実行中の rebuild と通知を PID で束ねる動きは変わらない
+      - [ ] 実際の list ループを多数のジョブのあとで動かしても、RSS と描画時間が増えない
+
+  - issue: 97
+    title: 一覧の再構築 1 回あたりの fork 数を減らす
+    labels:
+      - kind::chore
+      - idea
+    body: |
+      ## 何を
+      `build_session_list` が 1 回に走らせる fork を減らす。42 行の一覧で 1 回に約 4 秒かかり、その間のシステム全体の fork は約 3,500 回だった。外部コマンドでは `grep` が最も多く 267 回である。
+
+      ## なぜ
+      rebuild は入力スレッドの外で動くのでキー操作は待たせないが、Navigator を開いている間、rebuild が 1 コアの半分ほどを使い続ける。時間とともに増える性質ではなく、行数に比例する定常コストである。
+
+      ## 発動条件
+      Navigator を開いているときの CPU 負荷やファン音が問題になったとき、または一覧の更新の遅れが目につくようになったとき。
+
+  - issue: 98
+    title: 終わった redirect の PID が再利用されても view pane が追従するようにする
+    labels:
+      - kind::bug
+      - idea
+    body: |
+      ## 何を
+      `_VIEW_SIGNAL_PID` は redirect が終わっても古い値のまま残る。j/k を押さない間に同じ番号を同じ利用者の長寿命プロセスが取ると、次の j/k の `kill -0` が成功し、redirect が起動しないままになる。そのプロセスが死ぬまで view pane はカーソルに追従しない。終わった PID を覚え続けないようにする。
+
+      ## なぜ
+      表示中のセッションと選択行が食い違うと、利用者は別のセッションを見ていることに気づけない。仕組みは実物の関数に生存中の無関係な PID を与えて再現したが、実環境での PID 衝突は再現していない。#96 で Navigator を長く開いておけるようになるので、踏む機会は増える。
+
+      ## 発動条件
+      j/k で選択を動かしても view pane が別のセッションのままになる現象が報告されたとき。
+
+  - issue: 99
+    title: rebuild と親ループの cache 書き込みが同じ一時ファイルを使わないようにする
+    labels:
+      - kind::bug
+      - idea
+    body: |
+      ## 何を
+      `_publish_rebuild` の一時ファイルは `${cache}.$$` である。サブシェルの `$$` は親の PID なので、rebuild と親ループが同じ名前を使う可能性がある。書き込みが重なっても cache が混ざらないようにする。
+
+      ## なぜ
+      cache が混ざると一覧が壊れて見える。コードを読んで気づいた段階で、再現はしていない。
+
+      ## 発動条件
+      一覧の行が一瞬崩れる、または消える現象の原因を調べるとき。
+
+  - issue: 100
+    title: queue の連続移動で古い選択が view pane に後から届かないようにする
+    labels:
+      - kind::bug
+      - idea
+    body: |
+      ## 何を
+      list の `signal_view_update_async` と違い、queue の `_follow_selection` は redirect を束ねない。連打すると複数の `nav_redirect_view` が並走するので、最後の選択が必ず view pane に残るようにする。
+
+      ## なぜ
+      古い選択の `switch-client` が後から届くと、view と highlight が食い違う。コードを読んで気づいた段階で、再現はしていない。
+
+      ## 発動条件
+      queue で移動した先と view pane の表示が食い違う現象が報告されたとき。

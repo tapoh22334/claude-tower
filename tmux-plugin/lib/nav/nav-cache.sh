@@ -230,4 +230,10 @@ _spawn_background_rebuild() {
         _publish_rebuild "$started_at"
     ) >/dev/null 2>&1 &
     _REBUILD_PID=$!
+    # main_loop never returns, so bash never cleans a finished `&` job out of
+    # its job table, and everything the loop does afterwards slows with the
+    # table's size: at 20,000 jobs (about 41 hours open) a frame took 171 ms
+    # instead of 26 ms. The PID guard above only needs kill -0, which still
+    # works on a disowned job.
+    disown "$_REBUILD_PID" 2>/dev/null || true
 }

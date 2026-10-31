@@ -266,15 +266,38 @@ _shadow_tmux() {
         SELECTED_INDEX=0
         # One move at a time: the redirect runs in the background and reads
         # the selection when it runs, so a burst legitimately collapses to
-        # the last value. What must hold is that every move fires one.
-        handle_key j; wait
-        handle_key G; wait
+        # the last value. What must hold is that every move fires one. The
+        # job is disowned, so poll for its line instead of waiting on it.
+        _await_redirects() {
+            local n
+            for n in {1..250}; do
+                [[ $(wc -l <"'"$BATS_TEST_TMPDIR"'/redirects" 2>/dev/null) -ge $1 ]] && return 0
+                sleep 0.02
+            done
+        }
+        handle_key j; _await_redirects 1
+        handle_key G; _await_redirects 2
     '
     [ "$status" -eq 0 ]
     run cat "$BATS_TEST_TMPDIR/redirects"
     [ "${lines[0]}" = "redirect:tower_b" ]
     [ "${lines[1]}" = "redirect:tower_c" ]
     [ "${#lines[@]}" -eq 2 ]
+}
+
+@test "queue-view.sh: a move's redirect is not left in the job table" {
+    # Same reason as the list loop: see "job table" in test_navigator_cache.bats.
+    run bash -c '
+        export CLAUDE_TOWER_NAV_STATE_DIR="'"$BATS_TEST_TMPDIR"'/state"
+        source "'"$PROJECT_ROOT"'/tmux-plugin/scripts/queue-view.sh"
+        set +e
+        nav_redirect_view() { sleep 1; }
+        QUEUE_IDS=(tower_a); SELECTED_INDEX=0
+        _follow_selection
+        jobs -p
+    '
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
 }
 
 @test "common.sh: nav_redirect_view switches the view client onto a live selection" {
