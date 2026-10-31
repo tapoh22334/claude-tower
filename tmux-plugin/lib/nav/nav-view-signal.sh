@@ -51,6 +51,8 @@ signal_view_update_async() {
     _VIEW_SIGNAL_PENDING=0
     { signal_view_update; } >/dev/null 2>&1 &
     _VIEW_SIGNAL_PID=$!
+    # Keep it out of the job table, as _spawn_background_rebuild explains.
+    disown "$_VIEW_SIGNAL_PID" 2>/dev/null || true
 }
 
 # Re-fire the redirect that was coalesced away, once the in-flight one is

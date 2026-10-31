@@ -218,7 +218,9 @@ _visible_width() {
         is_session_unread() { return 1; }
         count_unregistered_processes_in_dir() { echo 0; }
         _spawn_background_rebuild force
-        wait "$_REBUILD_PID"
+        # The job is disowned, so it cannot be waited on. sleep forks, which
+        # is also what lets bash reap it.
+        while kill -0 "$_REBUILD_PID" 2>/dev/null; do sleep 0.02; done
         _load_session_state || { echo "no cache published"; exit 1; }
         # Row 0 is the project group header; the session row follows it.
         for ((i = 0; i < ${#SESSION_IDS[@]}; i++)); do

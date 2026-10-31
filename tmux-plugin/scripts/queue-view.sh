@@ -278,6 +278,8 @@ _follow_selection() {
     ((count > 0)) || return 0
     set_nav_selected "${QUEUE_IDS[$SELECTED_INDEX]}"
     nav_redirect_view >/dev/null 2>&1 &
+    # Keep it out of the job table, as _spawn_background_rebuild explains.
+    disown "$!" 2>/dev/null || true
 }
 
 # Start with the cursor on the session the list had selected, when it is in
