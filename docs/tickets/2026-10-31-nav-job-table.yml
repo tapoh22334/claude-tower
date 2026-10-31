@@ -48,7 +48,8 @@ tasks:
       ## 発動条件
       Navigator を開いているときの CPU 負荷やファン音が問題になったとき、または一覧の更新の遅れが目につくようになったとき。
 
-  - title: 終わった redirect の PID が再利用されても view pane が追従するようにする
+  - issue: 98
+    title: 終わった redirect の PID が再利用されても view pane が追従するようにする
     labels:
       - kind::bug
       - idea
@@ -62,7 +63,8 @@ tasks:
       ## 発動条件
       j/k で選択を動かしても view pane が別のセッションのままになる現象が報告されたとき。
 
-  - title: rebuild と親ループの cache 書き込みが同じ一時ファイルを使わないようにする
+  - issue: 99
+    title: rebuild と親ループの cache 書き込みが同じ一時ファイルを使わないようにする
     labels:
       - kind::bug
       - idea
@@ -76,7 +78,8 @@ tasks:
       ## 発動条件
       一覧の行が一瞬崩れる、または消える現象の原因を調べるとき。
 
-  - title: queue の連続移動で古い選択が view pane に後から届かないようにする
+  - issue: 100
+    title: queue の連続移動で古い選択が view pane に後から届かないようにする
     labels:
       - kind::bug
       - idea
