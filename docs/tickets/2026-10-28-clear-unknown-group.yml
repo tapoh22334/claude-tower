@@ -1,0 +1,21 @@
+# 検証: PYTHONPATH=~/.claude/skills/github-tickets/scripts ~/.claude/skills/github-tickets/scripts/apply.sh --verify docs/tickets/2026-10-28-clear-unknown-group.yml
+repo: tapoh22334/claude-tower
+
+project:
+  number: 4
+  owner: tapoh22334
+
+tasks:
+  - issue: 90
+    title: /clear した Tower セッションを unknown グループではなく元のプロジェクトに留める
+    labels:
+      - bug
+    body: |
+      ## やること
+      Tower のセッションで `/clear` すると Claude は新しい session id に切り替わり、Navigator はその id(live id)を追う。ところが新しい id の transcript は最初の発言までは存在しないか空で、`cwd` が書かれていない。行のプロジェクトは transcript の `cwd` から決まり、無ければ登録時の `launch_dir` に落ちるが、`launch_dir` を持たない登録(このフィールド導入前のもの)ではどちらも空になり、行が unknown グループに移ってしまう(2026-10-28 に実データで確認: `cwd` の無い transcript が 8 件、`launch_dir` の無い登録が 6 件)。
+
+      `/clear` は同じ pane・同じプロセスでの会話の切り替えで、プロジェクトは変わらない。live id の transcript がまだ何も言えない間は、起動時の id の transcript の `cwd` を使う。transcript を権威とする原則は崩さず、`launch_dir` はその後ろの最後の手段のまま残す。
+
+      ## 完了条件
+      - [ ] live id の transcript が無い・空のとき、起動時 id の transcript の `cwd` でプロジェクトが決まる(`launch_dir` が無くても unknown にならない)ことをテストで固定する
+      - [ ] live id の transcript に `cwd` が現れたら、そちらが優先される

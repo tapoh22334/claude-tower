@@ -157,3 +157,47 @@ LIVE1="11111111-1111-4111-8111-111111111111"
     is_claude_process_alive "$LIVE1"
     [ ! -e "$BATS_TEST_TMPDIR/rescan.calls" ]
 }
+
+# After /clear the live id has no transcript until the first prompt (or an
+# empty one), so it cannot say which project the row is in. A registration
+# made before launch_dir existed has nothing else to offer, and the row fell
+# into the unknown group (#90). /clear never changes the project: the launch
+# id's transcript, same pane and same process, still knows it.
+@test "project dir: after /clear, a live id with no transcript yet keeps the launch transcript's project" {
+    save_metadata tower_reg-0000
+    create_mock_jsonl "-p-one" "reg-0000" "/p/one" >/dev/null
+    build_live_id_map
+    run session_project_dir tower_reg-0000
+    [ "$output" = "/p/one" ]
+}
+
+@test "project dir: after /clear, an empty live transcript keeps the launch transcript's project" {
+    save_metadata tower_reg-0000
+    create_mock_jsonl "-p-one" "reg-0000" "/p/one" >/dev/null
+    mkdir -p "$CLAUDE_PROJECTS_DIR/-p-one"
+    : >"$CLAUDE_PROJECTS_DIR/-p-one/${LIVE1}.jsonl"
+    build_live_id_map
+    run session_project_dir tower_reg-0000
+    [ "$output" = "/p/one" ]
+}
+
+@test "project dir: once the live transcript names a cwd, it wins over the launch transcript" {
+    save_metadata tower_reg-0000
+    create_mock_jsonl "-p-one" "reg-0000" "/p/one" >/dev/null
+    create_mock_jsonl "-p-two" "$LIVE1" "/p/two" >/dev/null
+    build_live_id_map
+    run session_project_dir tower_reg-0000
+    [ "$output" = "/p/two" ]
+}
+
+@test "project dir: project rm's count follows a /clear'd session by its recorded live id alone" {
+    # project-rm.sh counts without a list build: no LIVE_ID_MAP, only the
+    # live_id= written earlier. The session must still count for its project.
+    save_metadata tower_reg-0000
+    create_mock_jsonl "-p-one" "reg-0000" "/p/one" >/dev/null
+    record_live_id tower_reg-0000 "$LIVE1"
+    LIVE_ID_MAP=""
+    canon_project_dir() { printf '%s\n' "$1"; }
+    run project_session_count /p/one
+    [ "$output" = "1" ]
+}

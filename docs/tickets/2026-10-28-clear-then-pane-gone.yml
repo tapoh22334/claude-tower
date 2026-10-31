@@ -1,0 +1,21 @@
+# 検証: PYTHONPATH=~/.claude/skills/github-tickets/scripts ~/.claude/skills/github-tickets/scripts/apply.sh --verify docs/tickets/2026-10-28-clear-then-pane-gone.yml
+repo: tapoh22334/claude-tower
+
+project:
+  number: 4
+  owner: tapoh22334
+
+tasks:
+  - issue: 93
+    title: /clear 直後に pane が消えたセッションを dead/lost にせず、起動時の id で復元できるようにする
+    labels:
+      - bug
+    body: |
+      ## やること
+      `/clear` してから最初のプロンプトを打つ前に tmux セッションが消えると(サーバ再起動・kill)、行は記録済みの live id だけを見る。その id の transcript は無いか空なので、状態は `lost` / `dead` になり、`r` は「press D to unregister」と削除へ誘導する。実際には起動時の id の transcript が残っていて、`--resume` で戻れる。#90 でプロジェクト名は起動時の transcript に落ちるようになったが、状態判定(`get_display_state` のペインなし分岐・`get_wait_state`)と `restore_session` は live id のままなので、「プロジェクトは分かるのに dead」という食い違いが残っている(#90 の tower-reviewer 指摘)。
+
+      live id の transcript が何も言えない間は起動時の id を「そのセッションの実体」とみなす判定を、プロジェクト・状態・resume の対象で共有する。
+
+      ## 完了条件
+      - [ ] /clear 直後(live transcript なし・空)に pane が無くなったセッションが dormant と表示され、`r` で起動時の id が resume される
+      - [ ] live transcript に中身が出来た後は、従来どおり live id が使われる

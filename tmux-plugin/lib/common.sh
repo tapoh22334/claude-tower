@@ -1099,11 +1099,23 @@ unregister_project() {
 # is the authority, with the launch_dir recorded at registration as the
 # fallback for the first seconds before a transcript exists. nav-build's
 # _session_dir is this (it wraps it so the META_* globals stay local there).
+#
+# After /clear the live id has no transcript (or an empty one) until the
+# first prompt, and a registration older than launch_dir has nothing else to
+# offer, so the row fell into the unknown group (#90). /clear never moves the
+# session to another project: the launch id's transcript still says where it is.
+# Only for that gap — once the live transcript has a cwd it wins, so a claude
+# relaunched elsewhere in the pane, or a cd between repeated /clears, shows
+# under the old project just until its first prompt.
 session_project_dir() {
-    local session_id="$1" jsonl cwd="" claude_id
+    local session_id="$1" jsonl cwd="" claude_id launch_id="${1#tower_}"
     claude_id=$(live_claude_id "$session_id")
     local META_SESSION_NAME="" META_CREATED_AT="" META_LAUNCH_DIR="" META_LIVE_ID=""
     if jsonl=$(find_session_jsonl "$claude_id" 2>/dev/null); then
+        cwd=$(get_session_cwd "$jsonl" 2>/dev/null) || cwd=""
+    fi
+    if [[ -z "$cwd" && "$claude_id" != "$launch_id" ]] &&
+        jsonl=$(find_session_jsonl "$launch_id" 2>/dev/null); then
         cwd=$(get_session_cwd "$jsonl" 2>/dev/null) || cwd=""
     fi
     if [[ -z "$cwd" ]] && load_metadata "$session_id" 2>/dev/null; then
