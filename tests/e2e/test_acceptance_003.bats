@@ -153,6 +153,16 @@ _external() {
     [ "$(get_nav_selected)" = "$src" ]
 }
 
+# The labels shown, top to bottom: the non-blank label cells of the lines.
+_label_col() {
+    local line cell
+    while IFS= read -r line; do
+        cell="${line:0:3}"
+        cell="${cell// /}"
+        [[ "$cell" =~ ^[a-z]{1,2}$ ]] && printf '%s,' "$cell"
+    done <<<"$1"
+}
+
 @test "f c a で 3 番目のプロジェクトの先頭セッションへ移る" {
     source "$NAV" 2>/dev/null || true
     _nav
@@ -169,11 +179,12 @@ _external() {
     NAV_JUMP_ACTIVE=1
     out=$(render_list 0 | _strip_ansi_str "$(cat)")
     [[ "$out" == *"a  bar"* && "$out" == *"b  baz"* && "$out" == *"c  foo"* ]]
-    [[ "$out" == *"ca "* && "$out" == *"cb "* ]]
+    # The label column is the first three cells of a line; match there only,
+    # since row text (paths, names) can contain any two letters.
+    [ "$(_label_col "$out")" = "a,aa,b,ba,c,ca,cb," ]
     NAV_JUMP_PREFIX=c
     out=$(render_list 0 | _strip_ansi_str "$(cat)")
-    [[ "$out" != *"aa "* && "$out" != *"ba "* ]]
-    [[ "$out" == *"ca "* ]]
+    [ "$(_label_col "$out")" = "c,ca,cb," ]
     _jump_end
     jump_prompt 0 >/dev/null < <(printf 'ca')
     [ "$(get_nav_selected)" = "${SESSION_IDS[$(_index_of "dir:$FOO") + 1]}" ]
