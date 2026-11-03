@@ -2,7 +2,7 @@
 # shellcheck shell=bash
 # nav-optimistic.sh - Showing the result of a change before the rebuild confirms it.
 #
-# Owns the in-memory edits applied after a delete, add or fork, and the
+# Owns the in-memory edits applied after a delete, add or copy, and the
 # settle that publishes them and asks for the confirming rebuild.
 
 # ----------------------------------------------------------------------------
@@ -88,13 +88,13 @@ _mark_session_deleting() {
 }
 
 # Put a freshly created session into the list right away, as a "starting"
-# row, seated in its project group. n/f/N register a session and select it,
+# row, seated in its project group. Add and copy register a session and select it,
 # but the arrays are only refreshed by the background rebuild — so for a
 # second or two the list did not contain the row at all, and the cursor
 # lookup fell back to row 0. The row used to be appended at the very bottom
 # and left for the rebuild to move; the user watched it jump (#46). The
-# caller knows the dir for n/f, and for N the metadata save_metadata has just
-# written knows it, so the row goes where the rebuild will keep it: the end
+# caller passes the dir when it knows it; otherwise the metadata
+# save_metadata has just written knows it, so the row goes where the rebuild will keep it: the end
 # of its group, or a new headed group in name order. Starting (◐) is the
 # honest icon — the session exists but has not written a transcript yet.
 #

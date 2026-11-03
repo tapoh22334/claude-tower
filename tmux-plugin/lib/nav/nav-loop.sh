@@ -116,7 +116,7 @@ go_last() {
 # different set of leftovers.
 #
 # Note there is no `clear` here. Clearing blanks the screen until the next
-# render_list — a visible flash on every n/f/N/D/r — and is not needed:
+# render_list — a visible flash on every add/copy/D/Enter — and is not needed:
 # render_list homes the cursor, writes every line with a clear-to-end-of-line
 # and finishes with clear-to-end-of-screen, so it overwrites whatever the
 # sub-flow left behind. Dropping the cached width is all the redraw needs.
@@ -218,9 +218,15 @@ main_loop() {
                 selected_index=$NAV_NEW_INDEX
                 continue
             fi
-            # A project row has its own meaning for most keys (a/Enter/f
-            # start a session there, D removes the project). Movement and
-            # the global keys fall through to the ordinary handlers.
+            if [[ "$key" == f ]]; then
+                jump_prompt "$selected_index"
+                selected_index=$NAV_NEW_INDEX
+                continue
+            fi
+            # Enter and D are the only keys that act on the row, so they are
+            # the only ones a project row reads differently (Enter starts a
+            # session there, D removes the project). Every other key falls
+            # through to the same handler on every kind of row.
             local cur_row="${SESSION_IDS[$selected_index]:-}"
             if _row_is_project "$cur_row" &&
                 handle_project_key "$key" "$(_row_project_dir "$cur_row")" "$selected_index"; then
@@ -255,11 +261,15 @@ main_loop() {
                     go_last >/dev/null
                     selected_index=$NAV_NEW_INDEX
                     ;;
-                '') # Enter key - same as i
-                    focus_view
-                    ;;
-                i)
-                    focus_view
+                '') # Enter: open the session, resuming a dormant one first
+                    open_selected "${SESSION_IDS[$selected_index]:-}"
+                    # Only a resume changed the list (the row is ◐ now);
+                    # a plain focus has nothing to settle.
+                    if [[ -n "$NAV_OPEN_RESUMED" ]]; then
+                        _return_from_subflow
+                        _settle_after_change "$(get_selection_index)" >/dev/null
+                        selected_index=$NAV_NEW_INDEX
+                    fi
                     ;;
                 a)
                     add_session_inline
@@ -271,23 +281,11 @@ main_loop() {
                     _settle_after_change "$(get_selection_index)" >/dev/null
                     selected_index=$NAV_NEW_INDEX
                     ;;
-                f)
-                    fork_session_here
+                c)
+                    copy_selected
                     _return_from_subflow
-                    # The row is already in the arrays (the sub-flow seated
-                    # it), so the selection lookup finds the new session and
-                    # the cursor stays on it. The background rebuild replaces
-                    # the placeholder row with the real one.
-                    _settle_after_change "$(get_selection_index)" >/dev/null
-                    selected_index=$NAV_NEW_INDEX
-                    ;;
-                A)
-                    new_session_pick_dir
-                    _return_from_subflow
-                    # The row is already in the arrays (the sub-flow seated
-                    # it), so the selection lookup finds the new session and
-                    # the cursor stays on it. The background rebuild replaces
-                    # the placeholder row with the real one.
+                    # As for a: the copy's row is seated already, so the
+                    # cursor lands on it and the rebuild fills it in.
                     _settle_after_change "$(get_selection_index)" >/dev/null
                     selected_index=$NAV_NEW_INDEX
                     ;;
@@ -312,13 +310,6 @@ main_loop() {
                         selected_index=$NAV_NEW_INDEX
                     fi
                     _return_from_subflow
-                    ;;
-                r)
-                    # Restore selected dormant session
-                    restore_selected || true
-                    _return_from_subflow
-                    _settle_after_change "$selected_index" >/dev/null
-                    selected_index=$NAV_NEW_INDEX
                     ;;
                 $'\t') # Tab key
                     switch_to_tile || true

@@ -1636,11 +1636,15 @@ _pane_path() {
 # (`tower open --prompt`). The pane is told to read the file -- the text
 # itself never crosses the send-keys / shell-quoting boundary, so a summary
 # with quotes, dollars or newlines arrives intact.
+# Mode "copy" takes $5, the claude id of the conversation to continue: the
+# new session resumes it under its own id (--fork-session), so the source
+# transcript is only read.
 start_claude_session() {
     local session_id="$1"
     local working_dir="$2"
     local mode="$3"
     local prompt_file="${4:-}"
+    local fork_from="${5:-}"
     local claude_id="${session_id#tower_}"
 
     if [[ ! -d "$working_dir" ]]; then
@@ -1678,6 +1682,11 @@ start_claude_session() {
         # Resume the session the user was last in there, which after a
         # /clear is not the one this row was launched with.
         claude_cmd="$program --resume $(live_claude_id "$session_id")"
+    elif [[ "$mode" == "copy" ]]; then
+        # --session-id with --resume is refused unless --fork-session is
+        # also given; the three together name the copy's id up front, which
+        # is what lets the registry entry match the transcript it writes.
+        claude_cmd="$program --resume $fork_from --fork-session --session-id $claude_id"
     else
         claude_cmd="$program --session-id $claude_id"
         if [[ -n "$prompt_file" ]]; then
@@ -1719,6 +1728,41 @@ restore_session() {
     fi
 
     start_claude_session "$session_id" "$cwd" "resume"
+}
+
+# Copy a session (value/003-nav-keys): a new Tower session in the source's
+# directory that continues its conversation under a new id. Named after the
+# source with " copy" appended ("copy" when the source has no name). Prints
+# the new tower_ id on stdout; refuses, with the reason, when there is no
+# transcript to continue or the source runs outside Tower.
+copy_session() {
+    local src="$1" src_claude jsonl cwd uuid name
+    if ! has_metadata "$src"; then
+        handle_error "Not a Tower session: ${src#tower_}"
+        return 1
+    fi
+    if [[ "$(get_display_state "$src")" == "external" ]]; then
+        handle_error "Running outside Tower (◇) — copy it from its own terminal"
+        return 1
+    fi
+    src_claude=$(live_claude_id "$src")
+    if ! jsonl=$(find_session_jsonl "$src_claude"); then
+        handle_error "No conversation transcript yet — nothing to copy"
+        return 1
+    fi
+    cwd=$(get_session_cwd "$jsonl" || true)
+    if [[ -z "$cwd" || ! -d "$cwd" ]]; then
+        handle_error "Directory not found: ${cwd:-unknown}"
+        return 1
+    fi
+    local META_SESSION_NAME="" META_CREATED_AT="" META_LAUNCH_DIR="" META_LIVE_ID=""
+    load_metadata "$src" 2>/dev/null || true
+    name="${META_SESSION_NAME:+$META_SESSION_NAME copy}"
+    name="${name:-copy}"
+    uuid=$(generate_uuid) || return 1
+    start_claude_session "tower_${uuid}" "$cwd" "copy" "" "$src_claude" >&2 || return 1
+    save_metadata "tower_${uuid}" "$name" "$cwd"
+    printf '%s\n' "tower_${uuid}"
 }
 
 # Delete a session: kill tmux + remove registry entry.

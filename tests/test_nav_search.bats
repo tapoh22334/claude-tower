@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # Navigator `/` search (#82), vim-style: matching, n/N stepping, the prompt
 # sub-loop, the header note, and the loop wiring (n/N are always search keys;
-# add / new-in-dir moved to a / A).
+# add lives on a; A was dropped by value/003-nav-keys).
 
 load 'test_helper'
 
@@ -207,8 +207,8 @@ teardown() {
     source "$NAV" 2>/dev/null || true
     _fixture
     run render_list 1
-    [[ "$output" == *"/:find a:add"* ]]
-    [[ "$output" == *"A:dir"* ]]
+    [[ "$output" == *"/:find f:jump a:add"* ]]
+    [[ "$output" != *"A:dir"* ]]
     [[ "$output" != *"/login"* ]]
     NAV_SEARCH_QUERY="login"
     run render_list 3
@@ -251,13 +251,12 @@ teardown() {
     grep -q 'if \[\[ "\$key" == n || "\$key" == N \]\]; then' "$src"
 }
 
-@test "loop: add and new-in-dir live on a and A, not n and N" {
+@test "loop: add lives on a, not n or N" {
     local src="$PROJECT_ROOT/tmux-plugin/lib/nav/nav-loop.sh"
     run sed -n '/^                a)$/,/;;/p' "$src"
     [[ "$output" == *add_session_inline* ]]
-    run sed -n '/^                A)$/,/;;/p' "$src"
-    [[ "$output" == *new_session_pick_dir* ]]
-    ! grep -qE '^                (n|N)\)$' "$src"
+    run grep -qE '^                (n|N)\)$' "$src"
+    [ "$status" -ne 0 ]
 }
 
 @test "render: on a narrow pane the wrapped header and footer still fit, so the search note stays on screen" {
