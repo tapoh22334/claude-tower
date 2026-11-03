@@ -240,7 +240,7 @@ render_list() {
     if _search_footer; then
         footer_line="${NAV_C_ACCENT}${NAV_SEARCH_FOOTER}${NAV_C_NORMAL}"
     elif [[ -n "${NAV_JUMP_ACTIVE:-}" ]]; then
-        footer_line="${NAV_C_ACCENT}jump: project label, then session label  ↵:project  Esc:cancel${NAV_C_NORMAL}"
+        footer_line="${NAV_C_ACCENT}jump: project letter, then row letter  Esc:cancel${NAV_C_NORMAL}"
     else
         footer_line="${NAV_C_DIM}j/k:nav ↵:open /:find f:jump a:add c:copy D:del t:tail w:queue ?:help q:quit${NAV_C_NORMAL}"
     fi
@@ -356,10 +356,10 @@ show_help() {
     echo "    k / ↑      Move up"
     echo "    g / G      Go to first / last session"
     echo "    / text     Search; n / N next / previous match (empty / clears)"
-    echo "    f x y      Jump: project label x, session label y (f x ↵ = project)"
+    echo "    f x y      Jump: x = project, y = row in it (a = the project row)"
     echo ""
     echo "  Actions:"
-    echo "    Enter      Open the session (resumes a ○ dormant one first);"
+    echo "    Enter / i  Open the session (resumes a ○ dormant one first);"
     echo "               on a project row, start a new session there"
     echo "    a          Add session (new ones start in the cursor's project)"
     echo "    c          Copy: new session that continues this conversation"

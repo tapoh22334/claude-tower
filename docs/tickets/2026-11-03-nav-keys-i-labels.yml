@@ -1,0 +1,22 @@
+# 検証: ~/.claude/skills/github-tickets/scripts/apply.sh --verify docs/tickets/2026-11-03-nav-keys-i-labels.yml
+repo: tapoh22334/claude-tower
+
+project:
+  number: 4
+  owner: tapoh22334
+
+tasks:
+  - issue: 106
+    title: i を Enter と同じ操作にし、f のジャンプのラベルを全行 2 文字にそろえる
+    body: |
+      ## やること
+      `i` を Enter と同じ操作にする(セッションに入る。休眠中なら再開してから)。
+      `f` のラベルを見出しの行も 2 文字にし、見出しで終わるときの「1 文字 + Enter」をなくす。
+      見出しの行は「プロジェクトの文字 + a」(aa, ba…)、セッション行は「プロジェクトの文字 + b, c…」とする。
+      これで、どの行へも `f` と 2 文字で届く。
+
+      ## 完了条件
+      - [ ] `i` が、どの行でも Enter と同じ処理をする
+      - [ ] 見出しの行のラベルが `<文字>a` で、セッション行のラベルが `<文字>b` から始まる
+      - [ ] 1 文字目の後の Enter は、ほかの当たらないキーと同じく取り消しになる
+      - [ ] ヘルプ・README・value/003-nav-keys の要求とシナリオが新しいキーに合っている

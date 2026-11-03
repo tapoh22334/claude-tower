@@ -42,11 +42,11 @@ _labels() { printf '%s,' "${NAV_JUMP_LABELS[@]}"; }
 # f: labels
 # ----------------------------------------------------------------------------
 
-@test "jump: projects get a b c, sessions their project's label plus their own, unrecoverable none" {
+@test "jump: a project row is its letter plus a, its sessions the letter plus b c..., unrecoverable none" {
     source "$NAV"
     _fixture
     _jump_assign_labels
-    [ "$(_labels)" = "a,aa,ab,b,ba,c,ca,cb,," ]
+    [ "$(_labels)" = "aa,ab,ac,ba,bb,ca,cb,cc,," ]
 }
 
 @test "jump: labels stop after z, for projects and for sessions in a project" {
@@ -58,7 +58,7 @@ _labels() { printf '%s,' "${NAV_JUMP_LABELS[@]}"; }
     SESSION_IDS+=("tower_x")
     BROKEN_START=-1
     _jump_assign_labels
-    [ "${NAV_JUMP_LABELS[25]}" = "z" ]
+    [ "${NAV_JUMP_LABELS[25]}" = "za" ]
     [ -z "${NAV_JUMP_LABELS[26]}" ]
     # the session under the unlabelled 27th project has no label either
     [ -z "${NAV_JUMP_LABELS[27]}" ]
@@ -66,8 +66,9 @@ _labels() { printf '%s,' "${NAV_JUMP_LABELS[@]}"; }
     SESSION_IDS=("dir:/p/one")
     for ((i = 0; i < 27; i++)); do SESSION_IDS+=("tower_s$i"); done
     _jump_assign_labels
-    [ "${NAV_JUMP_LABELS[26]}" = "az" ]
-    [ -z "${NAV_JUMP_LABELS[27]}" ]
+    # a is the project row's, so 25 sessions get b..z
+    [ "${NAV_JUMP_LABELS[25]}" = "az" ]
+    [ -z "${NAV_JUMP_LABELS[26]}" ]
 }
 
 @test "jump: a list with no project row has nothing to label" {
@@ -87,14 +88,14 @@ _labels() { printf '%s,' "${NAV_JUMP_LABELS[@]}"; }
     NAV_JUMP_PREFIX=""
     local out
     out=$(render_list 1 | _strip_ansi_str "$(cat)")
-    [[ "$out" == *"a  alpha"* ]]
-    [[ "$out" == *"ca   c one"* ]]
+    [[ "$out" == *"aa alpha"* ]]
+    [[ "$out" == *"cb   c one"* ]]
     [[ "$out" == *"jump:"* ]]
     NAV_JUMP_PREFIX="c"
     out=$(render_list 1 | _strip_ansi_str "$(cat)")
-    [[ "$out" != *"aa   a one"* ]]
+    [[ "$out" != *"ab   a one"* ]]
     [[ "$out" == *"   alpha"* ]]
-    [[ "$out" == *"cb   c two"* ]]
+    [[ "$out" == *"cc   c two"* ]]
 }
 
 @test "jump: rows with right-aligned marks still fit the width with the label column" {
@@ -116,23 +117,23 @@ _labels() { printf '%s,' "${NAV_JUMP_LABELS[@]}"; }
             return 1
         }
     done < <(render_list 1)
-    [[ "$(render_list 1 | _strip_ansi_str "$(cat)")" == *"ca   ▶ a session with marks"*"⚙2 •"* ]]
+    [[ "$(render_list 1 | _strip_ansi_str "$(cat)")" == *"cb   ▶ a session with marks"*"⚙2 •"* ]]
 }
 
-@test "jump: f c a lands on the third project's first session and clears the labels" {
+@test "jump: f c b lands on the third project's first session and clears the labels" {
     source "$NAV"
     _fixture
-    jump_prompt 1 >/dev/null < <(printf 'ca')
+    jump_prompt 1 >/dev/null < <(printf 'cb')
     [ "$NAV_NEW_INDEX" -eq 6 ]
     [ "$(get_nav_selected)" = "tower_c1" ]
     [ -z "$NAV_JUMP_ACTIVE" ]
     [ -z "$NAV_JUMP_PREFIX" ]
 }
 
-@test "jump: the project label then Enter lands on the project row" {
+@test "jump: the project row's two-letter label lands on it" {
     source "$NAV"
     _fixture
-    jump_prompt 1 >/dev/null < <(printf 'b\n')
+    jump_prompt 1 >/dev/null < <(printf 'ba')
     [ "$NAV_NEW_INDEX" -eq 3 ]
     [ "$(get_nav_selected)" = "dir:/p/beta" ]
 }
@@ -141,7 +142,7 @@ _labels() { printf '%s,' "${NAV_JUMP_LABELS[@]}"; }
     source "$NAV"
     _fixture
     local keys
-    for keys in $'\033' 'z' 'cz' $'\n' $'c\033'; do
+    for keys in $'\033' 'z' 'cz' $'\n' $'c\033' $'c\n'; do
         set_nav_selected "tower_a1"
         jump_prompt 1 >/dev/null < <(printf '%s' "$keys")
         [ "$NAV_NEW_INDEX" -eq 1 ]
@@ -156,11 +157,11 @@ _labels() { printf '%s,' "${NAV_JUMP_LABELS[@]}"; }
     _jump_assign_labels
     NAV_NEW_INDEX=1
     SESSION_IDS=("dir:/p/alpha" "tower_a1" "tower_a2" "dir:/p/beta" "tower_b1" "dir:/p/gamma" "tower_c2")
-    _jump_land "ca"
+    _jump_land "cb"
     [ "$NAV_NEW_INDEX" -eq 1 ]
     [ "$(get_nav_selected)" = "tower_a1" ]
     # the label still means the row it named when f was pressed
-    _jump_land "cb"
+    _jump_land "cc"
     [ "$NAV_NEW_INDEX" -eq 6 ]
     [ "$(get_nav_selected)" = "tower_c2" ]
 }
@@ -184,6 +185,7 @@ _labels() { printf '%s,' "${NAV_JUMP_LABELS[@]}"; }
     source "$NAV"
     _fixture
     local k
+    # i included: the loop turns it into Enter before this is reached
     for k in a c f t w $'\t' j k g G '?' q i r A; do
         run handle_project_key "$k" /p/alpha 0
         [ "$status" -eq 1 ]
@@ -201,11 +203,18 @@ _loop_case_keys() {
 _absent() { if grep -qxE "$1" <<<"$2"; then return 1; fi; }
 _undefined() { if declare -f "$1" >/dev/null; then return 1; fi; }
 
-@test "keys: the loop has no i, r or A, and handles c; f and / go to their prompts" {
+@test "keys: the loop has no r or A, reads i as Enter, and handles c; f and / go to their prompts" {
     source "$NAV"
     local keys
     keys=$(_loop_case_keys)
     _absent 'i|r|A' "$keys"
+    # ...and before anything dispatches on the key, so a project row gets it
+    # as Enter (new session there) rather than as a session row's open
+    local src="$PROJECT_ROOT/tmux-plugin/lib/nav/nav-loop.sh" i_at first_use
+    i_at=$(grep -nE '^ +\[\[ "\$key" == i \]\] && key=""$' "$src" | cut -d: -f1)
+    first_use=$(grep -nE 'search_prompt "\$selected_index"|handle_project_key "\$key"' "$src" | head -1 | cut -d: -f1)
+    [ -n "$i_at" ] && [ -n "$first_use" ]
+    [ "$i_at" -lt "$first_use" ]
     grep -qx 'c' <<<"$keys"
     grep -qx 'D' <<<"$keys"
     declare -f main_loop | grep -q 'jump_prompt'
@@ -214,15 +223,14 @@ _undefined() { if declare -f "$1" >/dev/null; then return 1; fi; }
     _undefined new_session_pick_dir
 }
 
-@test "keys: help lists all 17 keys; the footer names only those keys and fits 80 cells" {
+@test "keys: help lists all 18 keys; the footer names only those keys and fits 80 cells" {
     source "$NAV"
     _fixture
     local help footer k
     help=$(show_help </dev/null 2>/dev/null || true)
-    for k in "j / " "k / " "g / G" "/ text" "n / N" "f x y" "Enter" "  a  " "  c  " "  D  " "Tab / t" "  w  " "?" "q  Quit"; do
+    for k in "j / " "k / " "g / G" "/ text" "n / N" "f x y" "Enter / i" "  a  " "  c  " "  D  " "Tab / t" "  w  " "?" "q  Quit"; do
         [[ "$help" == *"$k"* ]] || { echo "help lacks [$k]"; return 1; }
     done
-    [[ "$help" != *"Enter / i"* ]]
     [[ "$help" != *"Resume selected"* ]]
     [ "$(printf '%s\n' "$help" | wc -l)" -lt 24 ]
     footer=$(render_list 1 | tail -n 1)

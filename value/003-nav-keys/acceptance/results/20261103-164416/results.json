@@ -1,0 +1,116 @@
+{
+ "run": "20261103-164416",
+ "runner": "bats tests/e2e/test_acceptance_003.bats",
+ "scenarios": [
+  {
+   "name": "会話を複製すると、元の会話を引き継いだ複製が同じディレクトリに登録される",
+   "status": "pass",
+   "requirements": [
+    "REQ-003-010",
+    "REQ-003-011",
+    "REQ-003-012",
+    "REQ-003-013"
+   ],
+   "userflow": "UF-003-002"
+  },
+  {
+   "name": "複製できない行では失敗の理由が出て、複製は起動されない",
+   "status": "pass",
+   "requirements": [
+    "REQ-003-030",
+    "REQ-003-031"
+   ],
+   "userflow": "UF-003-002"
+  },
+  {
+   "name": "複製の起動に失敗したらエラーを表示し、複製のメタデータを残さない",
+   "status": "pass",
+   "requirements": [
+    "REQ-003-032"
+   ],
+   "userflow": "UF-003-002"
+  },
+  {
+   "name": "f c b で 3 番目のプロジェクトの先頭セッションへ移る",
+   "status": "pass",
+   "requirements": [
+    "REQ-003-020",
+    "REQ-003-021",
+    "REQ-003-022",
+    "REQ-003-024"
+   ],
+   "userflow": "UF-003-003"
+  },
+  {
+   "name": "f と見出しの 2 文字のラベルで見出しの行へ移り、1 文字目の後の Enter は取り消しになる",
+   "status": "pass",
+   "requirements": [
+    "REQ-003-023"
+   ],
+   "userflow": "UF-003-006"
+  },
+  {
+   "name": "ジャンプを取り消したときや移動先が消えて失敗したときはカーソルが動かない",
+   "status": "pass",
+   "requirements": [
+    "REQ-003-034",
+    "REQ-003-035"
+   ],
+   "userflow": "UF-003-003"
+  },
+  {
+   "name": "空の一覧で f を押してもジャンプのモードに入らない",
+   "status": "pass",
+   "requirements": [
+    "REQ-003-036"
+   ],
+   "userflow": "UF-003-008"
+  },
+  {
+   "name": "複製を断られた後、会話の記録がある行でやり直すと複製できる",
+   "status": "pass",
+   "requirements": [
+    "REQ-003-031",
+    "REQ-003-010"
+   ],
+   "userflow": "UF-003-005"
+  },
+  {
+   "name": "休眠中の行で Enter を押すと再開してから入力欄へ移る",
+   "status": "pass",
+   "requirements": [
+    "REQ-003-003",
+    "REQ-003-004",
+    "REQ-003-037"
+   ],
+   "userflow": "UF-003-001"
+  },
+  {
+   "name": "休眠中の行の再開に失敗したら、エラーを表示して一覧に留まる",
+   "status": "pass",
+   "requirements": [
+    "REQ-003-033"
+   ],
+   "userflow": "UF-003-001"
+  },
+  {
+   "name": "a の場所の初期値はカーソルの行のプロジェクトになる",
+   "status": "pass",
+   "requirements": [
+    "REQ-003-002",
+    "REQ-003-005",
+    "REQ-003-006"
+   ],
+   "userflow": "UF-003-004"
+  },
+  {
+   "name": "削ったキーは何もせず、i は Enter と同じで、ヘルプに 18 個のキーが並ぶ",
+   "status": "pass",
+   "requirements": [
+    "REQ-003-001",
+    "REQ-003-007"
+   ],
+   "userflow": "UF-003-007"
+  }
+ ]
+}

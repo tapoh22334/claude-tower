@@ -163,7 +163,7 @@ _label_col() {
     done <<<"$1"
 }
 
-@test "f c a で 3 番目のプロジェクトの先頭セッションへ移る" {
+@test "f c b で 3 番目のプロジェクトの先頭セッションへ移る" {
     source "$NAV" 2>/dev/null || true
     _nav
     local a b c1 c2 out
@@ -178,29 +178,33 @@ _label_col() {
     _jump_assign_labels
     NAV_JUMP_ACTIVE=1
     out=$(render_list 0 | _strip_ansi_str "$(cat)")
-    [[ "$out" == *"a  bar"* && "$out" == *"b  baz"* && "$out" == *"c  foo"* ]]
+    [[ "$out" == *"aa bar"* && "$out" == *"ba baz"* && "$out" == *"ca foo"* ]]
     # The label column is the first three cells of a line; match there only,
     # since row text (paths, names) can contain any two letters.
-    [ "$(_label_col "$out")" = "a,aa,b,ba,c,ca,cb," ]
+    [ "$(_label_col "$out")" = "aa,ab,ba,bb,ca,cb,cc," ]
     NAV_JUMP_PREFIX=c
     out=$(render_list 0 | _strip_ansi_str "$(cat)")
-    [ "$(_label_col "$out")" = "c,ca,cb," ]
+    [ "$(_label_col "$out")" = "ca,cb,cc," ]
     _jump_end
-    jump_prompt 0 >/dev/null < <(printf 'ca')
+    jump_prompt 0 >/dev/null < <(printf 'cb')
     [ "$(get_nav_selected)" = "${SESSION_IDS[$(_index_of "dir:$FOO") + 1]}" ]
     [ "$NAV_NEW_INDEX" -eq "$(($(_index_of "dir:$FOO") + 1))" ]
     [ -z "$NAV_JUMP_ACTIVE" ]
 }
 
-@test "f と見出しのラベルの後に Enter を押すと見出しの行へ移る" {
+@test "f と見出しの 2 文字のラベルで見出しの行へ移り、1 文字目の後の Enter は取り消しになる" {
     source "$NAV" 2>/dev/null || true
     _nav
     _open "$BAR" >/dev/null
     _open "$FOO" >/dev/null
     build_session_list
     go_first >/dev/null
-    jump_prompt 0 >/dev/null < <(printf 'b\n')
+    jump_prompt 0 >/dev/null < <(printf 'ba')
     [ "$(get_nav_selected)" = "dir:$FOO" ]
+    go_first >/dev/null
+    jump_prompt 0 >/dev/null < <(printf 'b\n')
+    [ "$NAV_NEW_INDEX" -eq 0 ]
+    [ "$(get_nav_selected)" = "dir:$BAR" ]
 }
 
 @test "ジャンプを取り消したときや移動先が消えて失敗したときはカーソルが動かない" {
@@ -225,7 +229,7 @@ _label_col() {
         fi
     }
     NAV_NEW_INDEX=1
-    jump_prompt 1 >/dev/null < <(printf 'ba')
+    jump_prompt 1 >/dev/null < <(printf 'bb')
     [ "$NAV_NEW_INDEX" -eq 1 ]
     [ "$(get_nav_selected)" = "$s1" ]
 }
@@ -333,7 +337,7 @@ _label_col() {
     [ "$status" -eq 1 ]
 }
 
-@test "削ったキーは何もせず、ヘルプに 17 個のキーが並ぶ" {
+@test "削ったキーは何もせず、i は Enter と同じで、ヘルプに 18 個のキーが並ぶ" {
     source "$NAV" 2>/dev/null || true
     _nav
     local s n help footer k
@@ -341,13 +345,15 @@ _label_col() {
     build_session_list
     _select "$s"
     n=$(_meta_count)
-    # i / r / A have no branch in the loop: nothing it calls is reached.
+    # r / A have no branch in the loop: nothing it calls is reached.
     run grep -nE '^ {16}(i|r|A)( \|.*)?\)' "$PROJECT_ROOT/tmux-plugin/lib/nav/nav-loop.sh"
     [ "$status" -ne 0 ]
+    # i is read as Enter before any key is dispatched.
+    grep -qE '^ +\[\[ "\$key" == i \]\] && key=""$' "$PROJECT_ROOT/tmux-plugin/lib/nav/nav-loop.sh"
     [ "$(_meta_count)" -eq "$n" ]
     [ "$(get_nav_focus)" = "list" ]
     help=$(show_help </dev/null 2>/dev/null || true)
-    for k in "j / " "k / " "g / G" "/ text" "n / N" "f x y" "Enter" "  a  " "  c  " "  D  " "Tab / t" "  w  " "?  " "q  Quit"; do
+    for k in "j / " "k / " "g / G" "/ text" "n / N" "f x y" "Enter / i" "  a  " "  c  " "  D  " "Tab / t" "  w  " "?  " "q  Quit"; do
         [[ "$help" == *"$k"* ]] || { echo "help lacks [$k]"; return 1; }
     done
     footer=$(render_list 0 | tail -n 1)
