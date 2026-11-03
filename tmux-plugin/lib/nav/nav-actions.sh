@@ -423,7 +423,7 @@ switch_to_tail() {
     _switch_to_view "tower-tail" "$SCRIPT_DIR/tail-view.sh"
 }
 
-# Queue mode (sessions awaiting your action, oldest wait first).
+# Queue mode (sessions awaiting your action, most recent wait first).
 #
 # Unlike Tile and Tail, the queue is a way of looking at the same list, so it
 # runs in THIS pane as a foreground sub-flow — the same shape as the help

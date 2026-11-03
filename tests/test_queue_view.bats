@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Queue view: ordering (longest wait first), frame layout, key wiring.
+# Queue view: ordering (most recent wait first), frame layout, key wiring.
 # queue-view.sh has a BASH_SOURCE guard, so it can be sourced; sourcing it
 # pulls in readonly common.sh, so tests run in a fresh bash.
 
@@ -33,7 +33,7 @@ _run_queue() {
     [[ "$output" == *"SOURCED_OK"* ]]
 }
 
-@test "load_queue: orders waiters longest-wait-first and skips non-waiters" {
+@test "load_queue: orders waiters most-recent-wait-first and skips non-waiters" {
     _run_queue '
         # a: waited longest (oldest since), b: newest, c: not waiting.
         list_all_session_ids() { echo tower_a; echo tower_b; echo tower_c; }
@@ -44,8 +44,8 @@ _run_queue() {
         printf "%s\n" "${QUEUE_IDS[*]}"
     '
     [ "$status" -eq 0 ]
-    # a (since 1000, older) before b (since 5000); c excluded entirely.
-    [[ "$output" == *"tower_a tower_b"* ]]
+    # b (since 5000, newer) before a (since 1000); c excluded entirely.
+    [[ "$output" == *"tower_b tower_a"* ]]
     [[ "$output" != *"tower_c"* ]]
 }
 
@@ -73,7 +73,7 @@ _run_queue() {
         list_live_claude_processes() { echo RESCAN >&2; }
         get_wait_state() { echo input; }
         wait_since() { echo 1000; }
-        _queue_label() { echo t; }
+        queue_label() { echo t; }
         format_relative_time() { echo "x ago"; }
         load_queue 2>/dev/null
         is_claude_process_alive a 2>&1 || true
@@ -86,7 +86,7 @@ _run_queue() {
     # made j/k take ~0.4s with 22 rows (#86).
     _run_queue '
         QUEUE_IDS=(tower_a tower_b tower_c); QUEUE_KINDS=(input input input); QUEUE_AGES=(1m 2m 3m)
-        _queue_label() { echo L >>"'"$BATS_TEST_TMPDIR"'/label.calls"; echo "t"; }
+        queue_label() { echo L >>"'"$BATS_TEST_TMPDIR"'/label.calls"; echo "t"; }
         render_frame >/dev/null
         handle_key() { SELECTED_INDEX=$(( (SELECTED_INDEX + 1) % 3 )); }
         for i in 1 2 3 4 5; do handle_key j; render_frame >/dev/null; done
@@ -107,7 +107,7 @@ _run_queue() {
 
 @test "build_queue_frame: a row shows the wait icon and the age" {
     _run_queue '
-        _queue_label() { echo "fix the bug"; }
+        queue_label() { echo "fix the bug"; }
         QUEUE_IDS=("tower_a"); QUEUE_KINDS=("permission"); QUEUE_AGES=("3m")
         build_queue_frame 24 80 | sed -E "s/\x1b\[[0-9;?]*[a-zA-Z]//g"
     '
@@ -119,7 +119,7 @@ _run_queue() {
 
 @test "build_queue_frame: never exceeds the terminal height" {
     _run_queue '
-        _queue_label() { echo "t"; }
+        queue_label() { echo "t"; }
         QUEUE_IDS=(); QUEUE_KINDS=(); QUEUE_AGES=()
         for i in $(seq 1 40); do QUEUE_IDS+=("tower_$i"); QUEUE_KINDS+=("input"); QUEUE_AGES+=("1m"); done
         raw=$(build_queue_frame 12 80)
@@ -129,9 +129,9 @@ _run_queue() {
     [ "$output" -le 12 ]
 }
 
-@test "build_queue_frame: last line has no trailing newline (endless-scroll class)" {
+@test "build_queue_frame: key help is the last line, with no trailing newline (endless-scroll class)" {
     _run_queue '
-        _queue_label() { echo "t"; }
+        queue_label() { echo "t"; }
         QUEUE_IDS=(); QUEUE_KINDS=(); QUEUE_AGES=()
         for i in $(seq 1 40); do QUEUE_IDS+=("tower_$i"); QUEUE_KINDS+=("input"); QUEUE_AGES+=("1m"); done
         raw=$(build_queue_frame 12 80; printf SENTINEL)
@@ -139,12 +139,58 @@ _run_queue() {
         printf "%s" "$last"
     '
     [ "$status" -eq 0 ]
-    [[ "$output" == *"more"*"SENTINEL"* ]]
+    [[ "$output" == *"q quit"*"SENTINEL"* ]]
+}
+
+@test "build_queue_frame: fills the terminal height so the key help sits on the bottom line" {
+    _run_queue '
+        queue_label() { echo "t"; }
+        QUEUE_IDS=(tower_a); QUEUE_KINDS=(input); QUEUE_AGES=(1m); QUEUE_PROJECTS=(p)
+        raw=$(build_queue_frame 12 80)
+        echo "nl=$(printf "%s" "$raw" | grep -c "")"
+    '
+    [ "$status" -eq 0 ]
+    # grep -c counts the unterminated last line too: 12 lines on screen.
+    [[ "$output" == *"nl=12"* ]]
+}
+
+@test "build_queue_frame: rows carry the 1-9 key number, the project and the title" {
+    _run_queue '
+        QUEUE_IDS=(tower_a tower_b); QUEUE_KINDS=(permission question); QUEUE_AGES=(2m 15m)
+        QUEUE_PROJECTS=(claude-tower wiki); QUEUE_LABELS=("fix the bug" "page layout")
+        build_queue_frame 24 80 | sed -E "s/\x1b\[[0-9;?]*[a-zA-Z]//g"
+    '
+    [ "$status" -eq 0 ]
+    [[ "$output" == *" 1 ⚠ claude-tower  fix the bug"* ]]
+    [[ "$output" == *" 2 ？ wiki          page layout"* ]]
+    [[ "$output" == *"2 waiting"* ]]
+}
+
+@test "build_queue_frame: the selected row stays reversed past its colored parts" {
+    # A full reset (\033[0m) inside the row would end the reverse video at
+    # the icon; the row's parts must close with attribute-off codes only.
+    _run_queue '
+        QUEUE_IDS=(tower_a); QUEUE_KINDS=(permission); QUEUE_AGES=(2m)
+        QUEUE_PROJECTS=(p); QUEUE_LABELS=(t); SELECTED_INDEX=0
+        _compose_queue_rows
+        row="${QUEUE_ROWS[0]}"
+        [[ "$row" == *$'"'"'\033[0m'"'"'* ]] && echo HAS_RESET || echo NO_RESET
+    '
+    [ "$status" -eq 0 ]
+    [ "$output" = "NO_RESET" ]
+}
+
+@test "_wait_color: each wait kind has its own color" {
+    _run_queue '
+        for k in permission question input error; do _wait_color "$k" | od -An -c | tr -d " \n"; echo; done | sort -u | wc -l
+    '
+    [ "$status" -eq 0 ]
+    [ "$output" -eq 4 ]
 }
 
 @test "build_queue_frame: overflow collapses into a +N more line" {
     _run_queue '
-        _queue_label() { echo "t"; }
+        queue_label() { echo "t"; }
         QUEUE_IDS=(); QUEUE_KINDS=(); QUEUE_AGES=()
         for i in $(seq 1 40); do QUEUE_IDS+=("tower_$i"); QUEUE_KINDS+=("input"); QUEUE_AGES+=("1m"); done
         build_queue_frame 12 80 | sed -E "s/\x1b\[[0-9;?]*[a-zA-Z]//g"
@@ -356,4 +402,54 @@ _shadow_tmux() {
         echo "idx=$SELECTED_INDEX"
     '
     [[ "$output" == *"idx=2"* ]]
+}
+
+@test "load_queue: an unknown wait time shows as ?, not an age counted from the epoch" {
+    _run_queue '
+        collect_queue() { printf "%s\t%s\t%s\t%s\t%s\n" 0 tower_a error p t; }
+        load_queue
+        echo "age=${QUEUE_AGES[0]}"
+    '
+    [ "$status" -eq 0 ]
+    [ "$output" = "age=?" ]
+}
+
+@test "load_queue: the cursor stays on its session when a new wait enters at the top" {
+    # Newest waits enter at row 0. Kept by row number, the highlight would
+    # move to another session than the view pane shows.
+    _run_queue '
+        nav_redirect_view() { echo REDIRECT; }
+        collect_queue() { printf "%s\t%s\t%s\t%s\t%s\n" 2000 tower_x input p x 1000 tower_y input p y; }
+        load_queue; SELECTED_INDEX=0
+        collect_queue() { printf "%s\t%s\t%s\t%s\t%s\n" 3000 tower_new input p n 2000 tower_x input p x 1000 tower_y input p y; }
+        load_queue
+        echo "sel=${QUEUE_IDS[$SELECTED_INDEX]}"
+    '
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"sel=tower_x"* ]]
+    [[ "$output" != *"REDIRECT"* ]]
+}
+
+@test "build_queue_frame: rows fit a pane narrower than 50 columns" {
+    # The list pane is 30% of the terminal. A row wider than the pane wraps,
+    # and a full-height frame that wraps scrolls on every redraw.
+    _run_queue '
+        TOWER_TERM_COLS=40 TOWER_TERM_LINES=10
+        QUEUE_IDS=(tower_a tower_b); QUEUE_KINDS=(permission input); QUEUE_AGES=(2m 15m)
+        QUEUE_PROJECTS=(a-rather-long-project wiki); QUEUE_LABELS=("a long title that goes on and on and on" "x")
+        _compose_queue_rows
+        build_queue_frame 10 40 | sed -E "s/\x1b\[[0-9;?]*[a-zA-Z]//g" | while IFS= read -r l || [[ -n "$l" ]]; do str_display_width "$l"; done | sort -n | tail -1
+    '
+    [ "$status" -eq 0 ]
+    [ "$output" -le 40 ]
+}
+
+@test "_project_col_width: short project names keep their column" {
+    _run_queue '
+        QUEUE_PROJECTS=(p ab); _project_col_width 60
+        QUEUE_PROJECTS=(p); _project_col_width 25
+    '
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" -eq 4 ]
+    [ "${lines[1]}" -eq 0 ]
 }

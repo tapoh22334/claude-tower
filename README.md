@@ -99,8 +99,10 @@ you are deleting while the delete runs.
 ### The three multi-session views
 
 **Tile** (`Tab`) — a grid of every session. Refreshes on `r`.
-**Tail** (`t`) — sessions stacked, last few lines each, refreshing.
-**Queue** (`w`) — only what is waiting on you, longest wait first. Runs in the
+**Tail** (`t`) — the end of each conversation, stacked and refreshing: the
+queue's sessions first, then the most recently active. Needs `jq`; without it,
+or before a session has a transcript, a block shows the pane's last lines.
+**Queue** (`w`) — only what is waiting on you, most recent wait first. Runs in the
 list pane itself: `j`/`k` there move the view pane to that session, `Enter`
 returns to the list with the cursor on it.
 

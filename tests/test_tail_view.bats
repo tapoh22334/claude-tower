@@ -37,8 +37,8 @@ _run_tail_frame() {
 @test "build_tail_frame: never exceeds the terminal height (30 sessions, 12 lines)" {
     _run_tail_frame 30 STATE_DORMANT '
         frame=$(build_tail_frame 12 80)
-        nl_count=$(printf "%s" "$frame" | grep -c "" || true)
-        echo "lines=$((nl_count + 1))"
+        # grep -c counts the last line too, though it has no newline.
+        echo "lines=$(printf "%s" "$frame" | grep -c "" || true)"
     '
     [ "$status" -eq 0 ]
     [[ "$output" == *"lines="* ]]
@@ -127,4 +127,173 @@ _run_tail_frame() {
     [[ "$output" == *"tail-view.sh"* ]]
     # The window must be pinned to the session the user gets attached to.
     [[ "$output" == *"-t tower_stub"* ]]
+}
+
+# ----------------------------------------------------------------------------
+# Which sessions, and what each block shows (#109)
+# ----------------------------------------------------------------------------
+
+_run_tail() {
+    run bash -c '
+        export CLAUDE_TOWER_METADATA_DIR="'"$CLAUDE_TOWER_METADATA_DIR"'"
+        export CLAUDE_PROJECTS_DIR="'"$CLAUDE_PROJECTS_DIR"'"
+        export CLAUDE_TOWER_NAV_SOCKET="tail-nav-$$"
+        export CLAUDE_TOWER_SESSION_SOCKET="tail-sess-$$"
+        source "'"$PROJECT_ROOT"'/tmux-plugin/scripts/tail-view.sh"
+        set +e
+        '"$1"'
+    '
+}
+
+@test "collect_queue all: waiters first by most recent wait, then the rest by activity" {
+    _run_tail '
+        list_all_session_ids() { printf "%s\n" tower_old tower_new tower_idle_old tower_idle_new; }
+        list_live_claude_processes() { :; }
+        get_wait_state() { case "$1" in tower_old | tower_new) echo input ;; *) echo "" ;; esac; }
+        wait_since() { case "$1" in tower_old) echo 1000 ;; tower_new) echo 2000 ;; tower_idle_old) echo 1500 ;; tower_idle_new) echo 9000 ;; esac; }
+        queue_project() { echo p; }
+        queue_label() { echo t; }
+        collect_queue all | cut -f2,3
+    '
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = $'tower_new\tinput' ]
+    [ "${lines[1]}" = $'tower_old\tinput' ]
+    [ "${lines[2]}" = $'tower_idle_new\t-' ]
+    [ "${lines[3]}" = $'tower_idle_old\t-' ]
+}
+
+@test "collect_queue: without all, sessions that are not waiting are left out" {
+    _run_tail '
+        list_all_session_ids() { printf "%s\n" tower_w tower_idle; }
+        list_live_claude_processes() { :; }
+        get_wait_state() { [[ "$1" == tower_w ]] && echo input || echo ""; }
+        wait_since() { echo 1000; }
+        queue_project() { echo p; }
+        queue_label() { echo t; }
+        collect_queue | cut -f2
+    '
+    [ "$status" -eq 0 ]
+    [ "$output" = "tower_w" ]
+}
+
+@test "load_sessions: blocks follow the queue order" {
+    _run_tail '
+        collect_queue() { printf "%s\t%s\t%s\t%s\t%s\n" 2000 tower_b input proj "title b" 1000 tower_a permission proj "title a" 3000 tower_c - proj "title c"; }
+        _load_visible_tails() { :; }
+        load_sessions
+        echo "${SESSION_IDS[*]}"
+    '
+    [ "$status" -eq 0 ]
+    [ "$output" = "tower_b tower_a tower_c" ]
+}
+
+@test "build_tail_frame: a block shows the end of the conversation, not the pane" {
+    _run_tail '
+        SESSION_IDS=(tower_a); SESSION_LABELS=("a"); SESSION_STATES=("$STATE_ACTIVE")
+        SESSION_TAILS=($'"'"'old line\n❯ the question\nthe answer'"'"')
+        capture_tail_lines() { echo "PANE_STATUS_LINE"; }
+        build_tail_frame 6 80
+    '
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"❯ the question"* ]]
+    [[ "$output" == *"the answer"* ]]
+    [[ "$output" != *"PANE_STATUS_LINE"* ]]
+    # 6 lines: title + header + 4 output lines; all 3 tail lines fit.
+    [[ "$output" == *"old line"* ]]
+}
+
+@test "build_tail_frame: only the last lines of a long conversation are shown" {
+    _run_tail '
+        SESSION_IDS=(tower_a); SESSION_LABELS=("a"); SESSION_STATES=("$STATE_ACTIVE")
+        SESSION_TAILS=("$(printf "line%s\n" 1 2 3 4 5 6 7 8 9)")
+        build_tail_frame 5 80
+    '
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"line9"* ]]
+    [[ "$output" == *"line7"* ]]
+    [[ "$output" != *"line6"* ]]
+}
+
+# A transcript with a prompt, a tool round trip, and a reply.
+_write_transcript() {
+    local f="$1"
+    {
+        echo '{"type":"user","message":{"role":"user","content":"first prompt"}}'
+        echo '{"type":"assistant","message":{"content":[{"type":"text","text":"first reply"}]}}'
+        echo '{"type":"user","message":{"role":"user","content":"<command-name>/clear</command-name>"}}'
+        echo '{"type":"user","isMeta":true,"message":{"role":"user","content":"meta noise"}}'
+        echo '{"type":"user","message":{"role":"user","content":"second prompt"}}'
+        echo '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}'
+        echo '{"type":"user","message":{"content":[{"type":"tool_result","content":"TOOL OUTPUT"}]}}'
+        echo '{"type":"assistant","message":{"content":[{"type":"text","text":"line one\nline two with a \\n backslash"}]}}'
+        echo '{"type":"system","subtype":"turn_duration"}'
+    } >"$f"
+}
+
+@test "transcript_tail: prompts and replies, without tool traffic or markup" {
+    command -v jq >/dev/null || skip "jq not installed"
+    _write_transcript "$BATS_TEST_TMPDIR/t.jsonl"
+    _run_tail 'transcript_tail "'"$BATS_TEST_TMPDIR"'/t.jsonl" 50 80'
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"❯ first prompt"* ]]
+    [[ "$output" == *"first reply"* ]]
+    [[ "$output" == *"❯ second prompt"* ]]
+    [[ "$output" == *"line one"* ]]
+    [[ "$output" == *'line two with a \n backslash'* ]]
+    [[ "$output" != *"TOOL OUTPUT"* ]]
+    [[ "$output" != *"command-name"* ]]
+    [[ "$output" != *"meta noise"* ]]
+    [[ "$output" != *"turn_duration"* ]]
+}
+
+@test "transcript_tail: prints only the last N lines" {
+    command -v jq >/dev/null || skip "jq not installed"
+    _write_transcript "$BATS_TEST_TMPDIR/t.jsonl"
+    _run_tail 'transcript_tail "'"$BATS_TEST_TMPDIR"'/t.jsonl" 2 80'
+    [ "$status" -eq 0 ]
+    [ "${#lines[@]}" -eq 2 ]
+    [ "${lines[0]}" = "line one" ]
+}
+
+@test "transcript_tail: wraps long lines to the width, counting wide characters as two cells" {
+    command -v jq >/dev/null || skip "jq not installed"
+    printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"あいうえおかきくけこ"}]}}' >"$BATS_TEST_TMPDIR/w.jsonl"
+    _run_tail 'transcript_tail "'"$BATS_TEST_TMPDIR"'/w.jsonl" 10 10'
+    [ "$status" -eq 0 ]
+    [ "${lines[0]}" = "あいうえお" ]
+    [ "${lines[1]}" = "かきくけこ" ]
+}
+
+@test "transcript_tail: a slice that starts mid-line is still read" {
+    command -v jq >/dev/null || skip "jq not installed"
+    _write_transcript "$BATS_TEST_TMPDIR/t.jsonl"
+    _run_tail 'TOWER_TAIL_BYTES=200; transcript_tail "'"$BATS_TEST_TMPDIR"'/t.jsonl" 50 80'
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"line one"* ]]
+}
+
+@test "transcript_tail: no transcript means no tail, so the block falls back to the pane" {
+    _run_tail 'transcript_tail "'"$BATS_TEST_TMPDIR"'/missing.jsonl" 5 80; echo "rc=$?"'
+    [[ "$output" == *"rc=1"* ]]
+}
+
+@test "build_tail_frame: a block not loaded yet stays blank instead of showing the pane" {
+    # The terminal grew after the last load: the new block has no state and
+    # no tail. The pane's bottom (input box, status line) is what this view
+    # replaced, so it must not reappear there.
+    _run_tail '
+        SESSION_IDS=(tower_a); SESSION_LABELS=("a"); SESSION_STATES=(""); SESSION_TAILS=()
+        capture_tail_lines() { echo "PANE_STATUS_LINE"; }
+        build_tail_frame 6 80
+    '
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"PANE_STATUS_LINE"* ]]
+}
+
+@test "transcript_tail: symbols that terminals draw wide (✅ ⭐) count as two cells" {
+    command -v jq >/dev/null || skip "jq not installed"
+    printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"✅ done ✅ done ✅ done ✅ done"}]}}' >"$BATS_TEST_TMPDIR/e.jsonl"
+    _run_tail 'transcript_tail "'"$BATS_TEST_TMPDIR"'/e.jsonl" 10 20 | while IFS= read -r l; do str_display_width "$l"; done | sort -n | tail -1'
+    [ "$status" -eq 0 ]
+    [ "$output" -le 20 ]
 }

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # queue-view.sh - Queue view for claude-tower Navigator
-# Every Claude session that is waiting on you, oldest wait on top, so
-# nothing blocked or finished gets forgotten. Visualization only — pick a
-# row to jump to that session and answer it yourself.
+# Every Claude session that is waiting on you, the most recent wait on top:
+# the session that just stopped is the one whose context is still in your
+# head. Visualization only — pick a row to jump to that session and answer
+# it yourself.
 #
 # Runs IN the Navigator's list pane, as a display mode of that pane: the list
 # loop execs this script in the foreground and takes the screen back when it
@@ -30,6 +31,8 @@ TOWER_SCRIPT_NAME="queue-view.sh"
 
 # shellcheck source=../lib/common.sh
 source "$SCRIPT_DIR/../lib/common.sh"
+# shellcheck source=../lib/queue.sh
+source "$SCRIPT_DIR/../lib/queue.sh"
 
 REFRESH_INTERVAL="${TOWER_QUEUE_REFRESH:-2}"
 readonly QUEUE_EXIT_QUIT=3
@@ -39,39 +42,25 @@ readonly BOLD=$'\033[1m'
 readonly DIM=$'\033[2m'
 readonly REVERSE=$'\033[7m'
 readonly CYAN=$'\033[36m'
-readonly YELLOW=$'\033[33m'
+# Project column. Not cyan: that is the question kind's color.
+readonly PROJECT_FG=$'\033[35m'
+# Attribute-off codes. A row's parts are dimmed or colored with these
+# instead of a full reset, which would also end the selected row's reverse
+# video halfway along the row.
+readonly UNDIM=$'\033[22m'
+readonly DEFAULT_FG=$'\033[39m'
 
 readonly Q_MAX_WIDTH="${TOWER_LIST_MAX_WIDTH:-80}"
-readonly Q_MIN_WIDTH="${TOWER_LIST_MIN_WIDTH:-50}"
 readonly Q_AGE_COL=6
+# The project column grows to its longest name, up to this many cells.
+readonly Q_PROJECT_MAX=16
+readonly Q_KEYS="j/k move  1-9 open  Enter list  q quit"
 
-# Row label: the conversation title, or the short id when there is none.
-# (Self-contained — navigator-list.sh's _session_label isn't sourced here.)
-_queue_label() {
-    local claude_id="${1#tower_}" title
-    title=$(get_session_title "$claude_id" 2>/dev/null) || title=""
-    title="${title//\\n/ }"
-    title="${title//\\t/ }"
-    title="${title//$'\t'/ }"
-    [[ -z "$title" ]] && title="${claude_id:0:7}"
-    printf '%s\n' "$title"
-}
-
-# Wait-kind -> icon. Kept here (not common.sh) since it is queue-only.
-_wait_icon() {
-    case "$1" in
-        permission) echo "⚠" ;;
-        question) echo "？" ;;
-        input) echo "✱" ;;
-        error) echo "✗" ;;
-        *) echo "·" ;;
-    esac
-}
-
-# State: parallel arrays, already ordered (longest wait first).
+# State: parallel arrays, already ordered (most recent wait first).
 QUEUE_IDS=()
 QUEUE_KINDS=()
 QUEUE_AGES=()
+QUEUE_PROJECTS=()
 SELECTED_INDEX=0
 # Composed rows, built once per load (and again only if the width changes):
 # a label reads its session's transcript, so composing on every j/k redraw
@@ -80,161 +69,236 @@ QUEUE_LABELS=()
 QUEUE_ROWS=()
 QUEUE_ROWS_WIDTH=""
 
-# One session's queue line, or nothing when it is not waiting:
-# "<wait_since>\t<id>\t<kind>\t<label>". The label is looked up here, not
-# at draw time, so it rides the same parallel job as the wait check.
-_queue_entry() {
-    local session_id="$1" kind since label
-    kind=$(get_wait_state "$session_id")
-    [[ -z "$kind" ]] && return 0
-    since=$(wait_since "$session_id")
-    label=$(_queue_label "$session_id")
-    printf '%s\t%s\t%s\t%s\n' "$since" "$session_id" "$kind" "$label"
-}
-
-# Collect waiting sessions and order them by wait duration, longest first.
-# Sorts numerically ascending on wait_since (smaller epoch = older = waited
-# longer) and fills the arrays.
+# Fill the arrays from collect_queue (lib/queue.sh).
 #
-# Each session is checked in its own background job. The checks are
-# independent and each spends its time waiting on tmux and the filesystem
-# (~25-60ms apiece); one after another they made opening the queue take
-# about a second with two dozen sessions (#86). Lines are far below
-# PIPE_BUF, so concurrent writers cannot interleave inside one.
+# The cursor stays on the same session, not the same row number: newest
+# waits enter at the top, so every reload that brings a new one shifts the
+# rows under the cursor. Kept by row number, the highlight would land on a
+# different session than the view pane shows, and Enter would hand the list
+# that one. When the session left the queue, the cursor stays at its row and
+# the view pane is moved to whatever is there now.
 load_queue() {
+    local previous_id="${QUEUE_IDS[$SELECTED_INDEX]-}"
     QUEUE_IDS=()
     QUEUE_KINDS=()
     QUEUE_AGES=()
+    QUEUE_PROJECTS=()
     QUEUE_LABELS=()
     QUEUE_ROWS=()
     QUEUE_ROWS_WIDTH=""
 
-    local session_id kind since label live ids
-    ids=$(list_all_session_ids)
-    live=$'\n'$(session_tmux list-sessions -F '#{session_name}' 2>/dev/null || true)$'\n'
-
-    # A paneless session asks is_claude_process_alive, and each rescan of the
-    # process table costs ~0.5s. Take it once, and only when it will be read.
-    while IFS= read -r session_id; do
-        [[ -z "$session_id" || "$live" == *$'\n'"$session_id"$'\n'* ]] && continue
-        LIVE_PROCS_TABLE=$(list_live_claude_processes)
-        LIVE_PROCS_READY=1
-        break
-    done <<<"$ids"
-
-    while IFS=$'\t' read -r since session_id kind label; do
+    local since session_id kind project label reltime
+    while IFS=$'\t' read -r since session_id kind project label; do
         [[ -z "$session_id" ]] && continue
         QUEUE_IDS+=("$session_id")
         QUEUE_KINDS+=("$kind")
+        QUEUE_PROJECTS+=("$project")
         QUEUE_LABELS+=("$label")
         # "5d ago" -> "5d": the queue's age column is tight and every row
         # is an age, so the " ago" suffix is redundant noise.
-        local reltime
-        reltime=$(format_relative_time "$since")
-        QUEUE_AGES+=("${reltime% ago}")
-    done < <(
-        {
-            while IFS= read -r session_id; do
-                [[ -z "$session_id" ]] && continue
-                _queue_entry "$session_id" &
-            done <<<"$ids"
-            wait
-        } | sort -t "$(printf '\t')" -k1,1n
-    )
-    LIVE_PROCS_READY=""
+        # since 0 = no activity time known (no transcript): an age counted
+        # from the epoch ("20760d") would be a lie.
+        if [[ "$since" =~ ^[1-9][0-9]*$ ]]; then
+            reltime=$(format_relative_time "$since")
+            QUEUE_AGES+=("${reltime% ago}")
+        else
+            QUEUE_AGES+=("?")
+        fi
+    done < <(collect_queue)
 
-    local count=${#QUEUE_IDS[@]}
+    local count=${#QUEUE_IDS[@]} i
+    if [[ -n "$previous_id" ]]; then
+        for ((i = 0; i < count; i++)); do
+            if [[ "${QUEUE_IDS[$i]}" == "$previous_id" ]]; then
+                SELECTED_INDEX=$i
+                return 0
+            fi
+        done
+    fi
     if [[ $count -eq 0 ]]; then
         SELECTED_INDEX=0
     elif [[ $SELECTED_INDEX -ge $count ]]; then
         SELECTED_INDEX=$((count - 1))
     fi
+    [[ -n "$previous_id" ]] && _follow_selection
+    return 0
 }
 
+# Rows are composed to this width: the pane, capped at Q_MAX_WIDTH. Never
+# wider than the pane: the frame fills the screen to its last line, so one
+# row that wraps scrolls the whole frame on every redraw. (The list pane is
+# 30% of the terminal, under 50 columns on anything narrower than 166.)
 _content_width() {
     local w
     w=$(_term_cols)
     ((w > Q_MAX_WIDTH)) && w=$Q_MAX_WIDTH
-    ((w < Q_MIN_WIDTH)) && w=$Q_MIN_WIDTH
+    ((w < 20)) && w=20
     echo "$w"
 }
 
-# Compose one queue row: "<icon> <label><pad><age>", age right-aligned in a
-# fixed column. Label truncated to the remaining width (display cells).
-# $4 (optional): the content width, when the caller already has it.
+# $1 cut to at most $2 cells as str_display_width measures it. A cut string
+# ends in "…", which truncate_display counts as one cell and
+# str_display_width as two (#92); cut one cell shorter so the column holds
+# under either count.
+_fit() {
+    local s="$1" max="$2"
+    if (($(str_display_width "$s") <= max)); then
+        printf '%s\n' "$s"
+    else
+        truncate_display "$s" "$((max - 1))"
+    fi
+}
+
+# Compose one queue row:
+#   " 1 ⚠ claude-tower  queue の並びを逆に…        2m"
+# number (the 1-9 key that opens it; blank past 9), the wait icon in its
+# kind's color, the project padded to a shared column, the title truncated
+# to what is left, and the age right-aligned in a fixed column. Widths are
+# display cells. Colors end with attribute-off codes, never a full reset,
+# so the selected row's reverse video runs the whole width.
+# $1 index (0-based) $2 kind $3 project $4 label $5 age
+# $6 project column width $7 content width (both optional)
 _queue_row() {
-    local icon="$1" label="$2" age="$3" width="${4-}"
-    local budget label_w pad_w
+    local idx="$1" kind="$2" project="$3" label="$4" age="$5"
+    local project_w="${6:-12}" width="${7-}"
     [[ -n "$width" ]] || width=$(_content_width)
-    budget=$((width - 4 - Q_AGE_COL))
-    ((budget < 10)) && budget=10
-    label=$(truncate_display "$label" "$budget")
+
+    # Past 9 there is no key; a dot says "no number" where a blank looked
+    # like a rendering fault.
+    # Padded here, not by printf: %2s counts bytes, and "·" is two of them.
+    local num=" ·"
+    ((idx < 9)) && num=" $((idx + 1))"
+    local icon icon_w
+    icon=$(_wait_icon "$kind")
+    icon_w=$(str_display_width "$icon")
+
+    # A pane too narrow for the project column drops it.
+    local pw=0 ppad="" psep=""
+    if ((project_w > 0)); then
+        project=$(_fit "$project" "$project_w")
+        pw=$(str_display_width "$project")
+        printf -v ppad '%*s' "$((project_w - pw))" ''
+        psep="  "
+    else
+        project=""
+    fi
+
+    # " N " + icon + " " + project column + "  "
+    local left=$((3 + icon_w + 1 + project_w + ${#psep}))
+    # -1: at least one space between the title and the age.
+    local budget=$((width - left - Q_AGE_COL - 1))
+    ((budget < 1)) && budget=1
+    label=$(_fit "$label" "$budget")
+    local label_w pad_w pad age_w gap rpad
     label_w=$(str_display_width "$label")
-    pad_w=$((width - 4 - label_w - Q_AGE_COL))
+    pad_w=$((width - left - label_w - Q_AGE_COL))
     ((pad_w < 1)) && pad_w=1
-    local pad rpad age_w gap
     printf -v pad '%*s' "$pad_w" ''
     age_w=$(str_display_width "$age")
     gap=$((Q_AGE_COL - age_w))
     ((gap < 0)) && gap=0
     printf -v rpad '%*s' "$gap" ''
-    printf '%s %s%s%s%s' "$icon" "$label" "$pad" "$rpad" "$age"
+
+    printf '%s%s%s %s%s%s %s%s%s%s%s%s%s%s%s%s' \
+        "$DIM" "$num" "$UNDIM" \
+        "$(_wait_color "$kind")" "$icon" "$DEFAULT_FG" \
+        "$PROJECT_FG" "$project" "$DEFAULT_FG" "$ppad" "$psep" \
+        "$label" "$pad" "$rpad" "$DIM$age" "$UNDIM"
 }
 
-# Full frame on stdout. Last line has no trailing newline (a full-height
-# frame with one scrolls every redraw — the list-view endless-scroll class).
+# Width of the project column: the longest project name, capped, and
+# narrowed so the title keeps at least 12 cells in a $1-wide row. 0 (no
+# column) when the row has no room for even 6 cells of project.
+_project_col_width() {
+    local width="$1" p w max=4
+    for p in "${QUEUE_PROJECTS[@]}"; do
+        w=$(str_display_width "$p")
+        ((w > max)) && max=$w
+    done
+    ((max > Q_PROJECT_MAX)) && max=$Q_PROJECT_MAX
+    # number + icon + spaces + age, then the title's 12
+    local room=$((width - 6 - 2 - Q_AGE_COL - 12))
+    if ((room < 6)); then
+        echo 0
+        return 0
+    fi
+    ((max > room)) && max=$room
+    echo "$max"
+}
+
+# Full frame on stdout, exactly $1 lines: the title, a blank line, the rows,
+# blank fill, and the key help pinned to the bottom line. The last line has
+# no trailing newline (a full-height frame with one scrolls every redraw —
+# the list-view endless-scroll class).
 build_queue_frame() {
     local term_height="$1" term_width="$2"
     local eol=$'\033[K'
     local count=${#QUEUE_IDS[@]}
 
-    printf '%s' "${BOLD}${CYAN}━━━ Queue ━━━${NC}  ${DIM}j/k:nav 1-9:go Enter/Tab:list q:quit${NC}${eol}"
-
-    if [[ $count -eq 0 ]]; then
-        printf '\n%s' "${DIM}Nothing waiting — all caught up.${NC}${eol}"
-        return 0
+    printf '%s' "${BOLD}${CYAN}Queue${NC}"
+    if ((count > 0)); then
+        printf '%s' "  ${DIM}${count} waiting${NC}"
     fi
+    printf '%s' "$eol"
 
-    # One row per waiter; cap to the rows that fit, collapse the rest.
-    local avail=$((term_height - 2))
+    # Lines between the title block (2) and the key help (1).
+    local avail=$((term_height - 3))
     ((avail < 1)) && avail=1
-    local shown=$count
-    if ((count > avail)); then shown=$((avail - 1)); fi
-    ((shown < 1)) && shown=1
+    local used=0
 
-    # Normally already composed by render_frame; composing here keeps the
-    # frame correct when called on its own (the result is not kept — this
-    # runs under $(...)).
-    _compose_queue_rows
+    printf '\n%s' "$eol"
+    if [[ $count -eq 0 ]]; then
+        printf '\n%s' " ${DIM}Nothing waiting — all caught up.${NC}${eol}"
+        used=1
+    else
+        # Cap to the rows that fit, collapse the rest.
+        local shown=$count
+        if ((count > avail)); then shown=$((avail - 1)); fi
+        ((shown < 1)) && shown=1
 
-    local idx row
-    for ((idx = 0; idx < shown; idx++)); do
-        row="${QUEUE_ROWS[$idx]}"
-        if [[ $idx -eq $SELECTED_INDEX ]]; then
-            printf '\n%s' "${REVERSE}${row}${NC}${eol}"
-        else
-            printf '\n%s' "${row}${eol}"
+        # Normally already composed by render_frame; composing here keeps the
+        # frame correct when called on its own (the result is not kept — this
+        # runs under $(...)).
+        _compose_queue_rows
+
+        local idx row
+        for ((idx = 0; idx < shown; idx++)); do
+            row="${QUEUE_ROWS[$idx]}"
+            if [[ $idx -eq $SELECTED_INDEX ]]; then
+                printf '\n%s' "${REVERSE}${row}${eol}${NC}"
+            else
+                printf '\n%s' "${row}${NC}${eol}"
+            fi
+        done
+        used=$shown
+        if ((shown < count)); then
+            printf '\n%s' "   ${DIM}… +$((count - shown)) more${NC}${eol}"
+            used=$((used + 1))
         fi
-    done
-    if ((shown < count)); then
-        printf '\n%s' "${DIM}… +$((count - shown)) more${NC}${eol}"
     fi
+
+    while ((used < avail)); do
+        printf '\n%s' "$eol"
+        used=$((used + 1))
+    done
+    printf '\n%s' " ${DIM}$(truncate_display "$Q_KEYS" "$((term_width - 2))")${NC}${eol}"
 }
 
 # Fill QUEUE_ROWS for the current width, unless it already is. Call it bare,
 # not under $(...): the arrays it fills would be discarded with the subshell.
 _compose_queue_rows() {
-    local width idx icon label
+    local width idx label project_w
     width=$(_content_width)
     if [[ "$QUEUE_ROWS_WIDTH" == "$width" && ${#QUEUE_ROWS[@]} -eq ${#QUEUE_IDS[@]} ]]; then
         return 0
     fi
+    project_w=$(_project_col_width "$width")
     QUEUE_ROWS=()
     for ((idx = 0; idx < ${#QUEUE_IDS[@]}; idx++)); do
-        icon=$(_wait_icon "${QUEUE_KINDS[$idx]}")
         label="${QUEUE_LABELS[$idx]-}"
-        [[ -n "${QUEUE_LABELS[$idx]+set}" ]] || label=$(_queue_label "${QUEUE_IDS[$idx]}")
-        QUEUE_ROWS+=("$(_queue_row "$icon" "$label" "${QUEUE_AGES[$idx]}" "$width")")
+        [[ -n "${QUEUE_LABELS[$idx]+set}" ]] || label=$(queue_label "${QUEUE_IDS[$idx]}")
+        QUEUE_ROWS+=("$(_queue_row "$idx" "${QUEUE_KINDS[$idx]}" "${QUEUE_PROJECTS[$idx]:--}" \
+            "$label" "${QUEUE_AGES[$idx]}" "$project_w" "$width")")
     done
     QUEUE_ROWS_WIDTH="$width"
 }
@@ -246,7 +310,9 @@ render_frame() {
     term_width=$(_term_cols)
     frame=$(build_queue_frame "$term_height" "$term_width")
     clear_eos=$(tput ed 2>/dev/null || printf '\033[J')
-    printf '\033[?25l\033[H%b%s\033[?25h' "$frame" "$clear_eos"
+    # %s, not %b: titles are user text, and %b would act on a backslash in
+    # one ("C:\code" — \c stops printf, leaving the cursor hidden).
+    printf '\033[?25l\033[H%s%s\033[?25h' "$frame" "$clear_eos"
 }
 
 # Hand the pane back to the list loop. The selection file is the only thing
@@ -283,7 +349,7 @@ _follow_selection() {
 }
 
 # Start with the cursor on the session the list had selected, when it is in
-# the queue; otherwise on the longest wait.
+# the queue; otherwise on the most recent wait.
 _seed_selection() {
     local current i
     current=$(get_nav_selected)

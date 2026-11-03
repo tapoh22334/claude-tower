@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
 # tail-view.sh - Tail view for claude-tower Navigator
-# Live multi-session output follow: every session stacked vertically with
-# the last few lines of its pane output, auto-refreshing (the point of this
-# view — Tile refreshes only on keypress).
+# The end of each session's conversation, stacked vertically and
+# auto-refreshing (the point of this view — Tile refreshes only on keypress).
+#
+# Which sessions: the queue's, in the queue's order (most recent wait
+# first), then the rest by most recent activity, so the blocks that fit are
+# the ones you are about to answer. What each block shows: the last messages
+# of the conversation from the transcript, not the pane — the bottom of a
+# Claude pane is its input box and status line, which say nothing about
+# where the session is. The pane is the fallback when there is no
+# transcript (yet) or no jq.
 #
 # Key bindings:
 #   j/↓       Move to next session (wraps around)
@@ -20,14 +27,21 @@ TOWER_SCRIPT_NAME="tail-view.sh"
 
 # shellcheck source=../lib/common.sh
 source "$SCRIPT_DIR/../lib/common.sh"
+# shellcheck source=../lib/queue.sh
+source "$SCRIPT_DIR/../lib/queue.sh"
 
 REFRESH_INTERVAL="${TOWER_TAIL_REFRESH:-2}"
+# Lines of conversation kept per block; a block shows the last of them that
+# fit. More than any block gets on a normal screen.
+readonly TAIL_KEEP_LINES=60
 
 readonly NC=$'\033[0m'
 readonly BOLD=$'\033[1m'
 readonly DIM=$'\033[2m'
 readonly REVERSE=$'\033[7m'
 readonly CYAN=$'\033[36m'
+readonly DEFAULT_FG=$'\033[39m'
+readonly PROJECT_FG=$'\033[35m'
 
 # State
 SELECTED_INDEX=0
@@ -35,21 +49,51 @@ SELECTED_ID=""
 SESSION_IDS=()
 SESSION_LABELS=()
 SESSION_STATES=()
+# Conversation tail per block, filled for the blocks that fit. An unset
+# entry means "no transcript to show": the frame falls back to the pane.
+SESSION_TAILS=()
+# The load's scratch dir, so cleanup removes it if the pane dies mid-load.
+TAIL_TMP_DIR=""
 
-# Load all sessions including dormant
+# Lines a block gets at least: 1 header + 4 of conversation. Two lines (the
+# old floor) hold half a sentence of a reply, too little to tell where the
+# session is; fewer, readable blocks are worth more, and the queue order
+# puts the ones that matter first.
+readonly TAIL_MIN_BLOCK=5
+
+# Blocks that fit in a $1-line terminal for $2 sessions: blocks share the
+# space below the title, at least TAIL_MIN_BLOCK lines each, with one line
+# kept for "+N more" when some do not fit.
+_visible_blocks() {
+    local term_height="$1" count="$2"
+    local avail=$((term_height - 1)) visible=$count
+    if ((visible * TAIL_MIN_BLOCK > avail)); then
+        visible=$(((avail - 1) / TAIL_MIN_BLOCK))
+        ((visible < 1)) && visible=1
+    fi
+    ((visible > count)) && visible=$count
+    echo "$visible"
+}
+
+# Load the sessions in queue order, then their states and conversation
+# tails for the blocks that fit.
 load_sessions() {
     SESSION_IDS=()
     SESSION_LABELS=()
     SESSION_STATES=()
+    SESSION_TAILS=()
 
-    local session_id state state_icon
-    while IFS=':' read -r session_id state; do
+    local since session_id kind project label icon cols
+    cols=$(_term_cols)
+    while IFS=$'\t' read -r since session_id kind project label; do
         [[ -z "$session_id" ]] && continue
-        state_icon=$(get_state_icon "$state")
+        icon=$(_wait_icon "$kind")
+        # "[N] I project  title": keep the header on one line.
+        label=$(truncate_display "$label" $((cols - 9 - $(str_display_width "$project"))))
         SESSION_IDS+=("$session_id")
-        SESSION_LABELS+=("${state_icon} ${session_id#tower_}")
-        SESSION_STATES+=("$state")
-    done < <(list_all_sessions)
+        SESSION_LABELS+=("$(_wait_color "$kind")${icon}${DEFAULT_FG} ${PROJECT_FG}${project}${DEFAULT_FG}  ${label}")
+        SESSION_STATES+=("")
+    done < <(collect_queue all)
 
     local count=${#SESSION_IDS[@]}
     if [[ $count -eq 0 ]]; then
@@ -58,7 +102,7 @@ load_sessions() {
         SELECTED_INDEX=$((count - 1))
     fi
     # The list is rebuilt every refresh and its order can change under the
-    # cursor (a session going dormant, one added elsewhere). Keep the cursor
+    # cursor (a session starting to wait moves to the top). Keep the cursor
     # on the same id, not the same row number.
     if [[ -n "${SELECTED_ID:-}" ]]; then
         local i
@@ -70,13 +114,44 @@ load_sessions() {
         done
     fi
     ((count > 0)) && SELECTED_ID="${SESSION_IDS[$SELECTED_INDEX]}"
+    _load_visible_tails
+    return 0
+}
+
+# States and conversation tails for the blocks that fit, read in parallel:
+# each tail parses a slice of a transcript (~0.1s), and one after another
+# they would hold up every refresh. Call it bare, not under $(...).
+_load_visible_tails() {
+    local count=${#SESSION_IDS[@]}
+    ((count > 0)) || return 0
+    local visible width dir i
+    visible=$(_visible_blocks "$(_term_lines)" "$count")
+    width=$(($(_term_cols) - 2))
+    dir=$(mktemp -d "${TMPDIR:-/tmp}/tower-tail.XXXXXX") || return 0
+    TAIL_TMP_DIR="$dir"
+    for ((i = 0; i < visible; i++)); do
+        (
+            local sid="${SESSION_IDS[$i]}" jsonl
+            get_display_state "$sid" >"$dir/state.$i" 2>/dev/null
+            jsonl=$(find_session_jsonl "$(live_claude_id "$sid")" 2>/dev/null) || exit 0
+            transcript_tail "$jsonl" "$TAIL_KEEP_LINES" "$width" >"$dir/tail.$i" 2>/dev/null ||
+                rm -f "$dir/tail.$i"
+        ) &
+    done
+    wait
+    for ((i = 0; i < visible; i++)); do
+        [[ -f "$dir/state.$i" ]] && SESSION_STATES[i]=$(<"$dir/state.$i")
+        [[ -f "$dir/tail.$i" ]] && SESSION_TAILS[i]=$(<"$dir/tail.$i")
+    done
+    rm -rf "$dir"
+    TAIL_TMP_DIR=""
 }
 
 # Last $2 lines of live pane output for session $1. Isolated so tests can
 # stub it (capture-pane needs a live session server).
 capture_tail_lines() {
     local sid="$1" n="$2"
-    session_tmux capture-pane -t "$sid" -p 2>/dev/null | tail -n "$n" || true
+    session_tmux capture-pane -t "$sid" -p 2>/dev/null | grep -v '^[[:space:]]*$' | tail -n "$n" || true
 }
 
 # Compose one full frame on stdout. Pure layout: reads SESSION_* arrays,
@@ -88,49 +163,71 @@ build_tail_frame() {
     local eol=$'\033[K'
     local count=${#SESSION_IDS[@]}
 
-    printf '%s' "${BOLD}${CYAN}━━━ Tail View ━━━${NC}  ${DIM}j/k:nav 1-9:select Enter/Tab:list q:quit${NC}${eol}"
+    printf '%s' "${BOLD}${CYAN}━━━ Tail View ━━━${NC}  ${DIM}j/k move  1-9 open  Enter list  q quit${NC}${eol}"
 
     if [[ $count -eq 0 ]]; then
         printf '\n%s' "${DIM}No sessions.${NC}${eol}"
         return 0
     fi
 
-    # Blocks share the space below the title equally, min 3 lines each
-    # (1 header + 2 output). Blocks that do not fit become a "+N more" line.
     local avail=$((term_height - 1))
-    local visible=$count
-    if ((visible * 3 > avail)); then
-        visible=$(((avail - 1) / 3))   # reserve 1 line for "+N more"
-        if ((visible < 1)); then visible=1; fi
-    fi
-    local per_block=$((avail / visible))
+    local visible
+    visible=$(_visible_blocks "$term_height" "$count")
     local hidden=$((count - visible))
+    local per_block=$((avail / visible))
     if ((hidden > 0)); then per_block=$(((avail - 1) / visible)); fi
     local output_lines=$((per_block - 1))
 
-    local idx header state content line n
+    local idx header num state line n
+    local -a lines
     for ((idx = 0; idx < visible; idx++)); do
-        header="[$((idx + 1))] ${SESSION_LABELS[$idx]}"
-        header="${header:0:$term_width}"
+        num="[$((idx + 1))]"
+        ((idx >= 9)) && num="   "
+        header="${num} ${SESSION_LABELS[$idx]}"
         if [[ $idx -eq $SELECTED_INDEX ]]; then
-            printf '\n%s' "${REVERSE}${header}${NC}${eol}"
+            printf '\n%s' "${REVERSE}${header}${eol}${NC}"
         else
             printf '\n%s' "${BOLD}${header}${NC}${eol}"
         fi
 
-        state="${SESSION_STATES[$idx]}"
-        case "$state" in
-            "$STATE_DORMANT") content="(dormant — r in list view to resume)" ;;
-            "$STATE_DEAD") content="(dead — directory is gone)" ;;
-            "$STATE_LOST") content="(lost — transcript is gone)" ;;
-            *) content=$(capture_tail_lines "${SESSION_IDS[$idx]}" "$output_lines") ;;
-        esac
-
+        lines=()
+        if [[ -n "${SESSION_TAILS[$idx]+set}" ]]; then
+            # Already wrapped to the width when it was read.
+            mapfile -t lines <<<"${SESSION_TAILS[$idx]}"
+        else
+            state="${SESSION_STATES[$idx]:-}"
+            case "$state" in
+                # Not loaded: the terminal grew after the last load. Wait for
+                # the next refresh instead of showing the pane's bottom.
+                "") lines=() ;;
+                "$STATE_DORMANT") lines=("(dormant — r in list view to resume)") ;;
+                "$STATE_DEAD") lines=("(dead — directory is gone)") ;;
+                "$STATE_LOST") lines=("(lost — transcript is gone)") ;;
+                *)
+                    mapfile -t lines < <(capture_tail_lines "${SESSION_IDS[$idx]}" "$output_lines")
+                    for n in "${!lines[@]}"; do
+                        line="${lines[$n]}"
+                        lines[n]="${line:0:$((term_width - 2))}"
+                    done
+                    ;;
+            esac
+        fi
+        # The last output_lines of it, padded out to the block's height.
+        local first=$((${#lines[@]} - output_lines))
+        ((first < 0)) && first=0
         n=0
-        while IFS= read -r line && ((n < output_lines)); do
-            printf '\n%s' "  ${DIM}${line:0:$((term_width - 2))}${NC}${eol}"
+        # Replies in normal weight, the user's prompts in bold, so who said
+        # what reads at a glance; the pane fallback stays dim.
+        local style=""
+        [[ -n "${SESSION_TAILS[$idx]+set}" ]] || style="$DIM"
+        for line in "${lines[@]:$first}"; do
+            if [[ -z "$style" && "$line" == "❯ "* ]]; then
+                printf '\n%s' "  ${BOLD}${line}${NC}${eol}"
+            else
+                printf '\n%s' "  ${style}${line}${NC}${eol}"
+            fi
             n=$((n + 1))
-        done <<<"$content"
+        done
         while ((n < output_lines)); do
             printf '\n%s' "$eol"
             n=$((n + 1))
@@ -148,7 +245,9 @@ render_frame() {
     term_width=$(_term_cols)
     frame=$(build_tail_frame "$term_height" "$term_width")
     clear_eos=$(tput ed 2>/dev/null || printf '\033[J')
-    printf '\033[?25l\033[H%b%s\033[?25h' "$frame" "$clear_eos"
+    # %s, not %b: the frame carries conversation text, and %b would turn a
+    # backslash in it ("\n" in a code sample) into a control character.
+    printf '\033[?25l\033[H%s%s\033[?25h' "$frame" "$clear_eos"
 }
 
 
@@ -203,9 +302,11 @@ handle_key() {
             ;;
         g)
             SELECTED_INDEX=0
+            SELECTED_ID="${SESSION_IDS[0]:-}"
             ;;
         G)
             if ((count > 0)); then SELECTED_INDEX=$((count - 1)); fi
+            SELECTED_ID="${SESSION_IDS[$SELECTED_INDEX]:-}"
             ;;
         [1-9])
             local target=$((key - 1))
@@ -225,6 +326,7 @@ handle_key() {
 }
 
 cleanup() {
+    [[ -n "${TAIL_TMP_DIR:-}" ]] && rm -rf "$TAIL_TMP_DIR"
     tput rmcup 2>/dev/null || true
     tput cnorm 2>/dev/null || true
     stty echo 2>/dev/null || true
