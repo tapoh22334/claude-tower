@@ -1,0 +1,26 @@
+# 検証: ~/.claude/skills/github-tickets/scripts/apply.sh --verify docs/tickets/2026-11-04-queue-tail-followups.yml
+repo: tapoh22334/claude-tower
+
+project:
+  number: 4
+  owner: tapoh22334
+
+tasks:
+  - issue: 110
+    title: Queue と Tail view の自動更新中もキー操作が遅延しないようにする
+    labels: [idea]
+    body: |
+      ## 何を
+      Queue と Tail view が 2 秒ごとに待ち状態を再収集している間も、キー操作が即座に反映されるようにする。
+
+      ## なぜ
+      再収集は全セッションの待ち状態を調べるため、25 セッションで Queue は約 1 秒、Tail view は約 1.3 秒かかる。その間に押した j/k は、再収集が終わるまで反映されない。
+  - issue: 111
+    title: Queue の行に、セッションが待っている内容(質問や許可を求めているツール)を表示する
+    labels: [idea]
+    body: |
+      ## 何を
+      Queue の行のタイトルに、セッションが待っている内容を表示する。たとえば質問の文や、許可を求めているツールとその引数である。読み取れないときは、これまでどおり会話のタイトルを表示する。
+
+      ## なぜ
+      現在のタイトルは会話の最初の発言で、「目的: …」のような書き出しが並ぶ。次にどのセッションに答えるかを決めるには、そのセッションが何を待っているかのほうが有用である。
