@@ -247,13 +247,11 @@ _run_nav() {
     [[ "$output" =~ \+1[7-9]\ more ]]
 }
 
-@test "navigator-list.sh: f and A keys are wired" {
-    run grep -c -E "^                (f|A)\)" "$PROJECT_ROOT/tmux-plugin/lib/nav/nav-loop.sh"
-    [ "$output" = "2" ]
-    run grep -A 1 "^                f)" "$PROJECT_ROOT/tmux-plugin/lib/nav/nav-loop.sh"
-    [[ "$output" == *"fork_session_here"* ]]
-    run grep -A 1 "^                A)" "$PROJECT_ROOT/tmux-plugin/lib/nav/nav-loop.sh"
-    [[ "$output" == *"new_session_pick_dir"* ]]
+@test "navigator-list.sh: c copies and f jumps" {
+    run grep -A 1 "^                c)" "$PROJECT_ROOT/tmux-plugin/lib/nav/nav-loop.sh"
+    [[ "$output" == *"copy_selected"* ]]
+    run grep -B 1 -A 1 'jump_prompt "\$selected_index"' "$PROJECT_ROOT/tmux-plugin/lib/nav/nav-loop.sh"
+    [[ "$output" == *'"$key" == f'* ]]
 }
 
 @test "restore_selected: refuses to resume an external session" {

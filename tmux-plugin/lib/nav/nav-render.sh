@@ -239,8 +239,10 @@ render_list() {
     # prompt line, as in vim.
     if _search_footer; then
         footer_line="${NAV_C_ACCENT}${NAV_SEARCH_FOOTER}${NAV_C_NORMAL}"
+    elif [[ -n "${NAV_JUMP_ACTIVE:-}" ]]; then
+        footer_line="${NAV_C_ACCENT}jump: project label, then session label  ↵:project  Esc:cancel${NAV_C_NORMAL}"
     else
-        footer_line="${NAV_C_DIM}j/k:nav ↵:input /:find a:add f:fork A:dir D:del r:resume t:tail w:queue q:quit${NAV_C_NORMAL}"
+        footer_line="${NAV_C_DIM}j/k:nav ↵:open /:find f:jump a:add c:copy D:del t:tail w:queue ?:help q:quit${NAV_C_NORMAL}"
     fi
 
     # Row budget for the body (session rows + group headers + separator).
@@ -267,7 +269,8 @@ render_list() {
         # a session row).
         local spin_frame="${SPINNER_FRAMES[$((SPIN_TICK % ${#SPINNER_FRAMES[@]}))]}"
         local -a body_lines=() body_idx=()
-        local i display
+        local i display row jump="${NAV_JUMP_ACTIVE:-}" jump_budget=0
+        [[ -z "$jump" ]] || jump_budget=$(($(_content_width) - 3))
         for ((i = 0; i < ${#SESSION_IDS[@]}; i++)); do
             if [[ $BROKEN_START -ge 0 && $i -eq $BROKEN_START ]]; then
                 body_lines+=("${NAV_C_DIM}── unrecoverable ──${NAV_C_NORMAL}")
@@ -278,20 +281,29 @@ render_list() {
                 body_idx+=(-1)
             fi
             display="${SESSION_DISPLAYS[$i]//$SPIN_PLACEHOLDER/$spin_frame}"
+            # While f is open every row carries a label column on its left
+            # (nav-jump.sh); the row itself is drawn as usual after it.
+            NAV_JUMP_CELL=""
+            [[ -z "$jump" ]] || _jump_cell "$i"
             if _row_is_project "${SESSION_IDS[$i]}"; then
                 # A project row is the group header. Selected, it is shown
                 # in reverse video with its own colours stripped (they would
                 # reset the highlight part-way along the line).
                 if [[ $i -eq $selected_index ]]; then
-                    body_lines+=("${NAV_C_SELECTED}$(_strip_ansi_str "$display")${NAV_C_NORMAL}")
+                    row="${NAV_C_SELECTED}$(_strip_ansi_str "$display")${NAV_C_NORMAL}"
                 else
-                    body_lines+=("$display")
+                    row="$display"
                 fi
             elif [[ $i -eq $selected_index ]]; then
-                body_lines+=("${NAV_C_SELECTED}  ${display} ${NAV_C_NORMAL}")
+                row="${NAV_C_SELECTED}  ${display} ${NAV_C_NORMAL}"
             else
-                body_lines+=("  ${display}")
+                row="  ${display}"
             fi
+            if [[ -n "$jump" ]]; then
+                _jump_fit "$row" "$jump_budget"
+                row="$NAV_JUMP_FIT"
+            fi
+            body_lines+=("${NAV_JUMP_CELL}${row}")
             body_idx+=("$i")
         done
 
@@ -344,14 +356,14 @@ show_help() {
     echo "    k / ↑      Move up"
     echo "    g / G      Go to first / last session"
     echo "    / text     Search; n / N next / previous match (empty / clears)"
+    echo "    f x y      Jump: project label x, session label y (f x ↵ = project)"
     echo ""
     echo "  Actions:"
-    echo "    Enter / i  Focus view pane (input mode)"
-    echo "    a          Add session (pick existing Claude session or start new)"
-    echo "    f          Fork: new session in the selected session's directory"
-    echo "    A          New session in a picked project directory"
-    echo "    D          Delete from Tower (Claude's transcript is kept)"
-    echo "    r          Resume selected dormant session"
+    echo "    Enter      Open the session (resumes a ○ dormant one first);"
+    echo "               on a project row, start a new session there"
+    echo "    a          Add session (new ones start in the cursor's project)"
+    echo "    c          Copy: new session that continues this conversation"
+    echo "    D          Delete from Tower (transcript kept) / remove a project"
     echo "    Tab / t    Tile view / Tail view (live output)"
     echo "    w          Queue view (sessions waiting on you)"
     echo "    ?          Show this help      q  Quit Navigator"

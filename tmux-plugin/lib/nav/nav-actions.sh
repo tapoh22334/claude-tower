@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
-# nav-actions.sh - What a key actually does: add, fork, delete, restore, switch, quit.
+# nav-actions.sh - What a key actually does: open, add, copy, delete, switch, quit.
 #
 # Owns the handlers that change the world (sessions, panes, modes), as
 # opposed to the loop that reads the key or the code that draws the result.
@@ -32,12 +32,29 @@ _subflow_tty() {
     fi
 }
 
+# Where `a` offers to start a new session: the project of the row under the
+# cursor (a project row's own dir, a session row's dir), else the caller's
+# cwd. This is what used to need A: the cursor already says which project.
+_add_default_dir() {
+    local selected dir=""
+    selected=$(get_nav_selected)
+    if _row_is_project "$selected"; then
+        dir=$(_row_project_dir "$selected")
+    elif [[ -n "$selected" ]]; then
+        dir=$(_session_dir "$selected" 2>/dev/null) || dir=""
+    fi
+    if [[ -z "$dir" || ! -d "$dir" ]]; then
+        dir=$(get_caller_cwd)
+    fi
+    printf '%s\n' "$dir"
+}
+
 # Unified add/new flow (session-add.sh). Runs interactively in this pane;
 # fzf draws on the tty, the chosen tower_<id> comes back on stdout.
 add_session_inline() {
     clear
     local new_id
-    new_id=$(TOWER_ADD_DEFAULT_DIR="$(get_caller_cwd)" "$SCRIPT_DIR/session-add.sh" --print-id 2>>"$(_subflow_tty)") || {
+    new_id=$(TOWER_ADD_DEFAULT_DIR="$(_add_default_dir)" "$SCRIPT_DIR/session-add.sh" --print-id 2>>"$(_subflow_tty)") || {
         return 0  # cancelled or failed; messages already shown
     }
     if [[ -n "$new_id" ]]; then
@@ -64,7 +81,7 @@ _nav_hint() {
     sleep 0.8
 }
 
-# Start a new session in project dir $1 (a / Enter / f on a project row).
+# Start a new session in project dir $1 (Enter on a project row).
 # Seats the row under its header and selects it. Returns 0 even when it
 # could not (the hint is the report), so the loop never dies on it.
 new_session_in_project() {
@@ -126,13 +143,15 @@ remove_project_row() {
 }
 
 # Keys pressed while the cursor is on a project row. $1 key, $2 dir,
-# $3 current index. Returns 0 when the key was consumed (NAV_NEW_INDEX holds
-# the cursor), 1 when the ordinary handler should run (j/k/g/G/A/?/q...).
+# $3 current index. Only Enter and D mean something else on a project row
+# (value/003-nav-keys): every other key means what it means anywhere.
+# Returns 0 when the key was consumed (NAV_NEW_INDEX holds the cursor), 1
+# when the ordinary handler should run.
 handle_project_key() {
     local key="$1" dir="$2" index="$3"
     NAV_NEW_INDEX="$index"
     case "$key" in
-        '' | a | f)
+        '')
             new_session_in_project "$dir"
             _return_from_subflow
             _settle_after_change "$(get_selection_index)" >/dev/null
@@ -143,10 +162,6 @@ handle_project_key() {
             fi
             _return_from_subflow
             ;;
-        i | r | t | w | $'\t')
-            _nav_hint "Project row: a/Enter start a session here, D remove from list"
-            _return_from_subflow
-            ;;
         *)
             return 1
             ;;
@@ -154,42 +169,65 @@ handle_project_key() {
     return 0
 }
 
-# Fork here: start a brand-new session in the selected session's project
-# dir, no prompts. The new session is registered and selected.
-fork_session_here() {
-    local selected dir new_id
+# Enter on a session row: open it. A dormant one is resumed first, so one
+# key covers "type into this session" whatever state the row is in. A row
+# Tower cannot resume (◇ running elsewhere, not registered) just gets the
+# focus, as before. A resume that fails leaves the focus in the list, with
+# its reason on screen. NAV_OPEN_RESUMED says whether a resume was tried.
+NAV_OPEN_RESUMED=""
+open_selected() {
+    local selected shown="${1:-}"
+    NAV_OPEN_RESUMED=""
     selected=$(get_nav_selected)
-    if [[ -z "$selected" ]]; then
+    [[ -n "$selected" ]] || return 0
+    # A resume starts claude, so it only runs on the row the person sees: a
+    # stale list loop can leave the selected file naming another row.
+    if [[ -n "$shown" && "$shown" != "$selected" ]]; then
+        focus_view
         return 0
     fi
-    dir=$(_session_dir "$selected")
-    if [[ -z "$dir" || ! -d "$dir" ]]; then
-        echo ""
-        echo "  ${NAV_C_DIM}No directory known for this session${NAV_C_NORMAL}"
-        sleep 0.5
-        return 0
+    if ! session_tmux has-session -t "$selected" 2>/dev/null &&
+        has_metadata "$selected" &&
+        [[ "$(get_display_state "$selected")" != "external" ]]; then
+        NAV_OPEN_RESUMED=1
+        restore_selected || return 0
     fi
-    clear
-    new_id=$("$SCRIPT_DIR/session-add.sh" --fork-dir "$dir" --print-id 2>>"$(_subflow_tty)") || return 0
-    if [[ -n "$new_id" ]]; then
-        set_nav_selected "$new_id"
-        signal_view_update
-        _remember_session_row "$new_id" "$dir" || true
-    fi
+    focus_view
 }
 
-# Pick a known project directory and start a new session there.
-new_session_pick_dir() {
-    clear
-    local new_id
-    new_id=$("$SCRIPT_DIR/session-add.sh" --new-in-dir --print-id 2>>"$(_subflow_tty)") || return 0
+# c: copy the selected session — a new Tower session in the same directory
+# that resumes this conversation under a new id (session-copy.sh). Refuses,
+# with the reason under the list, where there is nothing Tower can copy.
+copy_selected() {
+    local selected new_id
+    selected=$(get_nav_selected)
+    [[ -n "$selected" ]] || return 0
+    if _row_is_project "$selected"; then
+        _nav_hint "Project row: c copies a session — move to one of its sessions"
+        return 0
+    fi
+    if ! has_metadata "$selected"; then
+        _nav_hint "Not a Tower session — nothing to copy"
+        return 0
+    fi
+    if [[ "$(get_display_state "$selected")" == "external" ]]; then
+        _nav_hint "Running outside Tower (◇) — copy it from its own terminal"
+        return 0
+    fi
+    if ! find_session_jsonl "$(live_claude_id "$selected")" >/dev/null; then
+        _nav_hint "No conversation transcript yet — nothing to copy"
+        return 0
+    fi
+    new_id=$("$SCRIPT_DIR/session-copy.sh" "$selected" --print-id 2>>"$(_subflow_tty)") || {
+        _nav_hint "Copy failed"
+        return 0
+    }
     if [[ -n "$new_id" ]]; then
         set_nav_selected "$new_id"
         signal_view_update
-        # The picker chose the directory and session-add.sh saved it as
-        # launch_dir; _remember_session_row reads it back to seat the row.
         _remember_session_row "$new_id" "" || true
     fi
+    return 0
 }
 
 # Working directory of the caller pane (default dir for new sessions)

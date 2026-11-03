@@ -192,14 +192,16 @@ render_navigator_list() {
     [ "$status" -eq 0 ]
 
     [[ "$output" == *"Sessions"* ]]
-    # Footer reflects the current 5-state-era keybindings (a:add, D:del,
-    # r:resume - not the removed R:restore-all)
+    # Footer reflects the value/003-nav-keys key set (Enter opens and
+    # resumes, so there is no r:resume any more)
     [[ "$output" == *"j/k:nav"* ]]
-    [[ "$output" == *"↵:input"* ]]
+    [[ "$output" == *"↵:open"* ]]
     [[ "$output" == *"/:find"* ]]
+    [[ "$output" == *"f:jump"* ]]
     [[ "$output" == *"a:add"* ]]
+    [[ "$output" == *"c:copy"* ]]
     [[ "$output" == *"D:del"* ]]
-    [[ "$output" == *"r:resume"* ]]
+    [[ "$output" != *"r:resume"* ]]
     [[ "$output" == *"w:queue"* ]]
     [[ "$output" == *"q:quit"* ]]
 
@@ -267,7 +269,8 @@ render_navigator_list() {
     output=$(TMUX= tmux -L "$NAV_SOCKET" capture-pane -t "$TOWER_NAV_SESSION:0.0" -p | strip_ansi)
 
     [[ "$output" == *"Navigator Help"* ]]
-    [[ "$output" == *"Resume selected dormant session"* ]]
+    [[ "$output" == *"Copy: new session"* ]]
+    [[ "$output" != *"Resume selected dormant session"* ]]
     # 'R' (restore-all) was removed by the redesign; the help screen must
     # not advertise it as a single-key binding anymore.
     [[ "$output" != *"R          "* ]]

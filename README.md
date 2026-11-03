@@ -17,12 +17,12 @@ which produced output you have not read.
 │                         │  Claude Code session content             │
 │ claude-tower ──── ⚡1    │  displayed here in real time             │
 │ ⠹ fix the redraw bug    │                                          │
-│ • add queue view        │  Enter / i to type into it               │
+│ • add queue view        │  Enter to type into it                   │
 │                         │  Escape to come back                     │
 │ notes-app ──────────    │                                          │
 │ ○ draft the outline     │                                          │
 │                         │                                          │
-│ j/k:nav ↵:input /:find  │                                          │
+│ j/k:nav ↵:open /:find   │                                          │
 └─────────────────────────┴──────────────────────────────────────────┘
        List (30%)                        View (70%)
 ```
@@ -57,21 +57,20 @@ run-shell ~/.tmux/plugins/claude-tower/tmux-plugin/claude-tower.tmux
 
 ## Usage
 
-`prefix + t` opens the Navigator. `j`/`k` moves, `Enter` or `i` types into the
-highlighted session, `Escape` comes back.
+`prefix + t` opens the Navigator. `j`/`k` moves, `Enter` types into the
+highlighted session (resuming it first if it is dormant), `Escape` comes back.
 
 | Key | Action |
 |-----|--------|
 | `j` / `k` | Move down / up |
 | `g` / `G` | First / last |
 | `/` `n` `N` | Search the list, then jump to the next / previous match (as in vim; an empty `/` clears it) |
-| `Enter` / `i` | Type into the session |
+| `f` `x` `y` | Jump: labels appear left of the rows — a project's letter, then its session's (`fca` = third project, first session; `fc` `Enter` = that project's header) |
+| `Enter` | Type into the session; a dormant one is resumed first |
 | `Escape` | Back to the list (from the right pane) |
-| `a` | Add a session — pick a running one, or start a new one |
-| `f` | Another session in the same directory (fresh conversation) |
-| `A` | New session in a directory you pick |
+| `a` | Add a session — pick a running one, or start a new one (defaults to the cursor's project) |
+| `c` | Copy: a new session that continues this conversation (`claude --resume --fork-session`); the original is untouched |
 | `D` | Unregister (the directory is left alone) |
-| `r` | Resume a dormant session |
 | `Tab` `t` `w` | Tile / Tail / Queue view |
 | `?` `q` | Help / quit |
 
@@ -81,7 +80,7 @@ highlighted session, `Escape` comes back.
 |---|---|---|
 | `⠋⠙⠹…` | Busy | Claude is working (an animated spinner, not one glyph) |
 | `▶` | Active | Running, waiting for you |
-| `○` | Dormant | Not running — press `r` |
+| `○` | Dormant | Not running — `Enter` resumes it |
 | `◇` | External | Live outside Tower; use its own terminal |
 | `✗` | Dead | Working directory is gone |
 | `?` | Lost | Transcript is gone — press `D` |
@@ -93,7 +92,7 @@ highlighted session, `Escape` comes back.
 45-second window, so a long tool call looks idle.
 
 The last two are transient, and they exist so an action never looks like it
-did nothing. `◐` appears the instant you press `a`, `f`, `A` or `r` — before
+did nothing. `◐` appears the instant you add, copy or resume a session — before
 Claude has written anything to read a real state from — and `⌫` marks the row
 you are deleting while the delete runs.
 
@@ -135,7 +134,7 @@ A project is listed as long as it is in the registry
 (`~/.claude-tower/metadata/projects.list`), which every session start fills
 in for you; deleting a project's last session leaves its header in place.
 The header is a row: `j`/`k` stop on it, the right pane shows the project
-(directory, branch, session count), `a`/`Enter`/`f` start a session there,
+(directory, branch, session count), `Enter` starts a session there,
 and `D` drops an empty project from the list (`tower project rm <dir>` does
 the same from a shell). The directory itself is never touched.
 
@@ -207,7 +206,7 @@ The log is at `~/.claude-tower/metadata/tower.log`, written always and never
 rotated. `CLAUDE_TOWER_DEBUG=1` makes it verbose.
 
 `make reset` kills both Tower servers, so **every running Claude session dies
-with it**. Registrations survive as `○` dormant and `r` resumes them.
+with it**. Registrations survive as `○` dormant and `Enter` resumes them.
 
 ## License
 

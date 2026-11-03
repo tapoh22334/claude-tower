@@ -214,7 +214,7 @@ _stub_build() {
     project_registered "$a"
 }
 
-@test "keys: n on a header whose directory is gone creates nothing and keeps the row" {
+@test "keys: Enter on a header whose directory is gone creates nothing and keeps the row" {
     _nav
     _return_from_subflow() { :; }
     sleep() { :; }
@@ -223,7 +223,7 @@ _stub_build() {
     SESSION_DIRS=(/no/such/dir)
     SESSION_HEADERS=("")
     BROKEN_START=-1
-    run handle_project_key a /no/such/dir 0
+    run handle_project_key "" /no/such/dir 0
     [ "$status" -eq 0 ]
     [[ "$output" == *"Directory not found"* ]]
     [ "${#SESSION_IDS[@]}" -eq 1 ]
@@ -256,19 +256,14 @@ _stub_build() {
     [ "${#SESSION_IDS[@]}" -eq 2 ]
 }
 
-@test "keys: i r t w Tab on a header only show a hint; movement keys fall through" {
+@test "keys: on a header only Enter and D are its own; every other key falls through" {
     _nav
     _return_from_subflow() { :; }
     sleep() { :; }
     SESSION_IDS=(dir:/p/one)
     SESSION_DIRS=(/p/one)
     local k
-    for k in i r t w $'\t'; do
-        run handle_project_key "$k" /p/one 0
-        [ "$status" -eq 0 ]
-        [[ "$output" == *"Project row"* ]]
-    done
-    for k in j k g G q N '?'; do
+    for k in i r t w $'\t' a c f j k g G q N '?'; do
         run handle_project_key "$k" /p/one 0
         [ "$status" -eq 1 ]
     done

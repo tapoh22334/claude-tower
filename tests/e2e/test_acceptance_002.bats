@@ -156,13 +156,15 @@ _tower_count() { session_tmux list-sessions -F '#{session_name}' 2>/dev/null | g
     [ "$NAV_NEW_INDEX" -eq 0 ]
 }
 
-@test "見出しで a を押すとそのプロジェクトで新セッションが見出し直下に現れて選ばれる" {
+@test "見出しで Enter を押すとそのプロジェクトで新セッションが見出し直下に現れて選ばれる" {
     register_project "$FOO"
     register_project "$BAR"
     build_session_list
     set_nav_selected "dir:$FOO"
     local key
-    for key in "" a f; do
+    # Only Enter: since value/003-nav-keys, a and f mean what they mean on
+    # any row (add, jump), not "start one here".
+    for key in ""; do
         local before=${#SESSION_IDS[@]}
         handle_project_key "$key" "$FOO" "$(get_selection_index)"
         [ "${#SESSION_IDS[@]}" -eq $((before + 1)) ]
@@ -181,7 +183,7 @@ _tower_count() { session_tmux list-sessions -F '#{session_name}' 2>/dev/null | g
     done
 }
 
-@test "ディレクトリが消えた見出しで a を押しても失敗してセッションを作らない" {
+@test "ディレクトリが消えた見出しで Enter を押しても失敗してセッションを作らない" {
     local gone="$BATS_TEST_TMPDIR/w/gone"
     mkdir -p "$gone"
     gone=$(cd "$gone" && pwd -P)
@@ -191,7 +193,7 @@ _tower_count() { session_tmux list-sessions -F '#{session_name}' 2>/dev/null | g
     [ "$(_ids)" = "dir:$gone " ]
     local n0
     n0=$(_tower_count)
-    run handle_project_key a "$gone" 0
+    run handle_project_key "" "$gone" 0
     [ "$status" -eq 0 ]
     [[ "$output" == *"Directory not found"* ]]
     [ "$(_tower_count)" -eq "$n0" ]
@@ -234,15 +236,15 @@ _tower_count() { session_tmux list-sessions -F '#{session_name}' 2>/dev/null | g
     [[ "$output" == *"project rm"* ]]
 }
 
-@test "見出しで i r t w を押しても何も変わらずヒントが出る" {
+@test "見出しでも Enter と D 以外のキーは通常の処理に渡り、見出しは変わらない" {
     register_project "$FOO"
     build_session_list
     set_nav_selected "dir:$FOO"
     local k
-    for k in i r t w; do
+    for k in i r t w a c f; do
         run handle_project_key "$k" "$FOO" 0
-        [ "$status" -eq 0 ]
-        [[ "$output" == *"Project row"* ]]
+        [ "$status" -eq 1 ]
+        [ -z "$output" ]
     done
     [ "$(get_nav_selected)" = "dir:$FOO" ]
     [ "$(_ids)" = "dir:$FOO " ]
