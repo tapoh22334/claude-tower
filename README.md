@@ -17,7 +17,7 @@ which produced output you have not read.
 │                         │  Claude Code session content             │
 │ claude-tower ──── ⚡1    │  displayed here in real time             │
 │ ⠹ fix the redraw bug    │                                          │
-│ • add queue view        │  Enter to type into it                   │
+│ • add queue view        │  Enter / i to type into it               │
 │                         │  Escape to come back                     │
 │ notes-app ──────────    │                                          │
 │ ○ draft the outline     │                                          │
@@ -57,7 +57,7 @@ run-shell ~/.tmux/plugins/claude-tower/tmux-plugin/claude-tower.tmux
 
 ## Usage
 
-`prefix + t` opens the Navigator. `j`/`k` moves, `Enter` types into the
+`prefix + t` opens the Navigator. `j`/`k` moves, `Enter` (or `i`) types into the
 highlighted session (resuming it first if it is dormant), `Escape` comes back.
 
 | Key | Action |
@@ -65,8 +65,8 @@ highlighted session (resuming it first if it is dormant), `Escape` comes back.
 | `j` / `k` | Move down / up |
 | `g` / `G` | First / last |
 | `/` `n` `N` | Search the list, then jump to the next / previous match (as in vim; an empty `/` clears it) |
-| `f` `x` `y` | Jump: labels appear left of the rows — a project's letter, then its session's (`fca` = third project, first session; `fc` `Enter` = that project's header) |
-| `Enter` | Type into the session; a dormant one is resumed first |
+| `f` `x` `y` | Jump: a two-letter label appears left of every row — the project's letter, then the row's (`fca` = third project's header, `fcb` = its first session) |
+| `Enter` / `i` | Type into the session; a dormant one is resumed first |
 | `Escape` | Back to the list (from the right pane) |
 | `a` | Add a session — pick a running one, or start a new one (defaults to the cursor's project) |
 | `c` | Copy: a new session that continues this conversation (`claude --resume --fork-session`); the original is untouched |

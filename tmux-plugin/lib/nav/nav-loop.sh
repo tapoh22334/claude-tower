@@ -202,6 +202,9 @@ main_loop() {
         [[ $read_rc -eq 2 ]] && exit 0
         if [[ $read_rc -eq 0 ]]; then
             NAV_SEARCH_MSG=""
+            # i is Enter (vim's "insert": go type into the session), on
+            # every kind of row.
+            [[ "$key" == i ]] && key=""
             # Search keys come before the project-row keys: as in vim, n/N
             # always mean next/prev match, on every kind of row.
             if [[ "$key" == "/" ]]; then

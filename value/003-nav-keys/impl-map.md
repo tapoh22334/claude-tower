@@ -4,7 +4,7 @@ engine: native(superpowers TDD)
 
 | 要求 | 実装箇所 | 検証 |
 |---|---|---|
-| REQ-003-001 | lib/nav/nav-loop.sh `main_loop` のキー分岐(`i` `r` `A` と旧 `f` を削除、`c` `f` を追加) | tests/test_nav_keys.bats, e2e |
+| REQ-003-001 | lib/nav/nav-loop.sh `main_loop` のキー分岐(`r` `A` と旧 `f` を削除する。`i` は Enter に読み替え、`c` `f` を追加する) | tests/test_nav_keys.bats, e2e |
 | REQ-003-002 | lib/nav/nav-actions.sh `handle_project_key`(Enter と D 以外は 1 を返す) | test_nav_keys.bats, test_project_rows.bats, e2e |
 | REQ-003-003 | lib/nav/nav-actions.sh `open_selected` → `focus_view` | e2e |
 | REQ-003-004 | lib/nav/nav-actions.sh `open_selected` → `restore_selected`、nav-loop.sh の `_settle_after_change` | test_nav_keys.bats, e2e |
@@ -18,7 +18,7 @@ engine: native(superpowers TDD)
 | REQ-003-020 | lib/nav/nav-jump.sh `_jump_assign_labels`, `_jump_cell`、nav-render.sh のラベル列と `_jump_fit` | test_nav_keys.bats, e2e |
 | REQ-003-021 | lib/nav/nav-jump.sh `_jump_cell`(`NAV_JUMP_PREFIX` で絞る) | test_nav_keys.bats, e2e |
 | REQ-003-022 | lib/nav/nav-jump.sh `jump_prompt` → `_jump_land` | test_nav_keys.bats, e2e |
-| REQ-003-023 | lib/nav/nav-jump.sh `jump_prompt`(1 文字目の後の Enter) | test_nav_keys.bats, e2e |
+| REQ-003-023 | lib/nav/nav-jump.sh `_jump_assign_labels`(見出しの行は `<文字>a`) | test_nav_keys.bats, e2e |
 | REQ-003-024 | lib/nav/nav-jump.sh `NAV_JUMP_IDS`(f を押した時点の id) | test_nav_keys.bats, e2e |
 | REQ-003-030 | lib/nav/nav-actions.sh `copy_selected`(見出しの行と外部の行を断る) | e2e |
 | REQ-003-031 | lib/nav/nav-actions.sh `copy_selected`、lib/common.sh `copy_session`(transcript の有無) | e2e |

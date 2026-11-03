@@ -2,11 +2,12 @@
 # shellcheck shell=bash
 # nav-jump.sh - `f` label jump (value/003-nav-keys), as in vimium.
 #
-# f puts a label left of every row: project rows get a, b, c... from the
-# top; a session row gets its project's label plus its own place in the
-# project (ca, cb...). The first letter keeps only that project's labels,
-# the second lands on the session. Enter after the first letter lands on
-# the project row; Esc or a letter that labels nothing cancels.
+# f puts a two-letter label left of every row. The first letter is the
+# project's, a, b, c... from the top; the second is the row's place in its
+# group, the project row itself first: project c is ca, its sessions cb,
+# cc... Every row is two keys away. The first letter keeps only that
+# project's labels, the second lands; Esc, Enter or a letter that labels
+# nothing cancels.
 #
 # The labels belong to the list as it was when f was pressed: the row
 # behind a label is remembered by id, so a list that changes underneath
@@ -20,8 +21,8 @@ declare -a NAV_JUMP_IDS=()
 _JUMP_LETTERS="abcdefghijklmnopqrstuvwxyz"
 
 # Label every row of the current list. Rows under "unrecoverable", rows
-# outside any project and rows past the 26th letter get none. Returns 1
-# when there is no project row to label.
+# outside any project, projects past the 26th and sessions past a
+# project's 25th get none. Returns 1 when there is no project row to label.
 _jump_assign_labels() {
     local i id project="" p=0 s=0 any=1
     NAV_JUMP_LABELS=()
@@ -38,10 +39,11 @@ _jump_assign_labels() {
             s=0
             if ((p < 26)); then
                 project="${_JUMP_LETTERS:p:1}"
-                NAV_JUMP_LABELS[i]="$project"
+                NAV_JUMP_LABELS[i]="${project}a"
                 any=0
             fi
             p=$((p + 1))
+            s=1
             continue
         fi
         if [[ -n "$project" ]] && ((s < 26)); then
@@ -154,11 +156,7 @@ jump_prompt() {
             nav_read_escape
             break
         fi
-        if [[ -z "$key" ]]; then # Enter: the project row
-            target="$prefix"
-            break
-        fi
-        if [[ -z "$prefix" ]] && _jump_has_label "$key"; then
+        if [[ -z "$prefix" ]] && _jump_has_label "${key}a"; then
             prefix="$key"
             NAV_JUMP_PREFIX="$prefix"
             continue

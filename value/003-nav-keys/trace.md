@@ -4,7 +4,7 @@
 > 直したくなったら元の ID かスクリプトを直す。
 
 - 要求 24 件 / ユーザフロー 8 件 / シナリオ 12 件
-- 実行結果: 20261103-153934
+- 実行結果: 20261103-164416
 - 穴: **0 件**
 
 ## 追跡表
@@ -25,7 +25,7 @@
 | REQ-003-020 | Event-driven | VH-003 / UF-003-003 / E-007 | UF-003-003 | 1 | lib/nav/nav-jump.sh `_jump_assign_labe… | 通過 |
 | REQ-003-021 | Event-driven | VH-003 / UF-003-003 / E-008 | UF-003-003 | 1 | lib/nav/nav-jump.sh `_jump_cell`(`NAV_… | 通過 |
 | REQ-003-022 | Event-driven | VH-003 / UF-003-003 / E-007 | UF-003-003 | 1 | lib/nav/nav-jump.sh `jump_prompt` → `_… | 通過 |
-| REQ-003-023 | Event-driven | VH-003 / UF-003-003 / E-009 | UF-003-006 | 1 | lib/nav/nav-jump.sh `jump_prompt`(1 文字… | 通過 |
+| REQ-003-023 | Event-driven | VH-003 / UF-003-003 / E-009 | UF-003-006 | 1 | lib/nav/nav-jump.sh `_jump_assign_labe… | 通過 |
 | REQ-003-024 | State-driven | VH-003 / UF-003-003 / E-007 | UF-003-003 | 1 | lib/nav/nav-jump.sh `NAV_JUMP_IDS`(f を… | 通過 |
 | REQ-003-030 | Unwanted | VH-002 / UF-003-002 / E-006 | UF-003-005 | 1 | lib/nav/nav-actions.sh `copy_selected`… | 通過 |
 | REQ-003-031 | Unwanted | VH-002 / UF-003-002 / E-006 | UF-003-005 | 2 | lib/nav/nav-actions.sh `copy_selected`… | 通過 |
