@@ -297,11 +297,13 @@ is_session_busy() {
     local jsonl="$1"
     local session_id="${2-}"
     local activity now
-    local -a pane=()
-    [[ -n "${3+set}" ]] && pane=("$3")
 
-    if [[ -n "$session_id" ]] && pane_shows_working "$session_id" "${pane[@]}"; then
-        return 0
+    if [[ -n "$session_id" ]]; then
+        if [[ -n "${3+set}" ]]; then
+            pane_shows_working "$session_id" "$3" && return 0
+        else
+            pane_shows_working "$session_id" && return 0
+        fi
     fi
 
     activity=$(get_session_activity "$jsonl")
