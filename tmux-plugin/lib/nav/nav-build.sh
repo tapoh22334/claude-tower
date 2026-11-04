@@ -174,7 +174,7 @@ build_session_list() {
         badge=""
         if [[ "$state" == "busy" ]] &&
             jsonl=$(find_session_jsonl "$(live_claude_id "$session_id")" 2>/dev/null); then
-            agents=$(count_active_subagents "$jsonl")
+            agents=$(count_active_subagents "$jsonl" "$session_id")
             if [[ "$agents" -gt 0 ]]; then
                 badge="${NAV_C_DIM}⚙${agents}${NAV_C_NORMAL}"
             fi

@@ -1,0 +1,12 @@
+  Ran 4 shell commands
+● 原因が分かりました。新しい _queue_snapshot の後ろに古い 1 行版の定義が残っていて、そちらが上書きしていました。古い方を消します。
+● Removing stale duplicate definition and rerunning view tests · 4s
+  ⎿  $ cd /home/iwase/working/claude-tower-queue-pending && grep -n '^_queue_snapshot() { collect_queue >"\$1/queue"; }$' tmux-plugin/scripts/queue-view.sh && sed -i '/^_queue_snapshot() { collect_queue >"\$1\/queue"; }$/d' tmux-plugin/scripts/queue-view.sh && grep -c "^_queue_snapshot" tmux-plugin/scri…
+✽ Caramelizing… (4m 24s · ↓ 10.1k tokens)
+  ⎿  Tip: Run /install-github-app to tag @claude right from your Github issues and PRs
+   ✔ Update installed · /restart to apply
+────────────────────────────────────────
+❯ 
+────────────────────────────────────────
+  Learning:2/5 Security:PENDING Swarm:1/15 Ctx:35% Int:7%
+  ⏵⏵ auto mode on · 1 shell · ← 5 agents

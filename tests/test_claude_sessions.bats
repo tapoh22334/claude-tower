@@ -179,6 +179,94 @@ teardown() {
     [ "$status" -eq 1 ]
 }
 
+# --- background agents (#114) ---
+# Real captures: tests/fixtures/panes/README.md.
+_pane() { cat "${BATS_TEST_DIRNAME}/fixtures/panes/$1.txt"; }
+
+@test "pane_shows_working: a background agent listed under the prompt is work" {
+    # Main waits at the prompt, so there is no "(… tokens)" counter; the
+    # agent's own row ("5m 1s · ↓ 69.6k tokens", no parentheses) is the
+    # only sign on screen, and the transcript can stay silent for minutes.
+    run pane_shows_working "tower_${UUID_A}" "$(_pane main-idle-agent-running)"
+    [ "$status" -eq 0 ]
+}
+
+@test "pane_shows_working: only a background shell left running is not work (#85)" {
+    run pane_shows_working "tower_${UUID_A}" "$(_pane background-shell-only)"
+    [ "$status" -eq 1 ]
+}
+
+@test "pane_shows_working: a finished agent's 'Waiting for' line in scrollback is not work" {
+    local text
+    text=$(_pane background-shell-only | sed '1i ✻ Waiting for 1 background agent to finish')
+    run pane_shows_working "tower_${UUID_A}" "$text"
+    [ "$status" -eq 1 ]
+}
+
+@test "pane_shows_working: main's counter survives a long agent list below the prompt" {
+    # The agent list grows one row per agent under the prompt box. Read as
+    # "the last 12 lines", ten rows pushed main's token counter off (#88).
+    local text i
+    text=$(_pane main-working-no-agent)
+    text+=$'\n  ● main'
+    for i in 1 2 3 4 5 6 7 8 9 10; do
+        text+=$'\n'"  ◯ general-purpose  step ${i}   ${i}s · ↓ 1.0k tok"
+    done
+    # The rows end in "tok", not "tokens": only main's counter can match.
+    run pane_shows_working "tower_${UUID_A}" "$text"
+    [ "$status" -eq 0 ]
+}
+
+@test "pane_agent_count: counts the agent rows under the prompt, not main" {
+    run pane_agent_count "tower_${UUID_A}" "$(_pane main-idle-agent-running)"
+    [ "$output" = "1" ]
+    run pane_agent_count "tower_${UUID_A}" "$(_pane main-working-with-agent)"
+    [ "$output" = "1" ]
+}
+
+@test "pane_agent_count: zero without an agent list" {
+    run pane_agent_count "tower_${UUID_A}" "$(_pane main-working-no-agent)"
+    [ "$output" = "0" ]
+    run pane_agent_count "tower_${UUID_A}" "$(_pane background-shell-only)"
+    [ "$output" = "0" ]
+}
+
+@test "pane_agent_count: an agent row quoted in the transcript above the prompt is not counted" {
+    local text
+    text=$(_pane background-shell-only |
+        sed '1i \ \ ◯ tower-reviewer  Writing m.sh   5m 1s · ↓ 69.6k tokens')
+    run pane_agent_count "tower_${UUID_A}" "$text"
+    [ "$output" = "0" ]
+}
+
+@test "is_session_busy: a running background agent beats a silent transcript" {
+    local f
+    f=$(create_mock_jsonl "-home-user-proj" "$UUID_A" "/home/user/proj")
+    touch -d "2020-01-01 00:00:00" "$f"
+    run is_session_busy "$f" "tower_${UUID_A}" "$(_pane main-idle-agent-running)"
+    [ "$status" -eq 0 ]
+}
+
+@test "is_session_busy: without pre-fetched text it reads the pane itself" {
+    # The production call passes no text. It used to forward "${3-}", an
+    # empty string taken as the pane, so no pane was ever captured and busy
+    # was mtime alone. Every test above passes text and could not see that.
+    local f
+    f=$(create_mock_jsonl "-home-user-proj" "$UUID_A" "/home/user/proj")
+    touch -d "2020-01-01 00:00:00" "$f"
+    PANE_FIXTURE="${BATS_TEST_DIRNAME}/fixtures/panes/main-working-no-agent.txt"
+    session_tmux() { [[ "$1" == capture-pane ]] && cat "$PANE_FIXTURE"; }
+    run is_session_busy "$f" "tower_${UUID_A}"
+    [ "$status" -eq 0 ]
+}
+
+@test "count_active_subagents: the pane's agent list counts even when no transcript moved" {
+    local f
+    f=$(create_mock_jsonl "-home-user-proj" "$UUID_A" "/home/user/proj")
+    run count_active_subagents "$f" "tower_${UUID_A}" "$(_pane main-idle-agent-running)"
+    [ "$output" = "1" ]
+}
+
 @test "list_addable_sessions: lists unregistered real sessions newest first" {
     local old new
     old=$(create_mock_jsonl "-home-user-proj" "$UUID_A" "$HOME")

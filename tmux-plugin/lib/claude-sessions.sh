@@ -169,16 +169,105 @@ get_session_activity() {
 # transcript quoting it is on screen (a false positive we hit in testing).
 #
 # The line sits a few rows above the prompt box, so look wider than the 8
-# lines capture_pane_signature keeps. Isolated for stubbing, like its
-# sibling above: capture-pane needs a live tmux server, absent under bats.
+# lines capture_pane_signature keeps — but only above the box (see
+# _pane_regions). Isolated for stubbing, like its sibling above:
+# capture-pane needs a live tmux server, absent under bats.
+#
+# Also working: a background agent still in flight. Main then sits idle at
+# the prompt with no counter at all, and the agent can go minutes without
+# writing a file (one waiting on its own background shell wrote nothing for
+# 30 minutes), so neither the counter nor the mtime fallback sees it. The
+# agent list under the prompt does (#114).
+#
+# $2 (optional): the pane text. Omitted, the pane is captured; passed, even
+# as "", it is used as is.
 pane_shows_working() {
     local session_id="$1"
-    local text="${2-}"
-    if [[ -z "${2+set}" ]]; then
-        text=$(session_tmux capture-pane -t "$session_id" -p 2>/dev/null |
-            grep -v '^$' | tail -n 12) || return 1
+    local text
+    if [[ -n "${2+set}" ]]; then
+        text="$2"
+    else
+        text=$(_capture_pane_text "$session_id") || return 1
     fi
-    printf '%s' "$text" | grep -qE '\(([0-9]+m )?[0-9]+s · .*tokens\)'
+    _pane_regions "$text"
+    if printf '%s\n' "$PANE_BODY" | tail -n 12 |
+        grep -qE '\(([0-9]+m )?[0-9]+s · .*tokens\)'; then
+        return 0
+    fi
+    (($(_count_agent_rows "$PANE_FOOTER") > 0))
+}
+
+# Number of background agents the pane lists as running. $2 as above.
+pane_agent_count() {
+    local session_id="$1"
+    local text
+    if [[ -n "${2+set}" ]]; then
+        text="$2"
+    else
+        text=$(_capture_pane_text "$session_id") || {
+            echo 0
+            return 0
+        }
+    fi
+    _pane_regions "$text"
+    _count_agent_rows "$PANE_FOOTER"
+}
+
+_capture_pane_text() {
+    local text
+    text=$(session_tmux capture-pane -t "$1" -p 2>/dev/null) || return 1
+    printf '%s\n' "$text" | grep -v '^$' || true
+}
+
+# Split a pane capture at the prompt box.
+#
+#   ... transcript, then main's "(1m 19s · ↓ 3.8k tokens)" counter ...
+#   ────────────────                     <- box top
+#   ❯ <prompt>
+#   ────────────────                     <- box bottom: the last pure rule
+#     <status line>
+#     ⏵⏵ auto mode on · 1 shell
+#     ● main                             <- agent list, one row per agent
+#     ◯ tower-reviewer  Writing m.sh   5m 1s · ↓ 69.6k tokens
+#
+# PANE_BODY is everything above the box, PANE_FOOTER everything below it.
+# The split matters both ways. The agent list grows a row per agent and,
+# read as "the last 12 lines", pushes main's counter out of view (#88). And
+# an agent row means a live agent only where Claude draws the list, not in
+# transcript text above. With no rule on screen (a dialog, a stub), all of
+# it is body and the footer is empty: the reading before #114.
+# Sets globals; call it bare, never under $(...).
+_pane_regions() {
+    local text="$1" line i last=-1 top=-1
+    local -a lines=()
+    PANE_BODY="" PANE_FOOTER=""
+    while IFS= read -r line; do
+        lines+=("$line")
+    done <<<"$text"
+    for i in "${!lines[@]}"; do
+        if [[ "${lines[i]}" =~ ^─+$ ]]; then
+            top=$last
+            last=$i
+        fi
+    done
+    if ((last < 0)); then
+        PANE_BODY="$text"
+        return 0
+    fi
+    ((top < 0)) && top=$last
+    local IFS=$'\n'
+    PANE_BODY="${lines[*]:0:top}"
+    PANE_FOOTER="${lines[*]:last+1}"
+}
+
+# Agent rows in a footer: a glyph, the agent's name and activity, then its
+# own timer and token tally, with no parentheses. "● main" carries no timer,
+# so it never counts.
+_count_agent_rows() {
+    local n
+    n=$(printf '%s\n' "$1" |
+        grep -cE '^ +[◯●○◉◎] +[^ ].* ([0-9]+m )?[0-9]+s · .*tokens *$') || true
+    echo "${n:-0}"
 }
 
 # Is the session working?
@@ -197,14 +286,21 @@ pane_shows_working() {
 # instead would only trade this false-idle for a longer false-busy at
 # session start (see the window's own note above).
 #
-# $2 (optional): pre-fetched pane text, for callers that already captured
+# $2 (optional): tmux session whose pane to read.
+# $3 (optional): pre-fetched pane text, for callers that already captured
 # it or tests that cannot reach a tmux server.
+#
+# Forward $3 only when it was given. Passing "${3-}" unconditionally hands
+# pane_shows_working an empty string it takes as the pane, so production
+# never captured a pane at all and busy was mtime alone (#114).
 is_session_busy() {
     local jsonl="$1"
     local session_id="${2-}"
     local activity now
+    local -a pane=()
+    [[ -n "${3+set}" ]] && pane=("$3")
 
-    if [[ -n "$session_id" ]] && pane_shows_working "$session_id" "${3-}"; then
+    if [[ -n "$session_id" ]] && pane_shows_working "$session_id" "${pane[@]}"; then
         return 0
     fi
 
@@ -642,10 +738,15 @@ count_unregistered_processes_in_dir() {
     echo "$n"
 }
 
-# Count of a session's subagents active within TOWER_BUSY_WINDOW.
+# Count of a session's active subagents: transcripts touched within
+# TOWER_BUSY_WINDOW, or the agent list in its pane, whichever is larger.
+# The list sees a background agent that writes nothing while it waits; the
+# transcripts see foreground subagents the list may not show.
+#   $2 (optional): tmux session to read the agent list from
+#   $3 (optional): pre-fetched pane text, as for is_session_busy
 count_active_subagents() {
     local jsonl="$1"
-    local dir session_id now t f n=0
+    local dir session_id now t f n=0 listed
     dir="${jsonl%/*}"
     session_id="${jsonl##*/}"
     session_id="${session_id%.jsonl}"
@@ -655,6 +756,14 @@ count_active_subagents() {
         t=$(stat -c %Y -- "$f" 2>/dev/null) || continue
         if ((now - t <= TOWER_BUSY_WINDOW)); then n=$((n + 1)); fi
     done
+    if [[ -n "${2-}" ]]; then
+        if [[ -n "${3+set}" ]]; then
+            listed=$(pane_agent_count "$2" "$3")
+        else
+            listed=$(pane_agent_count "$2")
+        fi
+        ((listed > n)) && n=$listed
+    fi
     echo "$n"
 }
 
