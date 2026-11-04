@@ -31,6 +31,8 @@ source "$SCRIPT_DIR/../lib/common.sh"
 source "$SCRIPT_DIR/../lib/queue.sh"
 
 REFRESH_INTERVAL="${TOWER_TAIL_REFRESH:-2}"
+# How often the key loop checks a running refresh for its result.
+readonly RELOAD_POLL=0.1
 # Lines of conversation kept per block; a block shows the last of them that
 # fit. More than any block gets on a normal screen.
 readonly TAIL_KEEP_LINES=60
@@ -75,9 +77,34 @@ _visible_blocks() {
     echo "$visible"
 }
 
-# Load the sessions in queue order, then their states and conversation
-# tails for the blocks that fit.
+# Everything one refresh reads, written into directory $1: the queue as
+# "queue", then each block's state and tail as state.N / tail.N for the
+# blocks that fit. Runs in the background on a refresh (#110), so it reads
+# nothing from the view's state but the terminal size.
+_tail_snapshot() {
+    local dir="$1"
+    collect_queue all >"$dir/queue"
+    _read_queue "$dir/queue"
+    # Labels are formatted here (four forks a row), not where they are
+    # applied: that runs in the key loop.
+    printf '%s\n' "${SESSION_LABELS[@]}" >"$dir/labels"
+    _load_visible_tails "$dir"
+}
+
+# Load synchronously: the first frame, before there is anything to show.
 load_sessions() {
+    local dir
+    dir=$(mktemp -d "${TMPDIR:-/tmp}/tower-tail.XXXXXX") || return 0
+    TAIL_TMP_DIR="$dir"
+    _tail_snapshot "$dir"
+    apply_snapshot "$dir"
+    rm -rf "$dir"
+    TAIL_TMP_DIR=""
+    return 0
+}
+
+# The queue file $1 into the SESSION_* arrays; states and tails empty.
+_read_queue() {
     SESSION_IDS=()
     SESSION_LABELS=()
     SESSION_STATES=()
@@ -93,7 +120,25 @@ load_sessions() {
         SESSION_IDS+=("$session_id")
         SESSION_LABELS+=("$(_wait_color "$kind")${icon}${DEFAULT_FG} ${PROJECT_FG}${project}${DEFAULT_FG}  ${label}")
         SESSION_STATES+=("")
-    done < <(collect_queue all)
+    done <"$1"
+    return 0
+}
+
+# A snapshot directory into the view: sessions, cursor, states and tails.
+# Reads files only, no forks: a finished background refresh is applied
+# from the key loop.
+apply_snapshot() {
+    local dir="$1" i _since session_id _rest
+    SESSION_IDS=()
+    SESSION_LABELS=()
+    SESSION_STATES=()
+    SESSION_TAILS=()
+    while IFS=$'\t' read -r _since session_id _rest; do
+        [[ -z "$session_id" ]] && continue
+        SESSION_IDS+=("$session_id")
+        SESSION_STATES+=("")
+    done <"$dir/queue"
+    ((${#SESSION_IDS[@]} > 0)) && mapfile -t SESSION_LABELS <"$dir/labels"
 
     local count=${#SESSION_IDS[@]}
     if [[ $count -eq 0 ]]; then
@@ -105,7 +150,6 @@ load_sessions() {
     # cursor (a session starting to wait moves to the top). Keep the cursor
     # on the same id, not the same row number.
     if [[ -n "${SELECTED_ID:-}" ]]; then
-        local i
         for ((i = 0; i < count; i++)); do
             if [[ "${SESSION_IDS[$i]}" == "$SELECTED_ID" ]]; then
                 SELECTED_INDEX=$i
@@ -114,21 +158,47 @@ load_sessions() {
         done
     fi
     ((count > 0)) && SELECTED_ID="${SESSION_IDS[$SELECTED_INDEX]}"
-    _load_visible_tails
+    local text
+    for ((i = 0; i < count; i++)); do
+        if [[ -f "$dir/state.$i" ]]; then
+            IFS= read -r text <"$dir/state.$i" || true
+            SESSION_STATES[i]="$text"
+        fi
+        if [[ -f "$dir/tail.$i" ]]; then
+            IFS= read -r -d '' text <"$dir/tail.$i" || true
+            SESSION_TAILS[i]="${text%$'\n'}"
+        fi
+    done
     return 0
 }
 
-# States and conversation tails for the blocks that fit, read in parallel:
-# each tail parses a slice of a transcript (~0.1s), and one after another
-# they would hold up every refresh. Call it bare, not under $(...).
+# One refresh step, called on every pass of the key loop. Starts a refresh
+# in the background when none runs; when one has finished, applies it and
+# returns 0 so the caller redraws. Returns 1 otherwise, and keys keep
+# moving the cursor on the frame already on screen (#110).
+tail_reload_tick() {
+    if [[ -z "$BG_LOAD_PID" ]]; then
+        bg_load_start _tail_snapshot
+        return 1
+    fi
+    bg_load_done || return 1
+    # shellcheck disable=SC2153  # set by bg_load_start (lib/queue.sh)
+    apply_snapshot "$BG_LOAD_DIR"
+    bg_load_discard
+    return 0
+}
+
+# States and conversation tails for the blocks that fit, written into
+# directory $1 and read in parallel: each tail parses a slice of a
+# transcript (~0.1s), and one after another they would hold up every
+# refresh.
 _load_visible_tails() {
+    local dir="$1"
     local count=${#SESSION_IDS[@]}
     ((count > 0)) || return 0
-    local visible width dir i
+    local visible width i
     visible=$(_visible_blocks "$(_term_lines)" "$count")
     width=$(($(_term_cols) - 2))
-    dir=$(mktemp -d "${TMPDIR:-/tmp}/tower-tail.XXXXXX") || return 0
-    TAIL_TMP_DIR="$dir"
     for ((i = 0; i < visible; i++)); do
         (
             local sid="${SESSION_IDS[$i]}" jsonl
@@ -139,12 +209,7 @@ _load_visible_tails() {
         ) &
     done
     wait
-    for ((i = 0; i < visible; i++)); do
-        [[ -f "$dir/state.$i" ]] && SESSION_STATES[i]=$(<"$dir/state.$i")
-        [[ -f "$dir/tail.$i" ]] && SESSION_TAILS[i]=$(<"$dir/tail.$i")
-    done
-    rm -rf "$dir"
-    TAIL_TMP_DIR=""
+    return 0
 }
 
 # Last $2 lines of live pane output for session $1. Isolated so tests can
@@ -326,6 +391,7 @@ handle_key() {
 }
 
 cleanup() {
+    bg_load_discard
     [[ -n "${TAIL_TMP_DIR:-}" ]] && rm -rf "$TAIL_TMP_DIR"
     tput rmcup 2>/dev/null || true
     tput cnorm 2>/dev/null || true
@@ -342,12 +408,16 @@ main() {
     _seed_selection
     render_frame
 
-    local key key2 read_rc
+    local key key2 read_rc wait_for
     while true; do
         key=""
         read_rc=0
+        # Idle, wait the refresh interval for a key; while a refresh runs,
+        # wake often to pick up its result.
+        wait_for="$REFRESH_INTERVAL"
+        [[ -n "$BG_LOAD_PID" ]] && wait_for="$RELOAD_POLL"
         # nav_read_key guards the orphaned-terminal busy-loop (rc 2 = pane gone).
-        nav_read_key key "$REFRESH_INTERVAL" || read_rc=$?
+        nav_read_key key "$wait_for" || read_rc=$?
         [[ $read_rc -eq 2 ]] && exit 0
         if [[ $read_rc -eq 0 ]]; then
             if [[ "$key" == $'\x1b' ]]; then
@@ -356,11 +426,14 @@ main() {
                 key="${key}${key2}"
             fi
             handle_key "$key"
-        else
-            # Timeout: this is the tail part — reload and follow.
-            load_sessions
+            render_frame
+            # A refresh that finished meanwhile still lands now, not after
+            # the user stops pressing keys.
+            [[ -n "$BG_LOAD_PID" ]] && tail_reload_tick && render_frame
+        elif tail_reload_tick; then
+            # This is the tail part: follow what the sessions said since.
+            render_frame
         fi
-        render_frame
     done
 }
 

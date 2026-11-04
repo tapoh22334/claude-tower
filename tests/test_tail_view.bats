@@ -297,3 +297,35 @@ _write_transcript() {
     [ "$status" -eq 0 ]
     [ "$output" -le 20 ]
 }
+
+# ----------------------------------------------------------------------------
+# Refresh in the background (#110)
+# ----------------------------------------------------------------------------
+
+@test "tail view: a key pressed during a refresh moves the cursor before the refresh ends" {
+    _run_tail '
+        collect_queue() { printf "%s\t%s\t%s\t%s\t%s\n" 2000 tower_x input p x 1000 tower_y input p y; }
+        _load_visible_tails() { :; }
+        load_sessions; SELECTED_INDEX=0; SELECTED_ID=tower_x
+        collect_queue() { sleep 2; printf "%s\t%s\t%s\t%s\t%s\n" 2000 tower_x input p x 1000 tower_y input p y; }
+        tail_reload_tick
+        handle_key j
+        echo "sel=$SELECTED_ID"
+        bg_load_discard
+    '
+    [ "$output" = "sel=tower_y" ]
+}
+
+@test "tail view: a finished refresh brings the new order and each block its tail" {
+    _run_tail '
+        collect_queue() { printf "%s\t%s\t%s\t%s\t%s\n" 1000 tower_a input p a; }
+        _load_visible_tails() { :; }
+        load_sessions; SELECTED_ID=tower_a
+        collect_queue() { printf "%s\t%s\t%s\t%s\t%s\n" 2000 tower_b input p b 1000 tower_a input p a; }
+        _load_visible_tails() { echo "tail of b" >"$1/tail.0"; echo "$STATE_ACTIVE" >"$1/state.0"; }
+        tail_reload_tick
+        for _ in $(seq 50); do tail_reload_tick && break; sleep 0.05; done
+        echo "ids=${SESSION_IDS[*]} sel=$SELECTED_ID tail0=${SESSION_TAILS[0]-unset} tail1=${SESSION_TAILS[1]-unset}"
+    '
+    [ "$output" = "ids=tower_b tower_a sel=tower_a tail0=tail of b tail1=unset" ]
+}

@@ -33,8 +33,12 @@ TOWER_SCRIPT_NAME="queue-view.sh"
 source "$SCRIPT_DIR/../lib/common.sh"
 # shellcheck source=../lib/queue.sh
 source "$SCRIPT_DIR/../lib/queue.sh"
+# shellcheck source=../lib/queue-load.sh
+source "$SCRIPT_DIR/../lib/queue-load.sh"
 
 REFRESH_INTERVAL="${TOWER_QUEUE_REFRESH:-2}"
+# How often the key loop checks a running reload for its result.
+readonly RELOAD_POLL=0.1
 readonly QUEUE_EXIT_QUIT=3
 
 readonly NC=$'\033[0m'
@@ -68,61 +72,6 @@ SELECTED_INDEX=0
 QUEUE_LABELS=()
 QUEUE_ROWS=()
 QUEUE_ROWS_WIDTH=""
-
-# Fill the arrays from collect_queue (lib/queue.sh).
-#
-# The cursor stays on the same session, not the same row number: newest
-# waits enter at the top, so every reload that brings a new one shifts the
-# rows under the cursor. Kept by row number, the highlight would land on a
-# different session than the view pane shows, and Enter would hand the list
-# that one. When the session left the queue, the cursor stays at its row and
-# the view pane is moved to whatever is there now.
-load_queue() {
-    local previous_id="${QUEUE_IDS[$SELECTED_INDEX]-}"
-    QUEUE_IDS=()
-    QUEUE_KINDS=()
-    QUEUE_AGES=()
-    QUEUE_PROJECTS=()
-    QUEUE_LABELS=()
-    QUEUE_ROWS=()
-    QUEUE_ROWS_WIDTH=""
-
-    local since session_id kind project label reltime
-    while IFS=$'\t' read -r since session_id kind project label; do
-        [[ -z "$session_id" ]] && continue
-        QUEUE_IDS+=("$session_id")
-        QUEUE_KINDS+=("$kind")
-        QUEUE_PROJECTS+=("$project")
-        QUEUE_LABELS+=("$label")
-        # "5d ago" -> "5d": the queue's age column is tight and every row
-        # is an age, so the " ago" suffix is redundant noise.
-        # since 0 = no activity time known (no transcript): an age counted
-        # from the epoch ("20760d") would be a lie.
-        if [[ "$since" =~ ^[1-9][0-9]*$ ]]; then
-            reltime=$(format_relative_time "$since")
-            QUEUE_AGES+=("${reltime% ago}")
-        else
-            QUEUE_AGES+=("?")
-        fi
-    done < <(collect_queue)
-
-    local count=${#QUEUE_IDS[@]} i
-    if [[ -n "$previous_id" ]]; then
-        for ((i = 0; i < count; i++)); do
-            if [[ "${QUEUE_IDS[$i]}" == "$previous_id" ]]; then
-                SELECTED_INDEX=$i
-                return 0
-            fi
-        done
-    fi
-    if [[ $count -eq 0 ]]; then
-        SELECTED_INDEX=0
-    elif [[ $SELECTED_INDEX -ge $count ]]; then
-        SELECTED_INDEX=$((count - 1))
-    fi
-    [[ -n "$previous_id" ]] && _follow_selection
-    return 0
-}
 
 # Rows are composed to this width: the pane, capped at Q_MAX_WIDTH. Never
 # wider than the pane: the frame fills the screen to its last line, so one
@@ -396,6 +345,7 @@ handle_key() {
 }
 
 cleanup() {
+    bg_load_discard
     tput rmcup 2>/dev/null || true
     tput cnorm 2>/dev/null || true
     stty echo 2>/dev/null || true
@@ -411,12 +361,16 @@ main() {
     _seed_selection
     render_frame
 
-    local key key2 read_rc
+    local key key2 read_rc wait_for
     while true; do
         key=""
         read_rc=0
+        # Idle, wait the refresh interval for a key; while a reload runs,
+        # wake often to pick up its result.
+        wait_for="$REFRESH_INTERVAL"
+        [[ -n "$BG_LOAD_PID" ]] && wait_for="$RELOAD_POLL"
         # nav_read_key guards the orphaned-terminal busy-loop (rc 2 = pane gone).
-        nav_read_key key "$REFRESH_INTERVAL" || read_rc=$?
+        nav_read_key key "$wait_for" || read_rc=$?
         [[ $read_rc -eq 2 ]] && exit 0
         if [[ $read_rc -eq 0 ]]; then
             if [[ "$key" == $'\x1b' ]]; then
@@ -425,10 +379,13 @@ main() {
                 key="${key}${key2}"
             fi
             handle_key "$key"
-        else
-            load_queue
+            render_frame
+            # A reload that finished meanwhile still lands now, not after
+            # the user stops pressing keys.
+            [[ -n "$BG_LOAD_PID" ]] && queue_reload_tick && render_frame
+        elif queue_reload_tick; then
+            render_frame
         fi
-        render_frame
     done
 }
 

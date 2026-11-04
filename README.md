@@ -102,7 +102,9 @@ you are deleting while the delete runs.
 **Tail** (`t`) — the end of each conversation, stacked and refreshing: the
 queue's sessions first, then the most recently active. Needs `jq`; without it,
 or before a session has a transcript, a block shows the pane's last lines.
-**Queue** (`w`) — only what is waiting on you, most recent wait first. Runs in the
+**Queue** (`w`) — only what is waiting on you, most recent wait first. A session
+held at a permission prompt or a question shows what it asks (`Bash: make test`,
+the question's text); one waiting for a prompt shows its title. Runs in the
 list pane itself: `j`/`k` there move the view pane to that session, `Enter`
 returns to the list with the cursor on it.
 

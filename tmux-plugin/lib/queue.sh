@@ -58,6 +58,15 @@ queue_project() {
     printf '%s\n' "${cwd:--}"
 }
 
+# What a blocked session waits on, from its transcript: the question it
+# asked, or the tool it wants to run and on what. Returns 1 when there is
+# no transcript or nothing pending in it.
+queue_pending() {
+    local jsonl
+    jsonl=$(find_session_jsonl "$(live_claude_id "$1")" 2>/dev/null) || return 1
+    pending_request "$jsonl"
+}
+
 # One session's line: "<since>\t<id>\t<kind>\t<project>\t<label>".
 # kind is "-" when the session is not waiting; such sessions are left out
 # unless $2 is "all".
@@ -70,7 +79,14 @@ _queue_entry() {
     fi
     since=$(wait_since "$session_id")
     project=$(queue_project "$session_id")
-    label=$(queue_label "$session_id")
+    # A blocked session is labelled with what it is blocked on: that, not the
+    # conversation's opening line, is what you answer (#111). A session
+    # waiting for a prompt has nothing pending, so it keeps its title.
+    label=""
+    case "$kind" in
+        permission | question) label=$(queue_pending "$session_id") || label="" ;;
+    esac
+    [[ -n "$label" ]] || label=$(queue_label "$session_id")
     printf '%s\t%s\t%s\t%s\t%s\n' "$since" "$session_id" "$kind" "$project" "$label"
 }
 
@@ -177,4 +193,123 @@ transcript_tail() {
         jq -nrR --argjson w "$width" --argjson keep "$TOWER_TAIL_MESSAGES" "$_TRANSCRIPT_TAIL_JQ" 2>/dev/null) || return 1
     [[ "$out" == *[![:space:]]* ]] || return 1
     tail -n "$n" <<<"$out"
+}
+
+# The first tool call of the current turn that has no result yet: the one
+# a permission prompt or a question is holding up. Calls in a turn are
+# asked about in order, so with parallel calls the first unanswered one is
+# on screen. Only the turn since the last prompt counts: a call from an
+# earlier turn that never got its result (a crash) is not what waits now. Prints one line, whitespace collapsed; returns 1 when nothing
+# is pending.
+#
+# The pending call is the transcript's last entry, so a short tail holds
+# it. One cut mid-call (a Write of a large file) does not parse and is
+# simply not found; the row then keeps its title.
+TOWER_PENDING_BYTES="${TOWER_PENDING_BYTES:-100000}"
+# shellcheck disable=SC2016  # jq program: $ms, $done, $in are jq variables
+readonly _PENDING_REQUEST_JQ='
+[inputs | (try fromjson catch null) | select(type == "object")] as $all
+| ([$all | to_entries[]
+    | select(.value.type == "user" and ((.value.isMeta // false) | not))
+    | select(.value.message.content
+        | (type == "string") or ([arrays | .[] | select(.type != "tool_result")] | length > 0))
+    | .key] | last // -1) as $prompt
+| $all[$prompt + 1:] as $ms
+| [$ms[] | select(.type == "user") | .message.content | arrays | .[]
+    | select(.type == "tool_result") | .tool_use_id] as $done
+| first($ms[] | select(.type == "assistant") | .message.content | arrays | .[]
+    | select(.type == "tool_use")
+    | select(.id as $i | any($done[]; . == $i) | not))
+| .name as $n | (.input // {}) as $in
+| if $n == "AskUserQuestion" then ($in.questions[0].question // $n)
+  else ($in.command // $in.file_path // $in.notebook_path // $in.url
+        // $in.query // $in.pattern // $in.skill // $in.description // "")
+       | tostring | if . == "" then $n else $n + ": " + . end
+  end
+| gsub("\\s+"; " ") | sub("^ "; "") | sub(" $"; "") | .[0:300]
+'
+pending_request() {
+    local jsonl="$1" out
+    command -v jq >/dev/null 2>&1 || return 1
+    [[ -f "$jsonl" ]] || return 1
+    out=$(tail -c "$TOWER_PENDING_BYTES" -- "$jsonl" 2>/dev/null |
+        jq -nrR "$_PENDING_REQUEST_JQ" 2>/dev/null) || return 1
+    [[ -n "$out" ]] || return 1
+    printf '%s\n' "$out"
+}
+
+# --- Background reload (#110) ------------------------------------------------
+# A reload checks every session (~1s with two dozen). Run in the key loop,
+# it held every j/k pressed meanwhile until it ended. The views run it here
+# instead and keep reading keys; they apply the result when it is done.
+#
+# bg_load_start FN runs "FN DIR" in the background, DIR a fresh scratch
+# directory for its output. One load at a time: a start while one runs is
+# a no-op. bg_load_done returns 0 once it has finished — its output stays
+# in BG_LOAD_DIR until bg_load_discard, which also stops a running load
+# (the view is closing).
+BG_LOAD_PID=""
+BG_LOAD_DIR=""
+
+bg_load_start() {
+    [[ -n "$BG_LOAD_PID" ]] && return 0
+    local lines cols
+    # Measured here, handed down: the job runs with no terminal on any of
+    # its fds, where tput answers 24x80 whatever the pane is.
+    lines=$(_term_lines)
+    cols=$(_term_cols)
+    BG_LOAD_DIR=$(mktemp -d "${TMPDIR:-/tmp}/tower-load.XXXXXX") || return 1
+    # The marker, not the pid, says "finished": a child that has exited but
+    # not been reaped still answers kill -0. Written whatever FN returns, so
+    # a failed load ends the wait instead of stalling every later reload.
+    # FN runs in a subshell of its own, so even a fatal shell error in it
+    # (an unbound variable under set -u) cannot skip the marker.
+    (
+        (
+            set +e
+            export TOWER_TERM_LINES="$lines" TOWER_TERM_COLS="$cols"
+            "$@" "$BG_LOAD_DIR"
+        ) >/dev/null 2>&1
+        : >"$BG_LOAD_DIR/.done"
+    ) &
+    BG_LOAD_PID=$!
+}
+
+bg_load_done() {
+    [[ -n "$BG_LOAD_PID" && -f "$BG_LOAD_DIR/.done" ]] || return 1
+    wait "$BG_LOAD_PID" 2>/dev/null || true
+    BG_LOAD_PID=""
+    return 0
+}
+
+# Stop $1 and everything under it: the per-session checks run two levels
+# down (inside collect_queue's pipeline), out of reach of pkill -P. The tree
+# comes from one ps snapshot: this runs when the view closes, and a pgrep
+# per process (/proc scanned each time) held up the exit for seconds. All
+# are stopped before any is killed, so none forks a child meanwhile.
+_kill_tree() {
+    local root="$1" pid ppid i
+    local -a tree=("$root")
+    local -A kids=()
+    while read -r pid ppid; do
+        kids[$ppid]+=" $pid"
+    done < <(ps -e -o pid= -o ppid= 2>/dev/null)
+    for ((i = 0; i < ${#tree[@]}; i++)); do
+        # shellcheck disable=SC2206  # split the space-separated pid list
+        tree+=(${kids[${tree[$i]}]-})
+    done
+    kill -STOP "${tree[@]}" 2>/dev/null || true
+    kill "${tree[@]}" 2>/dev/null || true
+    kill -CONT "${tree[@]}" 2>/dev/null || true
+}
+
+bg_load_discard() {
+    if [[ -n "$BG_LOAD_PID" ]]; then
+        _kill_tree "$BG_LOAD_PID"
+        wait "$BG_LOAD_PID" 2>/dev/null || true
+    fi
+    [[ -n "$BG_LOAD_DIR" ]] && rm -rf "$BG_LOAD_DIR"
+    BG_LOAD_PID=""
+    BG_LOAD_DIR=""
+    return 0
 }
