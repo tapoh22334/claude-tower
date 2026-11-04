@@ -104,3 +104,42 @@ setup() {
     [ "$status" -eq 0 ]
     [[ "$output" == *"in-dir:$BATS_TEST_TMPDIR"* ]]
 }
+
+@test "tower add: --fork-dir --id starts the session under the given id (#113)" {
+    local socket="toweridarg-$$" uuid="0123abcd-0000-4000-8000-00000000beef"
+    local tmpdir="$BATS_TEST_TMPDIR/tmux"
+    mkdir -p "$tmpdir"
+    chmod 700 "$tmpdir"
+    run env \
+        TMUX_TMPDIR="$tmpdir" \
+        CLAUDE_TOWER_SESSION_SOCKET="$socket" \
+        CLAUDE_TOWER_NAV_SOCKET="${socket}-nav" \
+        CLAUDE_TOWER_METADATA_DIR="$BATS_TEST_TMPDIR/meta" \
+        CLAUDE_TOWER_PROGRAM="sleep 30" \
+        bash "$ADD" --fork-dir "$WORK" --id "$uuid" --print-id
+    TMUX= TMUX_TMPDIR="$tmpdir" tmux -L "$socket" kill-server 2>/dev/null || true
+    [ "$status" -eq 0 ]
+    [ "${lines[${#lines[@]}-1]}" = "tower_$uuid" ]
+    [ -f "$BATS_TEST_TMPDIR/meta/tower_$uuid.meta" ]
+}
+
+@test "tower add: --id is refused when not a uuid, missing, outside --fork-dir, or already registered" {
+    local uuid="0123abcd-0000-4000-8000-00000000beef"
+    run bash "$ADD" --fork-dir "$WORK" --id "../evil" --print-id
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"--id needs"* ]]
+    run bash "$ADD" --fork-dir "$WORK" --id
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"--id needs"* ]]
+    run bash "$ADD" "$WORK" --id "$uuid"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"--id needs"* ]]
+    # an existing session's registry entry is never rewritten through --id
+    mkdir -p "$BATS_TEST_TMPDIR/meta"
+    printf 'session_name=precious\n' >"$BATS_TEST_TMPDIR/meta/tower_$uuid.meta"
+    run env CLAUDE_TOWER_METADATA_DIR="$BATS_TEST_TMPDIR/meta" \
+        bash "$ADD" --fork-dir "$WORK" --id "$uuid" --print-id
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"--id needs"* ]]
+    grep -qx 'session_name=precious' "$BATS_TEST_TMPDIR/meta/tower_$uuid.meta"
+}
