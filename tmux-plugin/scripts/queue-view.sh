@@ -35,6 +35,8 @@ source "$SCRIPT_DIR/../lib/common.sh"
 source "$SCRIPT_DIR/../lib/queue.sh"
 
 REFRESH_INTERVAL="${TOWER_QUEUE_REFRESH:-2}"
+# How often the key loop checks a running reload for its result.
+readonly RELOAD_POLL=0.1
 readonly QUEUE_EXIT_QUIT=3
 
 readonly NC=$'\033[0m'
@@ -69,16 +71,16 @@ QUEUE_LABELS=()
 QUEUE_ROWS=()
 QUEUE_ROWS_WIDTH=""
 
-# Fill the arrays from collect_queue (lib/queue.sh).
-#
-# The cursor stays on the same session, not the same row number: newest
-# waits enter at the top, so every reload that brings a new one shifts the
-# rows under the cursor. Kept by row number, the highlight would land on a
-# different session than the view pane shows, and Enter would hand the list
-# that one. When the session left the queue, the cursor stays at its row and
-# the view pane is moved to whatever is there now.
+# Fill the arrays from collect_queue (lib/queue.sh), synchronously: the
+# first frame. Later reloads run in the background (queue_reload_tick).
 load_queue() {
     local previous_id="${QUEUE_IDS[$SELECTED_INDEX]-}"
+    _fill_queue < <(collect_queue)
+    _place_cursor "$previous_id"
+}
+
+# The arrays from collect_queue's lines on stdin; rows not composed yet.
+_fill_queue() {
     QUEUE_IDS=()
     QUEUE_KINDS=()
     QUEUE_AGES=()
@@ -104,8 +106,64 @@ load_queue() {
         else
             QUEUE_AGES+=("?")
         fi
-    done < <(collect_queue)
+    done
+    return 0
+}
 
+# Everything a reload produces, written into directory $1 by the
+# background job: the entries with their ages, and the rows composed at
+# the width of the moment. Formatting forks once or twice per row; done
+# here, it costs the key loop nothing (#110).
+_queue_snapshot() {
+    local dir="$1" idx
+    collect_queue >"$dir/queue"
+    _fill_queue <"$dir/queue"
+    _compose_queue_rows
+    for ((idx = 0; idx < ${#QUEUE_IDS[@]}; idx++)); do
+        printf '%s\t%s\t%s\t%s\t%s\n' "${QUEUE_IDS[$idx]}" "${QUEUE_KINDS[$idx]}" \
+            "${QUEUE_PROJECTS[$idx]}" "${QUEUE_AGES[$idx]}" "${QUEUE_LABELS[$idx]}"
+    done >"$dir/entries"
+    printf '%s\n' "${QUEUE_ROWS[@]}" >"$dir/rows"
+    printf '%s\n' "$QUEUE_ROWS_WIDTH" >"$dir/width"
+}
+
+# A snapshot directory into the arrays, without forking: this runs in the
+# key loop. Rows composed for another width are dropped and recomposed on
+# the next frame.
+_apply_queue_snapshot() {
+    local dir="$1" previous_id="${QUEUE_IDS[$SELECTED_INDEX]-}"
+    local session_id kind project age label width=""
+    QUEUE_IDS=()
+    QUEUE_KINDS=()
+    QUEUE_AGES=()
+    QUEUE_PROJECTS=()
+    QUEUE_LABELS=()
+    QUEUE_ROWS=()
+    QUEUE_ROWS_WIDTH=""
+    while IFS=$'\t' read -r session_id kind project age label; do
+        [[ -z "$session_id" ]] && continue
+        QUEUE_IDS+=("$session_id")
+        QUEUE_KINDS+=("$kind")
+        QUEUE_PROJECTS+=("$project")
+        QUEUE_AGES+=("$age")
+        QUEUE_LABELS+=("$label")
+    done <"$dir/entries"
+    if ((${#QUEUE_IDS[@]} > 0)); then
+        mapfile -t QUEUE_ROWS <"$dir/rows"
+        IFS= read -r width <"$dir/width" || true
+        QUEUE_ROWS_WIDTH="$width"
+    fi
+    _place_cursor "$previous_id"
+}
+
+# The cursor stays on the same session, not the same row number: newest
+# waits enter at the top, so every reload that brings a new one shifts the
+# rows under the cursor. Kept by row number, the highlight would land on a
+# different session than the view pane shows, and Enter would hand the list
+# that one. When the session left the queue, the cursor stays at its row and
+# the view pane is moved to whatever is there now.
+_place_cursor() {
+    local previous_id="$1"
     local count=${#QUEUE_IDS[@]} i
     if [[ -n "$previous_id" ]]; then
         for ((i = 0; i < count; i++)); do
@@ -303,6 +361,23 @@ _compose_queue_rows() {
     QUEUE_ROWS_WIDTH="$width"
 }
 
+# One reload step, called on every pass of the key loop. Starts a reload in
+# the background when none runs; when one has finished, applies it and
+# returns 0 so the caller redraws. Returns 1 otherwise: the frame on screen
+# is still current, and keys keep moving the cursor on it meanwhile (#110).
+
+queue_reload_tick() {
+    if [[ -z "$BG_LOAD_PID" ]]; then
+        bg_load_start _queue_snapshot
+        return 1
+    fi
+    bg_load_done || return 1
+    # shellcheck disable=SC2153  # set by bg_load_start (lib/queue.sh)
+    _apply_queue_snapshot "$BG_LOAD_DIR"
+    bg_load_discard
+    return 0
+}
+
 render_frame() {
     local term_height term_width frame clear_eos
     _compose_queue_rows
@@ -396,6 +471,7 @@ handle_key() {
 }
 
 cleanup() {
+    bg_load_discard
     tput rmcup 2>/dev/null || true
     tput cnorm 2>/dev/null || true
     stty echo 2>/dev/null || true
@@ -411,12 +487,16 @@ main() {
     _seed_selection
     render_frame
 
-    local key key2 read_rc
+    local key key2 read_rc wait_for
     while true; do
         key=""
         read_rc=0
+        # Idle, wait the refresh interval for a key; while a reload runs,
+        # wake often to pick up its result.
+        wait_for="$REFRESH_INTERVAL"
+        [[ -n "$BG_LOAD_PID" ]] && wait_for="$RELOAD_POLL"
         # nav_read_key guards the orphaned-terminal busy-loop (rc 2 = pane gone).
-        nav_read_key key "$REFRESH_INTERVAL" || read_rc=$?
+        nav_read_key key "$wait_for" || read_rc=$?
         [[ $read_rc -eq 2 ]] && exit 0
         if [[ $read_rc -eq 0 ]]; then
             if [[ "$key" == $'\x1b' ]]; then
@@ -425,10 +505,13 @@ main() {
                 key="${key}${key2}"
             fi
             handle_key "$key"
-        else
-            load_queue
+            render_frame
+            # A reload that finished meanwhile still lands now, not after
+            # the user stops pressing keys.
+            [[ -n "$BG_LOAD_PID" ]] && queue_reload_tick && render_frame
+        elif queue_reload_tick; then
+            render_frame
         fi
-        render_frame
     done
 }
 
