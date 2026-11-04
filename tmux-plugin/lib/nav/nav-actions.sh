@@ -81,11 +81,12 @@ _nav_hint() {
     sleep 0.8
 }
 
-# Start a new session in project dir $1 (Enter on a project row).
-# Seats the row under its header and selects it. Returns 0 even when it
-# could not (the hint is the report), so the loop never dies on it.
+# Start a new session in project dir $1 (Enter on a project row), selected;
+# returns 0 even on failure (the hint reports it). No clear (#113): the list
+# stays up, and since the id is chosen here the "creating…" row is already
+# the session's own row in its final seat — ◐ + id once it runs, then title.
 new_session_in_project() {
-    local dir="$1" new_id
+    local dir="$1" uuid new_id err rc=0
     if [[ -z "$dir" ]]; then
         _nav_hint "No directory known for this group"
         return 0
@@ -94,13 +95,24 @@ new_session_in_project() {
         _nav_hint "Directory not found: $dir (D removes it from the list)"
         return 0
     fi
-    clear
-    new_id=$("$SCRIPT_DIR/session-add.sh" --fork-dir "$dir" --print-id 2>>"$(_subflow_tty)") || return 0
-    if [[ -n "$new_id" ]]; then
-        set_nav_selected "$new_id"
-        signal_view_update
-        _remember_session_row "$new_id" "$dir" || true
+    uuid=$(generate_uuid 2>/dev/null) || { _nav_hint "Could not generate a session id"; return 0; }
+    new_id="tower_${uuid}"
+    _remember_session_row "$new_id" "$dir" || true
+    _mark_session_creating "$new_id" && render_list "$NAV_MARKED_INDEX"
+    # Its stderr goes to the log, not the screen; the last line is the reason.
+    err=$(TOWER_QUIET_ERRORS=1 "$SCRIPT_DIR/session-add.sh" --fork-dir "$dir" --id "$uuid" --print-id \
+        2>&1 >/dev/null </dev/null) || rc=$?
+    [[ -n "$err" ]] && printf '%s\n' "$err" >&2
+    if ((rc != 0)); then
+        _forget_session_row "$new_id" || true
+        render_list "$(get_selection_index)"
+        err=$(_strip_ansi_str "$(grep -v '^[[:space:]]*$' <<<"$err" | tail -n 1)")
+        _nav_hint "✗ Could not start a session: ${err#Error: }"
+        return 0
     fi
+    set_nav_selected "$new_id"
+    signal_view_update
+    _mark_session_starting "$new_id" || true
     return 0
 }
 

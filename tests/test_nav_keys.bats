@@ -305,3 +305,89 @@ _undefined() { if declare -f "$1" >/dev/null; then return 1; fi; }
     open_selected "tower_b1"
     [ -n "$resumed" ]
 }
+
+# ----------------------------------------------------------------------------
+# Enter on a project row: the new session appears in the list (#113)
+# ----------------------------------------------------------------------------
+
+# A project group in a real directory, and a session-add.sh stand-in that
+# records what the list showed while it ran. $1 is the stand-in's exit code.
+_creating_fixture() {
+    signal_view_update() { :; }
+    signal_view_update_async() { :; }
+    _flush_pending_view_signal() { :; }
+    sleep() { :; }
+    TOWER_TERM_LINES=30
+    TOWER_TERM_COLS=80
+    tput() { return 1; }
+    PROJ="$BATS_TEST_TMPDIR/proj"
+    mkdir -p "$PROJ"
+    SESSION_IDS=("dir:$PROJ" "tower_00000000-0000-0000-0000-000000000001")
+    SESSION_DISPLAYS=("proj ──" "existing")
+    SESSION_DIRS=("$PROJ" "$PROJ")
+    SESSION_HEADERS=("" "")
+    BROKEN_START=-1
+    set_nav_selected "dir:$PROJ"
+    SCRIPT_DIR="$BATS_TEST_TMPDIR/bin"
+    mkdir -p "$SCRIPT_DIR"
+    cat >"$SCRIPT_DIR/session-add.sh" <<STUB
+#!/usr/bin/env bash
+id=""
+while [[ \$# -gt 0 ]]; do [[ "\$1" == --id ]] && id="\$2"; shift; done
+echo "args-id:\$id" >>"$BATS_TEST_TMPDIR/calls"
+if [[ $1 -ne 0 ]]; then echo "Failed to create tmux session" >&2; exit $1; fi
+echo "Success: Session started" >&2
+echo "tower_\$id"
+STUB
+    chmod +x "$SCRIPT_DIR/session-add.sh"
+    # What the screen held: every frame drawn, and any clear.
+    clear() { echo CLEAR >>"$BATS_TEST_TMPDIR/screen"; }
+    render_list() {
+        local i
+        for ((i = 0; i < ${#SESSION_IDS[@]}; i++)); do
+            echo "$i|${SESSION_IDS[$i]}|$(_strip_ansi_str "${SESSION_DISPLAYS[$i]}")"
+        done >>"$BATS_TEST_TMPDIR/screen"
+        echo "selected=$1" >>"$BATS_TEST_TMPDIR/screen"
+    }
+}
+
+@test "project Enter: the list stays up with a creating row, which becomes the started session" {
+    source "$NAV"
+    _creating_fixture 0
+    new_session_in_project "$PROJ" >/dev/null 2>&1
+    # never cleared; the frame drawn while starting already held the row
+    ! grep -q CLEAR "$BATS_TEST_TMPDIR/screen"
+    grep -q "creating…" "$BATS_TEST_TMPDIR/screen"
+    # the id handed to session-add is the id of the creating row
+    local id
+    id=$(sed -n 's/^args-id://p' "$BATS_TEST_TMPDIR/calls")
+    [[ "$id" =~ ^[0-9a-f-]{36}$ ]]
+    grep -q "|tower_$id|.*creating…" "$BATS_TEST_TMPDIR/screen"
+    # the cursor was drawn on that row
+    local row
+    row=$(grep "|tower_$id|" "$BATS_TEST_TMPDIR/screen" | head -1 | cut -d'|' -f1)
+    grep -qx "selected=$row" "$BATS_TEST_TMPDIR/screen"
+    # afterwards: the same row, started (◐ and the id), selected
+    [ "$(get_nav_selected)" = "tower_$id" ]
+    local i found=""
+    for ((i = 0; i < ${#SESSION_IDS[@]}; i++)); do
+        [[ "${SESSION_IDS[$i]}" == "tower_$id" ]] && found="$(_strip_ansi_str "${SESSION_DISPLAYS[$i]}")"
+    done
+    [[ "$found" == *"◐"* ]]
+    [[ "$found" == *"${id:0:7}"* ]]
+    [[ "$found" != *"creating"* ]]
+    [ "${#SESSION_IDS[@]}" -eq 3 ]
+}
+
+@test "project Enter: a failed start takes the creating row away and says why" {
+    source "$NAV"
+    _creating_fixture 1
+    local out
+    out=$(new_session_in_project "$PROJ" 2>/dev/null; printf '%s,' "${#SESSION_IDS[@]}")
+    [[ "$out" == *"Failed to create tmux session"* ]]
+    ! grep -q CLEAR "$BATS_TEST_TMPDIR/screen"
+    grep -q "creating…" "$BATS_TEST_TMPDIR/screen"
+    new_session_in_project "$PROJ" >/dev/null 2>&1
+    [ "${#SESSION_IDS[@]}" -eq 2 ]
+    [ "$(get_nav_selected)" = "dir:$PROJ" ]
+}

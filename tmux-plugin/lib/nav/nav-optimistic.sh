@@ -225,6 +225,29 @@ _mark_session_starting() {
     return 1
 }
 
+# Re-draw an existing row as "creating…": Enter on a project row seats the
+# new session's row before the session exists, so the list itself shows the
+# start instead of a cleared screen with a message. The id is already the
+# session's own (the Navigator picks it), but there is nothing to label it
+# with yet — no tmux session, no transcript — so the row says what is
+# happening. _mark_session_starting replaces it once the session runs.
+# Returns 1 if the id isn't present.
+_mark_session_creating() {
+    local target="$1"
+    local i
+    for ((i = 0; i < ${#SESSION_IDS[@]}; i++)); do
+        if [[ "${SESSION_IDS[$i]}" == "$target" ]]; then
+            SESSION_DISPLAYS[i]=$(_compose_row \
+                "${NAV_C_DIM}${ICON_STATE_STARTING}${NAV_C_NORMAL}" \
+                "${NAV_C_DIM}creating…${NAV_C_NORMAL}" \
+                "")
+            NAV_MARKED_INDEX=$i
+            return 0
+        fi
+    done
+    return 1
+}
+
 # Put back the display text _mark_session_deleting replaced, for when the
 # delete fails and the session is still there.
 _restore_session_row() {

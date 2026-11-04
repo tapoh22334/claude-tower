@@ -3,6 +3,7 @@
 # Pick an existing Claude session (or [new]) via $TOWER_FINDER (fzf default,
 # numbered fallback), register it, and start it in tmux.
 # --print-id: print the tower_<uuid> id on stdout on success (for Navigator).
+# --id <uuid>: start under this id (Navigator seats the row before starting).
 
 set -uo pipefail
 
@@ -13,7 +14,7 @@ PRINT_ID=0
 MODE="pick" # pick (default) | fork-dir | new-in-dir | in-dir
 FORK_DIR=""
 TARGET_DIR=""
-SESSION_NAME=""
+SESSION_NAME="" PRESET_UUID=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --print-id) PRINT_ID=1 ;;
@@ -22,6 +23,7 @@ while [[ $# -gt 0 ]]; do
             FORK_DIR="${2:-}"
             shift
             ;;
+        --id) PRESET_UUID="${2:--}" && shift $(($# > 1)) ;;
         --new-in-dir) MODE="new-in-dir" ;;
         -n | --name)
             # Refuse to swallow the next flag as a name: `-n --print-id` would
@@ -53,6 +55,9 @@ while [[ $# -gt 0 ]]; do
     esac
     shift
 done
+[[ -z "$PRESET_UUID" ]] || { [[ "$MODE" == fork-dir && "$PRESET_UUID" =~ ^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$ ]] &&
+    ! has_metadata "tower_$PRESET_UUID" && ! session_tmux has-session -t "tower_$PRESET_UUID" 2>/dev/null; } ||
+    { handle_error "--id needs --fork-dir and an unused lowercase uuid (got '$PRESET_UUID')"; exit 1; }
 
 NEW_SENTINEL="[new]    Start a new session"
 
@@ -383,12 +388,12 @@ prompt_new_directory() {
 # Backs both --fork-dir (dir from the caller) and --new-in-dir (dir from
 # the project picker).
 start_session_in_dir() {
-    local dir="$1" name="${2:-}" uuid
+    local dir="$1" name="${2:-}" uuid="${PRESET_UUID:-}"
     if [[ -z "$dir" || ! -d "$dir" ]]; then
         handle_error "Directory not found: ${dir:-<empty>}"
         return 1
     fi
-    uuid=$(generate_uuid) || return 1
+    [[ -n "$uuid" ]] || uuid=$(generate_uuid) || return 1
     start_claude_session "tower_${uuid}" "$dir" "new" >&2 || return 1
     save_metadata "tower_${uuid}" "$name" "$dir"
     [[ "$PRINT_ID" -eq 1 ]] && echo "tower_${uuid}"

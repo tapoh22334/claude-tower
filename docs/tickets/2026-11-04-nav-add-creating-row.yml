@@ -1,0 +1,23 @@
+# 検証: ~/.claude/skills/github-tickets/scripts/apply.sh --verify docs/tickets/2026-11-04-nav-add-creating-row.yml
+repo: tapoh22334/claude-tower
+
+project:
+  number: 4
+  owner: tapoh22334
+
+tasks:
+  - issue: 113
+    title: プロジェクト行の Enter で、一覧を消さずに作成中の行を表示する
+    body: |
+      ## やること
+      プロジェクト行で Enter を押したとき、一覧の画面を切り替えずに、新しいセッションの行を一覧の中に表示する。
+      行の表示は、起動を終えるまでは「creating…」、起動したら id、会話が始まったら会話の内容と順に変わる。
+
+      ## なぜ
+      現在は Enter で画面が一時的に消え、作成のメッセージだけの画面になってから一覧に戻る。
+      利用者は一覧から何も選び直していないため、この切り替えは不要な表示である。
+
+      ## 完了条件
+      - [ ] Enter の直後から作成が終わるまで、一覧が表示されたままで、新しい行が「creating…」として見出しの下にある
+      - [ ] 起動したら同じ行が id の表示(◐)に変わり、カーソルがその行にある
+      - [ ] 作成に失敗したら「creating…」の行が消え、一覧の下に理由が表示される
