@@ -417,3 +417,35 @@ _pane() { cat "${BATS_TEST_DIRNAME}/fixtures/panes/$1.txt"; }
     run format_relative_time "$((now - 172800))"
     [ "$output" = "2d ago" ]
 }
+
+@test "pane_agent_count: works in the C locale too" {
+    # bash's =~ is locale-dependent: in C, "─+" repeats only the last byte
+    # of "─", the rule never matched, and the agent list went unseen.
+    local text
+    text="$(_pane main-idle-agent-running)"
+    run env LC_ALL=C LANG=C bash -c '
+        source "$1/tmux-plugin/lib/common.sh" 2>/dev/null
+        pane_agent_count x "$2"' _ "$PROJECT_ROOT" "$text"
+    [ "$output" = "1" ]
+}
+
+@test "pane_agent_count: a list left on screen after Claude exited is not counted" {
+    # The tmux session is a shell, so the pane outlives Claude, last frame
+    # included; the agent list is only live while it is the pane's bottom.
+    local text
+    text="$(_pane main-idle-agent-running)"$'\n''user@host:~/proj$ '
+    run pane_agent_count "tower_${UUID_A}" "$text"
+    [ "$output" = "0" ]
+    run pane_shows_working "tower_${UUID_A}" "$text"
+    [ "$status" -eq 1 ]
+}
+
+@test "count_active_subagents: with a session and no text it reads the pane itself" {
+    # nav-build's call shape.
+    local f
+    f=$(create_mock_jsonl "-home-user-proj" "$UUID_A" "/home/user/proj")
+    PANE_FIXTURE="${BATS_TEST_DIRNAME}/fixtures/panes/main-idle-agent-running.txt"
+    session_tmux() { [[ "$1" == capture-pane ]] && cat "$PANE_FIXTURE"; }
+    run count_active_subagents "$f" "tower_${UUID_A}"
+    [ "$output" = "1" ]
+}

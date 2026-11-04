@@ -182,44 +182,32 @@ get_session_activity() {
 # $2 (optional): the pane text. Omitted, the pane is captured; passed, even
 # as "", it is used as is.
 pane_shows_working() {
-    local session_id="$1"
     local text
     if [[ -n "${2+set}" ]]; then
         text="$2"
     else
-        text=$(_capture_pane_text "$session_id") || return 1
+        text=$(session_tmux capture-pane -t "$1" -p 2>/dev/null) || return 1
     fi
-    _pane_regions "$text"
-    if printf '%s\n' "$PANE_BODY" | tail -n 12 |
-        grep -qE '\(([0-9]+m )?[0-9]+s · .*tokens\)'; then
-        return 0
-    fi
-    (($(_count_agent_rows "$PANE_FOOTER") > 0))
+    _pane_scan "$text"
+    ((PANE_WORKING || PANE_AGENTS > 0))
 }
 
 # Number of background agents the pane lists as running. $2 as above.
 pane_agent_count() {
-    local session_id="$1"
     local text
     if [[ -n "${2+set}" ]]; then
         text="$2"
     else
-        text=$(_capture_pane_text "$session_id") || {
+        text=$(session_tmux capture-pane -t "$1" -p 2>/dev/null) || {
             echo 0
             return 0
         }
     fi
-    _pane_regions "$text"
-    _count_agent_rows "$PANE_FOOTER"
+    _pane_scan "$text"
+    echo "$PANE_AGENTS"
 }
 
-_capture_pane_text() {
-    local text
-    text=$(session_tmux capture-pane -t "$1" -p 2>/dev/null) || return 1
-    printf '%s\n' "$text" | grep -v '^$' || true
-}
-
-# Split a pane capture at the prompt box.
+# Read a pane capture around its prompt box.
 #
 #   ... transcript, then main's "(1m 19s · ↓ 3.8k tokens)" counter ...
 #   ────────────────                     <- box top
@@ -230,44 +218,56 @@ _capture_pane_text() {
 #     ● main                             <- agent list, one row per agent
 #     ◯ tower-reviewer  Writing m.sh   5m 1s · ↓ 69.6k tokens
 #
-# PANE_BODY is everything above the box, PANE_FOOTER everything below it.
-# The split matters both ways. The agent list grows a row per agent and,
-# read as "the last 12 lines", pushes main's counter out of view (#88). And
-# an agent row means a live agent only where Claude draws the list, not in
-# transcript text above. With no rule on screen (a dialog, a stub), all of
-# it is body and the footer is empty: the reading before #114.
+# Sets PANE_WORKING (1 when main's counter is among the last 12 non-empty
+# lines above the box) and PANE_AGENTS (agent rows below it). The split
+# matters both ways. The agent list grows a row per agent and, read as "the
+# last 12 lines", pushed main's counter out of view (#88). And an agent row
+# means a live agent only where Claude draws the list: not in transcript
+# text above, and only while it is the pane's bottom line. The tmux session
+# is a shell that outlives Claude, last frame and all, and a shell prompt
+# under a dead list is not work. With no rule on screen (a dialog, a stub)
+# the whole capture is "above": the reading before #114.
+#
+# Pure bash, no forks: this runs for every live row of every rebuild. And
+# no quantifier or bracket set over a multi-byte character, because =~
+# follows the locale; under C, "─+" repeats only the last byte of "─".
 # Sets globals; call it bare, never under $(...).
-_pane_regions() {
-    local text="$1" line i last=-1 top=-1
+_pane_scan() {
+    local line i last=-1 top=-1 from
     local -a lines=()
-    PANE_BODY="" PANE_FOOTER=""
+    local counter_re='\(([0-9]+m )?[0-9]+s · .*tokens\)'
+    local agent_re='^ +(◯|●|○|◉|◎) +[^ ].* ([0-9]+m )?[0-9]+s · .*tokens *$'
+    PANE_WORKING=0 PANE_AGENTS=0
     while IFS= read -r line; do
-        lines+=("$line")
-    done <<<"$text"
+        [[ -n "$line" ]] && lines+=("$line")
+    done <<<"$1"
     for i in "${!lines[@]}"; do
-        if [[ "${lines[i]}" =~ ^─+$ ]]; then
+        if [[ -z "${lines[i]//─/}" ]]; then
             top=$last
             last=$i
         fi
     done
     if ((last < 0)); then
-        PANE_BODY="$text"
-        return 0
+        top=${#lines[@]}
+    elif ((top < 0)); then
+        top=$last
     fi
-    ((top < 0)) && top=$last
-    local IFS=$'\n'
-    PANE_BODY="${lines[*]:0:top}"
-    PANE_FOOTER="${lines[*]:last+1}"
-}
 
-# Agent rows in a footer: a glyph, the agent's name and activity, then its
-# own timer and token tally, with no parentheses. "● main" carries no timer,
-# so it never counts.
-_count_agent_rows() {
-    local n
-    n=$(printf '%s\n' "$1" |
-        grep -cE '^ +[◯●○◉◎] +[^ ].* ([0-9]+m )?[0-9]+s · .*tokens *$') || true
-    echo "${n:-0}"
+    from=$((top - 12))
+    ((from < 0)) && from=0
+    for ((i = from; i < top; i++)); do
+        if [[ "${lines[i]}" =~ $counter_re ]]; then
+            PANE_WORKING=1
+            break
+        fi
+    done
+
+    ((last >= 0)) || return 0
+    [[ "${lines[${#lines[@]} - 1]}" =~ $agent_re ]] || return 0
+    for ((i = last + 1; i < ${#lines[@]}; i++)); do
+        [[ "${lines[i]}" =~ $agent_re ]] && PANE_AGENTS=$((PANE_AGENTS + 1))
+    done
+    return 0
 }
 
 # Is the session working?
