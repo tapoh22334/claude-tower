@@ -14,6 +14,8 @@ PROJECT_ROOT="$(dirname "$TEST_DIR")"
 # none reproducible when the file was run alone.
 export CLAUDE_TOWER_TEST_RUN_ID="${BATS_RUN_TMPDIR:-$$}"
 export CLAUDE_TOWER_TEST_ROOT="${TEST_DIR}/tmp/run-${CLAUDE_TOWER_TEST_RUN_ID##*/}"
+# tests/setup_suite.bash rebuilds this path to remove it after the run; keep
+# the two in step.
 export CLAUDE_TOWER_METADATA_DIR="${CLAUDE_TOWER_TEST_ROOT}/metadata"
 # The Navigator's shared state (cursor, caller, owner, list cache) too. It
 # defaulted to the real /tmp/claude-tower, so a test run with a Navigator open
@@ -98,6 +100,23 @@ teardown_test_env() {
         TMUX= tmux -L "$CLAUDE_TOWER_NAV_SOCKET" kill-server 2>/dev/null || true
     fi
     return 0
+}
+
+# Print a session's screen once it shows NEEDLE (up to 5 s), or the last
+# screen if it never does, so the caller's assertion reports what was there.
+#
+# The shell echoes a sent command line a few characters at a time, and a long
+# one (a prompt file's absolute path) can still be half drawn 0.5 s later. A
+# fixed sleep before capture-pane made these tests fail at random (#118). Pick
+# a NEEDLE near the end of the line, so a half-drawn line never matches.
+screen_once_shown() {
+    local id="$1" needle="$2" screen="" i
+    for ((i = 0; i < 50; i++)); do
+        screen=$(session_tmux capture-pane -p -J -S -50 -t "$id")
+        [[ "$screen" == *"$needle"* ]] && break
+        sleep 0.1
+    done
+    printf '%s' "$screen"
 }
 
 # Create a mock metadata file (new minimal format)

@@ -1,0 +1,37 @@
+# 検証: ~/.claude/skills/github-tickets/scripts/apply.sh --verify docs/tickets/2026-11-05-test-suite-hygiene.yml
+repo: tapoh22334/claude-tower
+
+project:
+  number: 4
+  owner: tapoh22334
+
+tasks:
+  - title: start_claude_session の初回プロンプトをファイルから読むテストが毎回成功するようにする
+    labels: [kind::bug]
+    body: |
+      ## やること
+      tests/test_session_cli_lib.bats の「start_claude_session: a 4th argument makes the program read its first prompt from that file」は、main でも単独実行で 3 回中 1 回失敗する。原因を特定し、このテストが毎回同じ結果になるようにする。
+
+      ## 完了条件
+      - [ ] 失敗の原因が issue のコメントに記録されている
+      - [ ] このテストを単独で 20 回続けて実行し、すべて成功する
+  - title: テストが tests/tmp/ に残すシンボリックリンクと一時ディレクトリを後始末する
+    labels: [kind::bug]
+    body: |
+      ## やること
+      テストの実行後、tests/tmp/pathbase/escape_link(/tmp を指すシンボリックリンク)と run-bats-run-* ディレクトリが残る。このリンクを辿るとループになり、`bats -r tests` が終わらない。テストが作ったものをテスト自身が後始末するようにする。
+
+      ## 完了条件
+      - [ ] 該当テストの実行後、tests/tmp/ に escape_link が残らない
+      - [ ] 該当テストの実行後、tests/tmp/ に run-bats-run-* が増えない
+  - title: bats -j で並列に実行してもテストが互いに干渉しないようにする
+    labels: [idea, kind::chore]
+    body: |
+      ## 何を
+      `bats -j 4 tests/` で並列に実行しても、直列のときと同じ結果になるようにする。現在は実行のたびに約 70 件がランダムに失敗し、単独なら成功するテストも失敗する。テストどうしが状態を共有しているためである。
+
+      ## なぜ
+      直列の全体実行は 25 分を超えることがある。並列に実行できれば、変更前後の比較にかかる時間が短くなる。
+
+      ## 発動条件
+      直列の全体実行が遅く、作業の妨げになったとき。

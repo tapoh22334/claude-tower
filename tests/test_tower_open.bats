@@ -37,9 +37,8 @@ _sessions() { session_tmux list-sessions -F '#{session_name}' 2>/dev/null | grep
     [ "$status" -eq 0 ]
     local id="$output"
     [ "$(cat "$TOWER_METADATA_DIR/$id.prompt")" = 'line with "quotes" and $dollar' ]
-    sleep 0.5
     local screen
-    screen=$(session_tmux capture-pane -p -J -S -50 -t "$id")
+    screen=$(screen_once_shown "$id" "$id.prompt")
     [[ "$screen" == *"--session-id ${id#tower_}"* ]]
     [[ "$screen" == *"$id.prompt"* ]]
 }

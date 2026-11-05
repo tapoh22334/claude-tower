@@ -94,9 +94,8 @@ teardown() {
     local pf="$TOWER_METADATA_DIR/$id.prompt"
     printf 'summary line 1\nline 2 with "quotes" and $dollar\n' >"$pf"
     start_claude_session "$id" /tmp new "$pf" >/dev/null 2>&1
-    sleep 0.5
     local screen
-    screen=$(session_tmux capture-pane -p -J -t "$id")
+    screen=$(screen_once_shown "$id" "$id.prompt")
     [[ "$screen" == *"--session-id ${id#tower_}"* ]]
     [[ "$screen" == *'$(cat '* ]]
     [[ "$screen" == *"$id.prompt"* ]]
@@ -105,9 +104,8 @@ teardown() {
 @test "start_claude_session: without a 4th argument the command line is unchanged" {
     local id="tower_11111111-0000-4000-8000-000000000001"
     start_claude_session "$id" /tmp new >/dev/null 2>&1
-    sleep 0.5
     local screen
-    screen=$(session_tmux capture-pane -p -J -t "$id")
+    screen=$(screen_once_shown "$id" "--session-id ${id#tower_}")
     [[ "$screen" == *"--session-id ${id#tower_}"* ]]
     [[ "$screen" != *'$(cat '* ]]
 }

@@ -242,14 +242,14 @@ EOF
         source "'"$PROJECT_ROOT"'/tmux-plugin/lib/common.sh" 2>/dev/null
         source "'"$PROJECT_ROOT"'/tmux-plugin/lib/error-recovery.sh" 2>/dev/null
         tmux() {
-            printf "%s\n" "$*" >>"'"${TEST_DIR}"'/tmp/tmux_calls.log"
+            printf "%s\n" "$*" >>"'"${CLAUDE_TOWER_TEST_ROOT}"'/tmux_calls.log"
         }
         setup_pane_auto_restart "/some/script/dir"
     '
     [ "$status" -eq 0 ]
 
     # The socket name sits inside run-shell '...' so it is %q-escaped.
-    grep -qF 'CLAUDE_TOWER_NAV_SOCKET=sock\ with\ space' "${TEST_DIR}/tmp/tmux_calls.log"
+    grep -qF 'CLAUDE_TOWER_NAV_SOCKET=sock\ with\ space' "${CLAUDE_TOWER_TEST_ROOT}/tmux_calls.log"
 }
 
 # ============================================================================
