@@ -160,8 +160,12 @@ setup() {
     local base="${CLAUDE_TOWER_TEST_ROOT}/pathbase"
     mkdir -p "$base"
 
-    # Create a symlink that points outside the base directory
-    ln -sf /tmp "${base}/escape_link" 2>/dev/null || skip "Cannot create symlinks"
+    # Create a symlink that points outside the base directory. Not at /tmp:
+    # if a killed run leaves this link behind, one into /tmp makes
+    # `bats -r tests` recurse forever (#119); a sibling dir cannot loop.
+    local outside="${CLAUDE_TOWER_TEST_ROOT}/outside"
+    mkdir -p "$outside"
+    ln -sf "$outside" "${base}/escape_link" 2>/dev/null || skip "Cannot create symlinks"
 
     run validate_path_within "${base}/escape_link" "$base"
     # Should fail because resolved path is outside base
