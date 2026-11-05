@@ -6,7 +6,8 @@ project:
   owner: tapoh22334
 
 tasks:
-  - title: start_claude_session の初回プロンプトをファイルから読むテストが毎回成功するようにする
+  - issue: 118
+    title: start_claude_session の初回プロンプトをファイルから読むテストが毎回成功するようにする
     labels: [kind::bug]
     body: |
       ## やること
@@ -15,7 +16,8 @@ tasks:
       ## 完了条件
       - [ ] 失敗の原因が issue のコメントに記録されている
       - [ ] このテストを単独で 20 回続けて実行し、すべて成功する
-  - title: テストが tests/tmp/ に残すシンボリックリンクと一時ディレクトリを後始末する
+  - issue: 119
+    title: テストが tests/tmp/ に残すシンボリックリンクと一時ディレクトリを後始末する
     labels: [kind::bug]
     body: |
       ## やること
@@ -24,7 +26,8 @@ tasks:
       ## 完了条件
       - [ ] 該当テストの実行後、tests/tmp/ に escape_link が残らない
       - [ ] 該当テストの実行後、tests/tmp/ に run-bats-run-* が増えない
-  - title: bats -j で並列に実行してもテストが互いに干渉しないようにする
+  - issue: 120
+    title: bats -j で並列に実行してもテストが互いに干渉しないようにする
     labels: [idea, kind::chore]
     body: |
       ## 何を
