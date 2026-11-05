@@ -14,20 +14,6 @@ teardown() {
     teardown_test_env
 }
 
-# The shell echoes a sent command line a few characters at a time, and a
-# long one (the prompt file path) can still be half drawn 0.5s later. Poll
-# the pane until the line's last piece is on screen instead of sleeping a
-# fixed time, then hand the screen back for the assertions.
-_screen_once_shown() {
-    local id="$1" needle="$2" screen="" i
-    for ((i = 0; i < 50; i++)); do
-        screen=$(session_tmux capture-pane -p -J -t "$id")
-        [[ "$screen" == *"$needle"* ]] && break
-        sleep 0.1
-    done
-    printf '%s' "$screen"
-}
-
 # --- set_session_name -------------------------------------------------------
 
 @test "set_session_name: writes session_name and keeps every other key byte for byte" {
@@ -109,7 +95,7 @@ _screen_once_shown() {
     printf 'summary line 1\nline 2 with "quotes" and $dollar\n' >"$pf"
     start_claude_session "$id" /tmp new "$pf" >/dev/null 2>&1
     local screen
-    screen=$(_screen_once_shown "$id" "$id.prompt")
+    screen=$(screen_once_shown "$id" "$id.prompt")
     [[ "$screen" == *"--session-id ${id#tower_}"* ]]
     [[ "$screen" == *'$(cat '* ]]
     [[ "$screen" == *"$id.prompt"* ]]
@@ -119,7 +105,7 @@ _screen_once_shown() {
     local id="tower_11111111-0000-4000-8000-000000000001"
     start_claude_session "$id" /tmp new >/dev/null 2>&1
     local screen
-    screen=$(_screen_once_shown "$id" "--session-id ${id#tower_}")
+    screen=$(screen_once_shown "$id" "--session-id ${id#tower_}")
     [[ "$screen" == *"--session-id ${id#tower_}"* ]]
     [[ "$screen" != *'$(cat '* ]]
 }

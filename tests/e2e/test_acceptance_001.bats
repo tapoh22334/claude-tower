@@ -81,9 +81,8 @@ _inside() {
     load_metadata "$id"
     [ "$META_LAUNCH_DIR" = "$(cd "$FOO" && pwd -P)" ]
     [ "$(cat "$TOWER_METADATA_DIR/$id.prompt")" = "$summary" ]
-    sleep 0.5
     local screen
-    screen=$(session_tmux capture-pane -p -J -S -50 -t "$id")
+    screen=$(screen_once_shown "$id" "$id.prompt")
     [[ "$screen" == *"$id.prompt"* ]]
     [ "$(cat "$TOWER_NAV_SELECTED_FILE")" = "$id" ]
     session_tmux has-session -t "$H"

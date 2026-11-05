@@ -102,6 +102,23 @@ teardown_test_env() {
     return 0
 }
 
+# Print a session's screen once it shows NEEDLE (up to 5 s), or the last
+# screen if it never does, so the caller's assertion reports what was there.
+#
+# The shell echoes a sent command line a few characters at a time, and a long
+# one (a prompt file's absolute path) can still be half drawn 0.5 s later. A
+# fixed sleep before capture-pane made these tests fail at random (#118). Pick
+# a NEEDLE near the end of the line, so a half-drawn line never matches.
+screen_once_shown() {
+    local id="$1" needle="$2" screen="" i
+    for ((i = 0; i < 50; i++)); do
+        screen=$(session_tmux capture-pane -p -J -S -50 -t "$id")
+        [[ "$screen" == *"$needle"* ]] && break
+        sleep 0.1
+    done
+    printf '%s' "$screen"
+}
+
 # Create a mock metadata file (new minimal format)
 create_mock_metadata() {
     local session_id="$1"
