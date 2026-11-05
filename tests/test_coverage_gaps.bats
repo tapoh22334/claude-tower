@@ -27,7 +27,7 @@ teardown() {
 # ============================================================================
 
 @test "validate_path_within: rejects sibling dir sharing base as string prefix" {
-    base="${TEST_DIR}/tmp/pathbase"
+    base="${CLAUDE_TOWER_TEST_ROOT}/pathbase"
     mkdir -p "${base}bar"
 
     run validate_path_within "${base}bar/evil" "$base"
@@ -35,7 +35,7 @@ teardown() {
 }
 
 @test "validate_path_within: rejects base without trailing slash matching longer sibling" {
-    base="${TEST_DIR}/tmp/pathbase"
+    base="${CLAUDE_TOWER_TEST_ROOT}/pathbase"
     base="${base%/}"
     mkdir -p "${base}_sibling"
 

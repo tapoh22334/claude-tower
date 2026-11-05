@@ -122,8 +122,8 @@ _write_live_json() {
 }
 
 @test "list_project_dirs: dedupes and orders by newest transcript" {
-    # A dir under TMPDIR would be filtered out — use one under TEST_DIR.
-    local newdir="${TEST_DIR}/tmp/proj-b"
+    # A dir under TMPDIR would be filtered out — use one under the run root (tests/tmp).
+    local newdir="${CLAUDE_TOWER_TEST_ROOT}/proj-b"
     mkdir -p "$newdir"
     local old
     old=$(create_mock_jsonl "-dir-a" "$UUID_A" "$HOME")

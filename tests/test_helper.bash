@@ -14,6 +14,8 @@ PROJECT_ROOT="$(dirname "$TEST_DIR")"
 # none reproducible when the file was run alone.
 export CLAUDE_TOWER_TEST_RUN_ID="${BATS_RUN_TMPDIR:-$$}"
 export CLAUDE_TOWER_TEST_ROOT="${TEST_DIR}/tmp/run-${CLAUDE_TOWER_TEST_RUN_ID##*/}"
+# tests/setup_suite.bash rebuilds this path to remove it after the run; keep
+# the two in step.
 export CLAUDE_TOWER_METADATA_DIR="${CLAUDE_TOWER_TEST_ROOT}/metadata"
 # The Navigator's shared state (cursor, caller, owner, list cache) too. It
 # defaulted to the real /tmp/claude-tower, so a test run with a Navigator open

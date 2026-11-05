@@ -110,7 +110,7 @@ setup() {
 
 @test "validate_path_within: accepts path within base directory" {
     setup_test_env
-    local base="${TEST_DIR}/tmp/pathbase"
+    local base="${CLAUDE_TOWER_TEST_ROOT}/pathbase"
     mkdir -p "${base}/myproject"
 
     run validate_path_within "${base}/myproject" "$base"
@@ -121,7 +121,7 @@ setup() {
 
 @test "validate_path_within: rejects path outside base directory" {
     setup_test_env
-    local base="${TEST_DIR}/tmp/pathbase"
+    local base="${CLAUDE_TOWER_TEST_ROOT}/pathbase"
     mkdir -p "$base"
 
     run validate_path_within "/etc/passwd" "$base"
@@ -132,7 +132,7 @@ setup() {
 
 @test "validate_path_within: rejects path traversal with .." {
     setup_test_env
-    local base="${TEST_DIR}/tmp/pathbase"
+    local base="${CLAUDE_TOWER_TEST_ROOT}/pathbase"
     mkdir -p "$base"
 
     run validate_path_within "${base}/../../../etc/passwd" "$base"
@@ -143,7 +143,7 @@ setup() {
 
 @test "validate_path_within: accepts nested path within base" {
     setup_test_env
-    local base="${TEST_DIR}/tmp/pathbase"
+    local base="${CLAUDE_TOWER_TEST_ROOT}/pathbase"
     mkdir -p "${base}/deep/nested/path"
 
     run validate_path_within "${base}/deep/nested/path" "$base"
@@ -157,7 +157,7 @@ setup() {
     realpath -m /tmp >/dev/null 2>&1 || skip "realpath -m not available (macOS)"
 
     setup_test_env
-    local base="${TEST_DIR}/tmp/pathbase"
+    local base="${CLAUDE_TOWER_TEST_ROOT}/pathbase"
     mkdir -p "$base"
 
     # Create a symlink that points outside the base directory
