@@ -1,0 +1,14 @@
+  - Kept as names: 「着工」「出荷」「関門」「歯止め」「計測器」 (start of building, shipping, gate, safeguards, the evaluator). The reviewer suggested 「開発着手」「リリース」「ゲート」 and similar. These words are plain Japanese and are used consistently across several documents, so changing them in one place would break that.
+  - Kept 「差別化の要」 (the core differentiator). It is the name of a required section in the plans, and the pipeline's check (pipelines/flow.mjs) looks for it by that name. Renaming it means changing the code too.
+  - Applied the four findings the reviewer was unsure about, using my own reading. For example, 「逆に読む」 (read inversely) became 「代理とみなし、減点する」 (treat retention as a proxy for support work and deduct points). If any of my readings is wrong, I'll change it back.
+  - Smoothed a few spots where the replacements made a sentence clumsy. In GUARDRAILS.md, for example, 「広く使われる」 had ended up twice in one sentence.
+  Ticket: #18 is closed, with a comment on what was fixed and why. The board check confirms it is on the Project.
+  Nothing needs a decision from you. Still open from earlier: deleting the old repos' sessions in claude-tower, and whether to push the game-flood research that exists only on this machine.
+✻ Brewed for 4m 16s · done 0:41 · 1 shell still running
+※ recap: I'm rebuilding the old generation pipelines as the flooding repo, and the review and fixes of all its Japanese docs are now merged. Next, tell me whether to delete the old repos' claude-tower sessions and save the unpushed game-flood research.
+   new task? /clear to save 162.2k tokens · ✔ Update installed · /restart to apply
+────────────────────────────────────────
+❯ 
+────────────────────────────────────────
+  Opus 5.5 5h:-% 7d:13%
+  ⏵⏵ auto mode on · 1 shell · ← 5 agents
