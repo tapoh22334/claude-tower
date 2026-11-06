@@ -270,6 +270,45 @@ _pane_scan() {
     return 0
 }
 
+# Background agents the transcript shows as launched and not yet stopped.
+#
+# The agent list under the prompt cannot say this on its own: Claude keeps
+# a finished agent's row there, timer frozen and drawn exactly like a
+# running one (◯), until the user clears it. One stayed 18 hours (#123).
+# The parent transcript records both ends with the agent's id: the Agent
+# tool's result on launch ("status":"async_launched","agentId":"<id>") and
+# a <task-notification> carrying <task-id><id></task-id> when it stops,
+# whatever the status (completed, failed, killed, stopped). Background
+# shells notify the same way under ids never launched as agents, so only
+# launched ids count.
+#
+# Known gap: an agent resumed after it stopped leaves no new launch record
+# and reads as stopped — the reading before #114, not a false busy.
+#
+# One grep over the whole transcript, because a long-running agent's launch
+# can be far back: ~0.5s on a 900MB one. Callers run it only when the pane
+# lists agents.
+transcript_running_agents() {
+    local jsonl="$1" rec id n=0
+    local -A launched=()
+    local launch_re='"agentId":"([0-9a-z]+)"'
+    local stop_re='<task-id>([0-9a-z]+)</task-id>'
+    while IFS= read -r rec; do
+        if [[ "$rec" =~ $launch_re ]]; then
+            launched[${BASH_REMATCH[1]}]=1
+        elif [[ "$rec" =~ $stop_re ]]; then
+            id=${BASH_REMATCH[1]}
+            [[ -n "${launched[$id]-}" ]] && launched[$id]=0
+        fi
+    done < <(LC_ALL=C grep -aoE \
+        '"status":"async_launched","agentId":"[0-9a-z]+"|<task-id>[0-9a-z]+</task-id>' \
+        -- "$jsonl" 2>/dev/null)
+    for id in "${!launched[@]}"; do
+        ((launched[$id])) && n=$((n + 1))
+    done
+    echo "$n"
+}
+
 # Is the session working?
 #
 # Two independent signals, because each is blind on its own:
@@ -298,12 +337,21 @@ is_session_busy() {
     local session_id="${2-}"
     local activity now
 
+    # pane_shows_working runs bare, not under $(...), so the PANE_* globals
+    # it leaves are this call's reading.
+    local on_screen=1
     if [[ -n "$session_id" ]]; then
         if [[ -n "${3+set}" ]]; then
-            pane_shows_working "$session_id" "$3" && return 0
+            pane_shows_working "$session_id" "$3" && on_screen=0
         else
-            pane_shows_working "$session_id" && return 0
+            pane_shows_working "$session_id" && on_screen=0
         fi
+    fi
+    if ((on_screen == 0)); then
+        ((PANE_WORKING)) && return 0
+        # Agent rows alone: Claude keeps a finished agent's row on screen,
+        # so believe them only while the transcript has one in flight.
+        (($(transcript_running_agents "$jsonl") > 0)) && return 0
     fi
 
     activity=$(get_session_activity "$jsonl")
@@ -748,7 +796,7 @@ count_unregistered_processes_in_dir() {
 #   $3 (optional): pre-fetched pane text, as for is_session_busy
 count_active_subagents() {
     local jsonl="$1"
-    local dir session_id now t f n=0 listed
+    local dir session_id now t f n=0 listed running
     dir="${jsonl%/*}"
     session_id="${jsonl##*/}"
     session_id="${session_id%.jsonl}"
@@ -763,6 +811,12 @@ count_active_subagents() {
             listed=$(pane_agent_count "$2" "$3")
         else
             listed=$(pane_agent_count "$2")
+        fi
+        # Rows of finished agents linger on screen; see
+        # transcript_running_agents.
+        if ((listed > 0)); then
+            running=$(transcript_running_agents "$jsonl")
+            ((listed > running)) && listed=$running
         fi
         ((listed > n)) && n=$listed
     fi
