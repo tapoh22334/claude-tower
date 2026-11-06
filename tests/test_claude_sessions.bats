@@ -209,6 +209,76 @@ _agent_stopped() {
     [ "$output" = "1" ]
 }
 
+@test "transcript_running_agents: an agent resumed after it stopped is running again" {
+    # SendMessage to a stopped agent records "resumedAgentId", not a launch.
+    local f
+    f=$(create_mock_jsonl "-home-user-proj" "$UUID_A" "/home/user/proj")
+    _agent_launched "$f" a1111111111111111
+    _agent_stopped "$f" a1111111111111111
+    printf '%s\n' '{"type":"user","toolUseResult":{"success":true,"resumedAgentId":"a1111111111111111","revivedAgentId":"a1111111111111111"}}' >>"$f"
+    run transcript_running_agents "$f"
+    [ "$output" = "1" ]
+    _agent_stopped "$f" a1111111111111111
+    run transcript_running_agents "$f"
+    [ "$output" = "0" ]
+}
+
+@test "transcript_running_agents: a later call reads on from the cached position" {
+    # A transcript can be 900MB, and the scan runs on every rebuild while a
+    # stale row stays on screen. The second call must see what was appended
+    # after the first, and a rewritten (shorter) file must be read afresh.
+    local f
+    f=$(create_mock_jsonl "-home-user-proj" "$UUID_A" "/home/user/proj")
+    _agent_launched "$f" a1111111111111111
+    run transcript_running_agents "$f"
+    [ "$output" = "1" ]
+    _agent_stopped "$f" a1111111111111111
+    _agent_launched "$f" a2222222222222222
+    run transcript_running_agents "$f"
+    [ "$output" = "1" ]
+    create_mock_jsonl "-home-user-proj" "$UUID_A" "/home/user/proj" >/dev/null
+    run transcript_running_agents "$f"
+    [ "$output" = "0" ]
+}
+
+@test "transcript_running_agents: the cache does not replay what it already read" {
+    # Mutation guard for the cache: poison the cached state, and a call that
+    # finds the file unchanged must answer from the cache, not rescan.
+    local f
+    f=$(create_mock_jsonl "-home-user-proj" "$UUID_A" "/home/user/proj")
+    _agent_launched "$f" a1111111111111111
+    run transcript_running_agents "$f"
+    [ "$output" = "1" ]
+    local cache="${CLAUDE_TOWER_NAV_STATE_DIR}/agents/${UUID_A}.jsonl"
+    [ -f "$cache" ]
+    sed -i 's/^a1111111111111111 1$/a1111111111111111 0/' "$cache"
+    run transcript_running_agents "$f"
+    [ "$output" = "0" ]
+}
+
+@test "is_session_busy: main's counter wins over a finished agent's row" {
+    local f
+    f=$(create_mock_jsonl "-home-user-proj" "$UUID_A" "/home/user/proj")
+    _agent_launched "$f" a1111111111111111
+    _agent_stopped "$f" a1111111111111111
+    touch -d "2020-01-01 00:00:00" "$f"
+    run is_session_busy "$f" "tower_${UUID_A}" "$(_pane main-working-with-agent)"
+    [ "$status" -eq 0 ]
+}
+
+@test "is_session_busy: reading the pane itself, a finished agent's row is not work" {
+    # nav-build's call shape: no pane text passed.
+    local f
+    f=$(create_mock_jsonl "-home-user-proj" "$UUID_A" "/home/user/proj")
+    _agent_launched "$f" a1111111111111111
+    _agent_stopped "$f" a1111111111111111
+    touch -d "2020-01-01 00:00:00" "$f"
+    PANE_FIXTURE="${BATS_TEST_DIRNAME}/fixtures/panes/main-idle-agent-running.txt"
+    session_tmux() { [[ "$1" == capture-pane ]] && cat "$PANE_FIXTURE"; }
+    run is_session_busy "$f" "tower_${UUID_A}"
+    [ "$status" -eq 1 ]
+}
+
 @test "transcript_running_agents: a background shell's notification is not an agent" {
     # Shells notify through the same <task-notification>, under ids like
     # "b9wo7ticq" that were never launched as agents.

@@ -275,36 +275,77 @@ _pane_scan() {
 # The agent list under the prompt cannot say this on its own: Claude keeps
 # a finished agent's row there, timer frozen and drawn exactly like a
 # running one (◯), until the user clears it. One stayed 18 hours (#123).
-# The parent transcript records both ends with the agent's id: the Agent
-# tool's result on launch ("status":"async_launched","agentId":"<id>") and
-# a <task-notification> carrying <task-id><id></task-id> when it stops,
-# whatever the status (completed, failed, killed, stopped). Background
-# shells notify the same way under ids never launched as agents, so only
-# launched ids count.
+# The parent transcript records each start and stop with the agent's id:
 #
-# Known gap: an agent resumed after it stopped leaves no new launch record
-# and reads as stopped — the reading before #114, not a false busy.
+#   start - the Agent tool's result on launch ("status":"async_launched",
+#           "agentId":"<id>"), or SendMessage reviving a stopped agent
+#           ("resumedAgentId":"<id>")
+#   stop  - a <task-notification> carrying <task-id><id></task-id>, whatever
+#           the status (completed, failed, killed, stopped)
 #
-# One grep over the whole transcript, because a long-running agent's launch
-# can be far back: ~0.5s on a 900MB one. Callers run it only when the pane
-# lists agents.
+# The last event per id wins. Background shells notify the same way under
+# ids never started as agents, so a stop only counts for a known id.
+#
+# Known gap: a message queued to an agent that then finishes revives it
+# without any start record; that agent reads as stopped — the reading
+# before #114, not a false busy.
+#
+# A long-running agent's launch can be far back, and grepping a 900MB
+# transcript takes over a second, on every rebuild for as long as a stale
+# row stays on screen. So the state is cached per transcript with the size
+# read so far, and a later call reads only what was appended. It re-reads a
+# little before that point, so a record cut by a write in progress is seen
+# whole next time. Replaying events in order cannot change the result: the
+# replayed stretch ends with each id's latest event. A file shorter than
+# the cached size has been rewritten and is read from the start.
 transcript_running_agents() {
-    local jsonl="$1" rec id n=0
-    local -A launched=()
-    local launch_re='"agentId":"([0-9a-z]+)"'
+    local jsonl="$1" rec id n=0 size from=0 cached=""
+    local -A state=()
+    local start_re='"(agentId|resumedAgentId)":"([0-9a-z]+)"'
     local stop_re='<task-id>([0-9a-z]+)</task-id>'
-    while IFS= read -r rec; do
-        if [[ "$rec" =~ $launch_re ]]; then
-            launched[${BASH_REMATCH[1]}]=1
-        elif [[ "$rec" =~ $stop_re ]]; then
-            id=${BASH_REMATCH[1]}
-            [[ -n "${launched[$id]-}" ]] && launched[$id]=0
+    local cache="${TOWER_NAV_STATE_DIR}/agents/${jsonl##*/}"
+
+    size=$(stat -c %s -- "$jsonl" 2>/dev/null) || {
+        echo 0
+        return 0
+    }
+    if [[ -f "$cache" ]]; then
+        {
+            IFS=$'\t' read -r cached rec
+            if [[ "$rec" == "$jsonl" && "$cached" =~ ^[0-9]+$ ]] && ((cached <= size)); then
+                while read -r id rec; do
+                    [[ -n "$id" ]] && state[$id]=$rec
+                done
+            else
+                cached=""
+            fi
+        } <"$cache"
+    fi
+
+    if [[ "$cached" != "$size" ]]; then
+        [[ -n "$cached" ]] && from=$((cached > 4096 ? cached - 4096 : 0))
+        while IFS= read -r rec; do
+            if [[ "$rec" =~ $start_re ]]; then
+                state[${BASH_REMATCH[2]}]=1
+            elif [[ "$rec" =~ $stop_re ]]; then
+                id=${BASH_REMATCH[1]}
+                [[ -n "${state[$id]-}" ]] && state[$id]=0
+            fi
+        done < <(tail -c "+$((from + 1))" -- "$jsonl" 2>/dev/null |
+            LC_ALL=C grep -aoE \
+                '"status":"async_launched","agentId":"[0-9a-z]+"|"resumedAgentId":"[0-9a-z]+"|<task-id>[0-9a-z]+</task-id>')
+        if mkdir -p "${cache%/*}" 2>/dev/null; then
+            {
+                printf '%s\t%s\n' "$size" "$jsonl"
+                for id in "${!state[@]}"; do
+                    printf '%s %s\n' "$id" "${state[$id]}"
+                done
+            } >"${cache}.$$" 2>/dev/null && mv -f "${cache}.$$" "$cache" 2>/dev/null
         fi
-    done < <(LC_ALL=C grep -aoE \
-        '"status":"async_launched","agentId":"[0-9a-z]+"|<task-id>[0-9a-z]+</task-id>' \
-        -- "$jsonl" 2>/dev/null)
-    for id in "${!launched[@]}"; do
-        ((launched[$id])) && n=$((n + 1))
+    fi
+
+    for id in "${!state[@]}"; do
+        ((state[$id])) && n=$((n + 1))
     done
     echo "$n"
 }
