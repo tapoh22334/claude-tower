@@ -270,6 +270,86 @@ _pane_scan() {
     return 0
 }
 
+# Background agents the transcript shows as launched and not yet stopped.
+#
+# The agent list under the prompt cannot say this on its own: Claude keeps
+# a finished agent's row there, timer frozen and drawn exactly like a
+# running one (◯), until the user clears it. One stayed 18 hours (#123).
+# The parent transcript records each start and stop with the agent's id:
+#
+#   start - the Agent tool's result on launch ("status":"async_launched",
+#           "agentId":"<id>"), or SendMessage reviving a stopped agent
+#           ("resumedAgentId":"<id>")
+#   stop  - a <task-notification> carrying <task-id><id></task-id>, whatever
+#           the status (completed, failed, killed, stopped)
+#
+# The last event per id wins. Background shells notify the same way under
+# ids never started as agents, so a stop only counts for a known id.
+#
+# Known gap: a message queued to an agent that then finishes revives it
+# without any start record; that agent reads as stopped — the reading
+# before #114, not a false busy.
+#
+# A long-running agent's launch can be far back, and grepping a 900MB
+# transcript takes over a second, on every rebuild for as long as a stale
+# row stays on screen. So the state is cached per transcript with the size
+# read so far, and a later call reads only what was appended. It re-reads a
+# little before that point, so a record cut by a write in progress is seen
+# whole next time. Replaying events in order cannot change the result: the
+# replayed stretch ends with each id's latest event. A file shorter than
+# the cached size has been rewritten and is read from the start.
+transcript_running_agents() {
+    local jsonl="$1" rec id n=0 size from=0 cached=""
+    local -A state=()
+    local start_re='"(agentId|resumedAgentId)":"([0-9a-z]+)"'
+    local stop_re='<task-id>([0-9a-z]+)</task-id>'
+    local cache="${TOWER_NAV_STATE_DIR}/agents/${jsonl##*/}"
+
+    size=$(stat -c %s -- "$jsonl" 2>/dev/null) || {
+        echo 0
+        return 0
+    }
+    if [[ -f "$cache" ]]; then
+        {
+            IFS=$'\t' read -r cached rec
+            if [[ "$rec" == "$jsonl" && "$cached" =~ ^[0-9]+$ ]] && ((cached <= size)); then
+                while read -r id rec; do
+                    [[ -n "$id" ]] && state[$id]=$rec
+                done
+            else
+                cached=""
+            fi
+        } <"$cache"
+    fi
+
+    if [[ "$cached" != "$size" ]]; then
+        [[ -n "$cached" ]] && from=$((cached > 4096 ? cached - 4096 : 0))
+        while IFS= read -r rec; do
+            if [[ "$rec" =~ $start_re ]]; then
+                state[${BASH_REMATCH[2]}]=1
+            elif [[ "$rec" =~ $stop_re ]]; then
+                id=${BASH_REMATCH[1]}
+                [[ -n "${state[$id]-}" ]] && state[$id]=0
+            fi
+        done < <(tail -c "+$((from + 1))" -- "$jsonl" 2>/dev/null |
+            LC_ALL=C grep -aoE \
+                '"status":"async_launched","agentId":"[0-9a-z]+"|"resumedAgentId":"[0-9a-z]+"|<task-id>[0-9a-z]+</task-id>')
+        if mkdir -p "${cache%/*}" 2>/dev/null; then
+            {
+                printf '%s\t%s\n' "$size" "$jsonl"
+                for id in "${!state[@]}"; do
+                    printf '%s %s\n' "$id" "${state[$id]}"
+                done
+            } >"${cache}.$$" 2>/dev/null && mv -f "${cache}.$$" "$cache" 2>/dev/null
+        fi
+    fi
+
+    for id in "${!state[@]}"; do
+        ((state[$id])) && n=$((n + 1))
+    done
+    echo "$n"
+}
+
 # Is the session working?
 #
 # Two independent signals, because each is blind on its own:
@@ -298,12 +378,21 @@ is_session_busy() {
     local session_id="${2-}"
     local activity now
 
+    # pane_shows_working runs bare, not under $(...), so the PANE_* globals
+    # it leaves are this call's reading.
+    local on_screen=1
     if [[ -n "$session_id" ]]; then
         if [[ -n "${3+set}" ]]; then
-            pane_shows_working "$session_id" "$3" && return 0
+            pane_shows_working "$session_id" "$3" && on_screen=0
         else
-            pane_shows_working "$session_id" && return 0
+            pane_shows_working "$session_id" && on_screen=0
         fi
+    fi
+    if ((on_screen == 0)); then
+        ((PANE_WORKING)) && return 0
+        # Agent rows alone: Claude keeps a finished agent's row on screen,
+        # so believe them only while the transcript has one in flight.
+        (($(transcript_running_agents "$jsonl") > 0)) && return 0
     fi
 
     activity=$(get_session_activity "$jsonl")
@@ -748,7 +837,7 @@ count_unregistered_processes_in_dir() {
 #   $3 (optional): pre-fetched pane text, as for is_session_busy
 count_active_subagents() {
     local jsonl="$1"
-    local dir session_id now t f n=0 listed
+    local dir session_id now t f n=0 listed running
     dir="${jsonl%/*}"
     session_id="${jsonl##*/}"
     session_id="${session_id%.jsonl}"
@@ -763,6 +852,12 @@ count_active_subagents() {
             listed=$(pane_agent_count "$2" "$3")
         else
             listed=$(pane_agent_count "$2")
+        fi
+        # Rows of finished agents linger on screen; see
+        # transcript_running_agents.
+        if ((listed > 0)); then
+            running=$(transcript_running_agents "$jsonl")
+            ((listed > running)) && listed=$running
         fi
         ((listed > n)) && n=$listed
     fi
