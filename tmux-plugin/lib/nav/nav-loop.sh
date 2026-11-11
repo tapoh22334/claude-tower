@@ -205,6 +205,14 @@ main_loop() {
             # i is Enter (vim's "insert": go type into the session), on
             # every kind of row.
             [[ "$key" == i ]] && key=""
+            # r starts the dormant sessions under the cursor: the session on
+            # a session row, the project's on a project row. One meaning on
+            # every row, so it comes before the project-row keys.
+            if [[ "$key" == r ]]; then
+                start_under_cursor "${SESSION_IDS[$selected_index]:-}"
+                selected_index=$(get_selection_index)
+                continue
+            fi
             # Search keys come before the project-row keys: as in vim, n/N
             # always mean next/prev match, on every kind of row.
             if [[ "$key" == "/" ]]; then

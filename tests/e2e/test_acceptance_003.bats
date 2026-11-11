@@ -345,8 +345,9 @@ _label_col() {
     build_session_list
     _select "$s"
     n=$(_meta_count)
-    # r / A have no branch in the loop: nothing it calls is reached.
-    run grep -nE '^ {16}(i|r|A)( \|.*)?\)' "$PROJECT_ROOT/tmux-plugin/lib/nav/nav-loop.sh"
+    # A has no branch in the loop: nothing it calls is reached. (r came back
+    # as the start key in value/004-nav-r-start.)
+    run grep -nE '^ {16}(i|A)( \|.*)?\)' "$PROJECT_ROOT/tmux-plugin/lib/nav/nav-loop.sh"
     [ "$status" -ne 0 ]
     # i is read as Enter before any key is dispatched.
     grep -qE '^ +\[\[ "\$key" == i \]\] && key=""$' "$PROJECT_ROOT/tmux-plugin/lib/nav/nav-loop.sh"
