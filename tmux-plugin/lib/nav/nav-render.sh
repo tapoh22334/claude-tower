@@ -350,7 +350,6 @@ render_list() {
 show_help() {
     clear
     echo -e "${NAV_C_HEADER}Navigator Help${NAV_C_NORMAL}"
-    echo ""
     echo "  Navigation:"
     echo "    j / ↓      Move down"
     echo "    k / ↑      Move up"
@@ -361,6 +360,7 @@ show_help() {
     echo "  Actions:"
     echo "    Enter / i  Open the session (resumes a ○ dormant one first);"
     echo "               on a project row, start a new session there"
+    echo "    r          Start ○/• dormant session(s), stay in the list"
     echo "    a          Add session (new ones start in the cursor's project)"
     echo "    c          Copy: new session that continues this conversation"
     echo "    D          Delete from Tower (transcript kept) / remove a project"

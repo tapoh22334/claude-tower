@@ -1,0 +1,20 @@
+# Navigator の r による起動(value/004-nav-r-start)。
+# 検証: PYTHONPATH=~/.claude/skills/github-tickets/scripts ~/.claude/skills/github-tickets/scripts/apply.sh --verify docs/tickets/2026-11-11-nav-r-start.yml
+repo: tapoh22334/claude-tower
+
+project:
+  number: 4
+  owner: tapoh22334
+
+tasks:
+  - key: nav-r-start
+    issue: 128
+    title: Navigator の r で、休眠中のセッションを一覧から移らずに起動できるようにする
+    body: |
+      ## やること
+      Navigator で `r` を押すと、休眠中(○)のセッションを起動する。焦点は一覧に残す。プロジェクトの見出しの行で押したときは、そのプロジェクトの休眠中のセッションをすべて起動する。`r` は 003-nav-keys で削除し、再開は Enter に割り当てていた。しかし Enter は起動と同時に焦点を移すので、複数のセッションをまとめて起動する用途に合わない。利用者も `r` を押す操作に慣れていて、押しても何も起きなかった。
+
+      ## 完了条件
+      - [ ] セッションの行で `r` を押すと、休眠中のセッションが起動し、行が ◐ になる。焦点は一覧に残る
+      - [ ] 見出しの行で `r` を押すと、そのプロジェクトの休眠中のセッションがすべて起動する。起動中・別の場所で動作中(◇)・復元できない行は起動しない
+      - [ ] 起動するものがない行で `r` を押すと、その理由が一覧の下に表示される
