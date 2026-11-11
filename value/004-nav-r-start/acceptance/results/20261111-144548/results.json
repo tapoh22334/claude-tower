@@ -1,0 +1,59 @@
+{
+ "run": "20261111-144548",
+ "runner": "bats tests/e2e/test_acceptance_004.bats",
+ "scenarios": [
+  {
+   "name": "休眠中の行で r を押すと、起動して一覧に留まる",
+   "status": "pass",
+   "requirements": [
+    "REQ-004-001",
+    "REQ-004-004",
+    "REQ-004-005"
+   ],
+   "userflow": "UF-004-001"
+  },
+  {
+   "name": "見出しの行で r を押すと、そのプロジェクトの休眠中のセッションだけがすべて起動する",
+   "status": "pass",
+   "requirements": [
+    "REQ-004-002",
+    "REQ-004-003",
+    "REQ-004-004"
+   ],
+   "userflow": "UF-004-002"
+  },
+  {
+   "name": "起動するものがない行で r を押すと、理由が出て何も起動しない",
+   "status": "pass",
+   "requirements": [
+    "REQ-004-010",
+    "REQ-004-011"
+   ],
+   "userflow": "UF-004-003"
+  },
+  {
+   "name": "起動に失敗した行は休眠中のまま残り、失敗が表示される",
+   "status": "pass",
+   "requirements": [
+    "REQ-004-012"
+   ],
+   "userflow": "UF-004-002"
+  },
+  {
+   "name": "画面の行と選択の記録が食い違うときは、何も起動しない",
+   "status": "pass",
+   "requirements": [
+    "REQ-004-013"
+   ],
+   "userflow": "UF-004-001"
+  },
+  {
+   "name": "セッション行で起動に失敗すると、理由が出て休眠中のまま残る",
+   "status": "pass",
+   "requirements": [
+    "REQ-004-012"
+   ],
+   "userflow": "UF-004-001"
+  }
+ ]
+}
