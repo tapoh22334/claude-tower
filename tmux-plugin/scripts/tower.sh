@@ -65,7 +65,7 @@ Commands:
 
 Session States:
   ◉ Running     Claude is actively working
-  ▶ Idle        Claude is waiting for input
+    Idle        Claude is waiting for input (no icon)
   ! Exited      Claude process has exited
   ○ Dormant     Session needs restoration
 

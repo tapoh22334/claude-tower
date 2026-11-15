@@ -370,7 +370,9 @@ show_help() {
     echo ""
     # Keep the help under 24 rows total: at 24 printed lines the final
     # newline scrolls the title off a default-size terminal.
-    echo "  States:    ${SPINNER_FRAMES[0]} working  • new output  ▶ waiting  ○ dormant  ◇ external  ✗/? gone"
+    # Keep it within 80 columns: a wrapped line pushes the title off a 24-row
+    # screen. Blank (no icon) is an idle session with nothing unread (#130).
+    echo "  States:  ${SPINNER_FRAMES[0]} working  • new output  ○ dormant  ◇ external  ✗/? gone  blank idle"
     echo "  Marks:     ⚙N active subagents (right)   ⚡N unmanaged claude in dir (header)"
     echo ""
     echo -e "${NAV_C_DIM}Press any key to continue...${NAV_C_NORMAL}"

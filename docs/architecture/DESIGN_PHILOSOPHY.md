@@ -88,7 +88,7 @@ Inspired by the Zen of Python, Unix Philosophy, and successful tmux plugins.
 **Rationale**: Modal interfaces confuse when state is invisible. Transparency builds trust.
 
 **In Practice**:
-- Session states indicated by icons (▶ active, ○ dormant, ✗ dead, and so on)
+- Session states indicated by icons (blank for active, ○ dormant, ✗ dead, and so on)
 - Current focus position clearly highlighted
 - Help available via `?` key in all modes
 

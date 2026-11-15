@@ -62,7 +62,7 @@ TUI error recovery patterns:
 | State | Icon | Description |
 |-------|------|-------------|
 | `busy` | `●` | tmux session exists, Claude active within `TOWER_BUSY_WINDOW` |
-| `active` | `▶` | tmux session exists, idle |
+| `active` | (blank) | tmux session exists, idle |
 | `dormant` | `○` | Registered, no tmux session — can be resumed |
 | `dead` | `✗` | Registered, but the session's working directory is gone |
 | `lost` | `?` | Registered, but the Claude transcript is gone (unrecoverable) |

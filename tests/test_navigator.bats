@@ -37,8 +37,9 @@ setup() {
 @test "get_state_icon: returns correct icon for active" {
     run get_state_icon "active"
 
+    # Blank (#130): a session waiting with nothing unread needs no mark.
     [ "$status" -eq 0 ]
-    [ "$output" = "▶" ]
+    [ "$output" = " " ]
 }
 
 @test "get_state_icon: returns ? for unknown state" {
