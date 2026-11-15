@@ -52,7 +52,7 @@ _run_nav() {
     [[ "$output" == *"• t-x"* ]]
 }
 
-@test "build_session_list: newmsg suppresses the plain ▶ active icon" {
+@test "build_session_list: newmsg shows • where active shows no icon" {
     _run_nav '
         list_all_sessions() { echo "tower_x:active"; }
         is_session_unread() { return 0; }

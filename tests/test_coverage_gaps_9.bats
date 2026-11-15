@@ -334,10 +334,13 @@ EOF
 
     build_session_list
 
-    # Seen -> stays ▶ active, never promoted to the • newmsg state.
+    # Seen -> stays active, never promoted to the • newmsg state. Active
+    # has a blank icon (#130): nothing to do there, so nothing to look at.
     # Row 0 is the project row; the session is row 1.
-    [[ "${SESSION_DISPLAYS[1]}" == *"▶"* ]]
-    [[ "${SESSION_DISPLAYS[1]}" != *"•"* ]]
+    local row
+    row=$(_strip_ansi_str "${SESSION_DISPLAYS[1]}")
+    [[ "$row" == "  "* ]]
+    [[ "$row" != *"•"* && "$row" != *"▶"* ]]
 }
 
 # ============================================================================

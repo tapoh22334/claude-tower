@@ -1431,7 +1431,7 @@ session_exists() {
 # Session State Detection (v3.0 - Idempotent)
 # ============================================================================
 # Session states (simplified for idempotency):
-#   Active (▶)  - tmux session exists
+#   Active ( )  - tmux session exists (blank: nothing to do, #130)
 #   Dormant (○) - Metadata exists but no tmux session
 #
 # Note: "exited" state was removed. If tmux session exists, it's active.
@@ -1455,7 +1455,7 @@ readonly STATE_NEWMSG="newmsg"
 readonly STATE_STARTING="starting"
 readonly STATE_DELETING="deleting"
 
-readonly ICON_STATE_ACTIVE="▶"
+readonly ICON_STATE_ACTIVE=" "
 readonly ICON_STATE_DORMANT="○"
 readonly ICON_STATE_BUSY="●"
 readonly ICON_STATE_DEAD="✗"

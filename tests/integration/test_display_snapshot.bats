@@ -2,7 +2,7 @@
 # Snapshot-based display tests
 # Uses tmux capture-pane to verify visual output of the actual Navigator
 # list pane (navigator-list.sh), against the 5-state model:
-#   ● busy / ▶ active / ○ dormant / ✗ dead / ? lost
+#   ● busy / (blank) active / ○ dormant / ✗ dead / ? lost
 # Compares output against expected patterns (not exact match)
 
 load '../test_helper'
@@ -85,7 +85,7 @@ strip_ansi() {
     [ "$output" = "●" ]
 
     run get_state_icon "active"
-    [ "$output" = "▶" ]
+    [ "$output" = " " ]
 
     run get_state_icon "dormant"
     [ "$output" = "○" ]

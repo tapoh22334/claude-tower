@@ -15,6 +15,10 @@ setup() {
             [[ "$MOCK_TMUX_HAS" == "1" ]]
             return
         fi
+        if [[ "$1" == "capture-pane" ]]; then
+            printf '%s\n' "${MOCK_PANE-}"
+            return 0
+        fi
         return 0
     }
 }
@@ -23,11 +27,20 @@ teardown() {
     teardown_test_env
 }
 
-@test "get_display_state: busy when tmux exists and transcript fresh" {
+@test "get_display_state: busy when the pane shows Claude's counter" {
     MOCK_TMUX_HAS=1
+    MOCK_PANE='✻ Pontificating… (12s · ↓ 1.4k tokens)'
     create_mock_jsonl "-home-user-proj" "$UUID_A" "$HOME" > /dev/null
     run get_display_state "tower_${UUID_A}"
     [ "$output" = "busy" ]
+}
+
+@test "get_display_state: active when the pane is idle, however fresh the transcript (#88)" {
+    MOCK_TMUX_HAS=1
+    MOCK_PANE='❯ '
+    create_mock_jsonl "-home-user-proj" "$UUID_A" "$HOME" > /dev/null
+    run get_display_state "tower_${UUID_A}"
+    [ "$output" = "active" ]
 }
 
 @test "get_display_state: active when tmux exists and transcript old" {

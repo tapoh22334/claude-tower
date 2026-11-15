@@ -79,7 +79,7 @@ highlighted session (resuming it first if it is dormant), `Escape` comes back.
 | | | |
 |---|---|---|
 | `⠋⠙⠹…` | Busy | Claude is working (an animated spinner, not one glyph) |
-| `▶` | Active | Running, waiting for you |
+| (blank) | Active | Running, waiting for you, nothing unread |
 | `○` | Dormant | Not running — `Enter` resumes it |
 | `◇` | External | Live outside Tower; use its own terminal |
 | `✗` | Dead | Working directory is gone |

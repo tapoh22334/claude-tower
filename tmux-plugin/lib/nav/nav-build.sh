@@ -193,7 +193,7 @@ build_session_list() {
                 label="${NAV_C_DIM}${label} — starting…${NAV_C_NORMAL}"
                 ;;
             newmsg)  icon="${NAV_C_ACTIVE}${ICON_STATE_NEWMSG}${NAV_C_NORMAL}" ;;
-            active)  icon="${NAV_C_ACTIVE}▶${NAV_C_NORMAL}" ;;
+            active)  icon="${ICON_STATE_ACTIVE}" ;;
             external) icon="${NAV_C_EXTERNAL}◇${NAV_C_NORMAL}" ;;
             dormant) icon="${NAV_C_DORMANT}○${NAV_C_NORMAL}" ;;
             dead)

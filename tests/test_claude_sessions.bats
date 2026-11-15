@@ -165,12 +165,58 @@ teardown() {
     [ "$status" -eq 0 ]
 }
 
-@test "is_session_busy: idle pane falls back to the transcript verdict" {
+@test "is_session_busy: idle pane with a stale transcript is not busy" {
     local f
     f=$(create_mock_jsonl "-home-user-proj" "$UUID_A" "/home/user/proj")
     touch -d "2020-01-01 00:00:00" "$f"
     run is_session_busy "$f" "tower_${UUID_A}" '❯ '
     [ "$status" -eq 1 ]
+}
+
+@test "is_session_busy: a readable idle pane is not busy even when the transcript just moved" {
+    # #88: Claude appends records after a turn ends (stop_hook_summary,
+    # away_summary minutes later). Each touch kept the spinner turning for
+    # TOWER_BUSY_WINDOW while the pane sat at the prompt.
+    local f
+    f=$(create_mock_jsonl "-home-user-proj" "$UUID_A" "/home/user/proj")
+    run is_session_busy "$f" "tower_${UUID_A}" '❯ '
+    [ "$status" -eq 1 ]
+}
+
+@test "is_session_busy: reading the pane itself, an idle prompt beats a fresh transcript" {
+    # nav-build's call shape: no pane text passed.
+    local f
+    f=$(create_mock_jsonl "-home-user-proj" "$UUID_A" "/home/user/proj")
+    session_tmux() { [[ "$1" == capture-pane ]] && printf '%s\n' '────' '❯ ' '────'; }
+    run is_session_busy "$f" "tower_${UUID_A}"
+    [ "$status" -eq 1 ]
+}
+
+@test "is_session_busy: reads Claude's window, not a view window made current over it" {
+    # Tile/Tail add a window to a tower_* session and it becomes current.
+    # A bare session target reads that window, so a working Claude read as
+    # idle once the pane alone decided (#88 review).
+    local f
+    f=$(create_mock_jsonl "-home-user-proj" "$UUID_A" "/home/user/proj")
+    touch -d "2020-01-01 00:00:00" "$f"
+    session_tmux() {
+        [[ "$1" == capture-pane ]] || return 0
+        if [[ "$3" == *":^" ]]; then
+            echo '✻ Pontificating… (12s · ↓ 1.4k tokens)'
+        else
+            echo 'tail view: nothing working here'
+        fi
+    }
+    run is_session_busy "$f" "tower_${UUID_A}"
+    [ "$status" -eq 0 ]
+}
+
+@test "is_session_busy: an unreadable pane falls back to the transcript time" {
+    local f
+    f=$(create_mock_jsonl "-home-user-proj" "$UUID_A" "/home/user/proj")
+    session_tmux() { return 1; }
+    run is_session_busy "$f" "tower_${UUID_A}"
+    [ "$status" -eq 0 ]
 }
 
 @test "pane_shows_working: quoted 'esc to interrupt' is not a working signal" {

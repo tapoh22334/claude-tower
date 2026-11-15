@@ -155,6 +155,14 @@ get_session_activity() {
     echo "$latest"
 }
 
+# Every capture of Claude's pane below targets "<session>:^", the session's
+# first window, where new-session started Claude. A bare session target
+# means the CURRENT window, and Tile/Tail add their own window to a
+# tower_* session and make it current, so a bare target read the view
+# instead of Claude. ":^" rather than ":0": base-index is the user's to
+# set, and a window name after ":" has been mangled before. Written inline,
+# not through a helper: $(...) would fork once per row per rebuild.
+
 # Is Claude's own working indicator on screen?
 #
 # While Claude works it prints a status line carrying an elapsed timer and a
@@ -186,7 +194,7 @@ pane_shows_working() {
     if [[ -n "${2+set}" ]]; then
         text="$2"
     else
-        text=$(session_tmux capture-pane -t "$1" -p 2>/dev/null) || return 1
+        text=$(session_tmux capture-pane -t "${1}:^" -p 2>/dev/null) || return 1
     fi
     _pane_scan "$text"
     ((PANE_WORKING || PANE_AGENTS > 0))
@@ -198,7 +206,7 @@ pane_agent_count() {
     if [[ -n "${2+set}" ]]; then
         text="$2"
     else
-        text=$(session_tmux capture-pane -t "$1" -p 2>/dev/null) || {
+        text=$(session_tmux capture-pane -t "${1}:^" -p 2>/dev/null) || {
             echo 0
             return 0
         }
@@ -362,9 +370,10 @@ transcript_running_agents() {
 #            on this machine: 91 mid-work silences over 45s, worst 650s —
 #            i.e. ~11 minutes of real work reading as idle.
 #
-# So ask the pane first and fall back to mtime. Raising TOWER_BUSY_WINDOW
-# instead would only trade this false-idle for a longer false-busy at
-# session start (see the window's own note above).
+# So the pane decides whenever it can be read, and the mtime only when
+# it cannot (no session id, or capture-pane failed). Raising
+# TOWER_BUSY_WINDOW would only trade this false-idle for a longer
+# false-busy at session start (see the window's own note above).
 #
 # $2 (optional): tmux session whose pane to read.
 # $3 (optional): pre-fetched pane text, for callers that already captured
@@ -378,21 +387,28 @@ is_session_busy() {
     local session_id="${2-}"
     local activity now
 
-    # pane_shows_working runs bare, not under $(...), so the PANE_* globals
-    # it leaves are this call's reading.
-    local on_screen=1
+    # A readable pane decides on its own. Claude keeps appending to the
+    # transcript after a turn ends (stop_hook_summary, turn_duration, and
+    # an away_summary minutes later), and each append used to keep an idle
+    # session spinning for TOWER_BUSY_WINDOW (#88). The mtime is only for
+    # a pane that cannot be read.
+    local text
     if [[ -n "$session_id" ]]; then
         if [[ -n "${3+set}" ]]; then
-            pane_shows_working "$session_id" "$3" && on_screen=0
-        else
-            pane_shows_working "$session_id" && on_screen=0
+            text="$3"
+        elif ! text=$(session_tmux capture-pane -t "${session_id}:^" -p 2>/dev/null); then
+            session_id=""
         fi
     fi
-    if ((on_screen == 0)); then
+    if [[ -n "$session_id" ]]; then
+        # Bare call, not under $(...): the PANE_* globals it sets are read
+        # right below.
+        pane_shows_working "$session_id" "$text" || return 1
         ((PANE_WORKING)) && return 0
         # Agent rows alone: Claude keeps a finished agent's row on screen,
         # so believe them only while the transcript has one in flight.
-        (($(transcript_running_agents "$jsonl") > 0)) && return 0
+        (($(transcript_running_agents "$jsonl") > 0))
+        return
     fi
 
     activity=$(get_session_activity "$jsonl")
@@ -698,7 +714,7 @@ is_claude_process_alive() {
 # it (capture-pane needs a live tmux server). Empty when uncapturable.
 capture_pane_signature() {
     local session_id="$1"
-    session_tmux capture-pane -t "$session_id" -p 2>/dev/null | grep -v '^$' | tail -n 8 || true
+    session_tmux capture-pane -t "${session_id}:^" -p 2>/dev/null | grep -v '^$' | tail -n 8 || true
 }
 
 # Classify a chunk of pane text into a wait kind, or empty if the pane
