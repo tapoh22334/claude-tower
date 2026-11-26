@@ -185,7 +185,8 @@ get_session_activity() {
 # the prompt with no counter at all, and the agent can go minutes without
 # writing a file (one waiting on its own background shell wrote nothing for
 # 30 minutes), so neither the counter nor the mtime fallback sees it. The
-# agent list under the prompt does (#114).
+# agent list under the prompt does (#114). So does a background shell
+# (run_in_background), counted on the mode line (#133).
 #
 # $2 (optional): the pane text. Omitted, the pane is captured; passed, even
 # as "", it is used as is.
@@ -197,7 +198,7 @@ pane_shows_working() {
         text=$(session_tmux capture-pane -t "${1}:^" -p 2>/dev/null) || return 1
     fi
     _pane_scan "$text"
-    ((PANE_WORKING || PANE_AGENTS > 0))
+    ((PANE_WORKING || PANE_AGENTS > 0 || PANE_SHELLS > 0))
 }
 
 # Number of background agents the pane lists as running. $2 as above.
@@ -227,14 +228,19 @@ pane_agent_count() {
 #     ◯ tower-reviewer  Writing m.sh   5m 1s · ↓ 69.6k tokens
 #
 # Sets PANE_WORKING (1 when main's counter is among the last 12 non-empty
-# lines above the box) and PANE_AGENTS (agent rows below it). The split
+# lines above the box), PANE_AGENTS (agent rows below it) and PANE_SHELLS
+# (the "· N shell(s)" count on the mode line below it: background shells
+# started with run_in_background, which leave the count as they finish). The split
 # matters both ways. The agent list grows a row per agent and, read as "the
 # last 12 lines", pushed main's counter out of view (#88). And an agent row
 # means a live agent only where Claude draws the list: not in transcript
 # text above, and only while it is the pane's bottom line. The tmux session
 # is a shell that outlives Claude, last frame and all, and a shell prompt
 # under a dead list is not work. With no rule on screen (a dialog, a stub)
-# the whole capture is "above": the reading before #114.
+# the whole capture is "above": the reading before #114. The shell count is
+# believed on the same terms as agent rows: only when nothing but the agent
+# list follows its line, so a dead Claude's last frame under a shell prompt
+# counts no shells.
 #
 # Pure bash, no forks: this runs for every live row of every rebuild. And
 # no quantifier or bracket set over a multi-byte character, because =~
@@ -245,7 +251,9 @@ _pane_scan() {
     local -a lines=()
     local counter_re='\(([0-9]+m )?[0-9]+s · .*tokens\)'
     local agent_re='^ +(◯|●|○|◉|◎) +[^ ].* ([0-9]+m )?[0-9]+s · .*tokens *$'
-    PANE_WORKING=0 PANE_AGENTS=0
+    local list_re='^ +(◯|●|○|◉|◎) +[^ ]'
+    local shell_re='· ([0-9]+) shells?( ·| *$)'
+    PANE_WORKING=0 PANE_AGENTS=0 PANE_SHELLS=0
     while IFS= read -r line; do
         [[ -n "$line" ]] && lines+=("$line")
     done <<<"$1"
@@ -271,6 +279,17 @@ _pane_scan() {
     done
 
     ((last >= 0)) || return 0
+    local shells=0
+    for ((i = last + 1; i < ${#lines[@]}; i++)); do
+        if ((shells == 0)) && [[ "${lines[i]}" =~ $shell_re ]]; then
+            shells=${BASH_REMATCH[1]}
+        elif ((shells > 0)) && ! [[ "${lines[i]}" =~ $list_re ]]; then
+            shells=0
+            break
+        fi
+    done
+    PANE_SHELLS=$shells
+
     [[ "${lines[${#lines[@]} - 1]}" =~ $agent_re ]] || return 0
     for ((i = last + 1; i < ${#lines[@]}; i++)); do
         [[ "${lines[i]}" =~ $agent_re ]] && PANE_AGENTS=$((PANE_AGENTS + 1))
@@ -405,6 +424,9 @@ is_session_busy() {
         # right below.
         pane_shows_working "$session_id" "$text" || return 1
         ((PANE_WORKING)) && return 0
+        # A background shell is work too (#133): a dev server keeps the row
+        # spinning for as long as it runs, and the ⚙N badge says why.
+        ((PANE_SHELLS > 0)) && return 0
         # Agent rows alone: Claude keeps a finished agent's row on screen,
         # so believe them only while the transcript has one in flight.
         (($(transcript_running_agents "$jsonl") > 0))
@@ -756,8 +778,14 @@ get_wait_state() {
     local jsonl
 
     if session_tmux has-session -t "$session_id" 2>/dev/null; then
-        # Managed: a real pane exists. Working sessions are not waiting.
-        if jsonl=$(find_session_jsonl "$claude_id") && is_session_busy "$jsonl" "$session_id"; then
+        # Managed: a real pane exists. Working sessions are not waiting,
+        # except one busy only for its background shells (#133): Claude sits
+        # at its prompt while a dev server runs, and that is waiting on you.
+        # Bare call, so the PANE_* it leaves are readable; zeroed first so the
+        # mtime fallback (pane unreadable) cannot leave a stale shell count.
+        PANE_WORKING=0 PANE_AGENTS=0 PANE_SHELLS=0
+        if jsonl=$(find_session_jsonl "$claude_id") && is_session_busy "$jsonl" "$session_id" &&
+            ! ((PANE_SHELLS > 0 && !PANE_WORKING && PANE_AGENTS == 0)); then
             echo ""
             return 0
         fi

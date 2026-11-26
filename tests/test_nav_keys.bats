@@ -98,26 +98,59 @@ _labels() { printf '%s,' "${NAV_JUMP_LABELS[@]}"; }
     [[ "$out" == *"cc   c two"* ]]
 }
 
-@test "jump: rows with right-aligned marks still fit the width with the label column" {
+@test "jump: a row that fills the width still fits with the label column" {
     source "$NAV"
     _fixture
-    local row line
-    row=$(_compose_row "▶" "a session with marks" "⚙2 •")
+    local row line long
+    long=$(printf 'x%.0s' {1..200})
+    row=$(_compose_row "▶" "$long" "")
     SESSION_DISPLAYS[1]="$row"
     SESSION_DISPLAYS[6]="$row"
     _jump_assign_labels
     NAV_JUMP_ACTIVE=1
     NAV_JUMP_PREFIX=""
-    # without the label column the row fills the content width exactly
-    [ "$(str_display_width "  $(_strip_ansi_str "$row")")" -eq "$(_content_width)" ]
+    # without the label column the row already reaches the content width
+    [ "$(str_display_width "  $(_strip_ansi_str "$row")")" -ge "$(_content_width)" ]
     while IFS= read -r line; do
         line=$(_strip_ansi_str "${line//$'\033[K'/}")
-        [ "$(str_display_width "$line")" -le "$(_content_width)" ] || {
+        # Cells as tmux draws them: the cut's "…" is one cell, though
+        # str_display_width counts it as two.
+        [ "$(printf "%s" "$line" | LC_ALL=C.UTF-8 wc -m)" -le "$(_content_width)" ] || {
             echo "too wide: [$line]"
             return 1
         }
     done < <(render_list 1)
-    [[ "$(render_list 1 | _strip_ansi_str "$(cat)")" == *"cb   ▶ a session with marks"*"⚙2 •"* ]]
+    [[ "$(render_list 1 | _strip_ansi_str "$(cat)")" == *"cb   ▶ xxx"* ]]
+}
+
+@test "render: a selected row with a long title stays within the width" {
+    source "$NAV"
+    _fixture
+    local long line
+    long=$(printf 'x%.0s' {1..200})
+    SESSION_DISPLAYS[1]=$(_compose_row " " "$long" "")
+    # tower_a1 (row 1) is the selection; it gains a trailing space.
+    while IFS= read -r line; do
+        line=$(_strip_ansi_str "${line//$'\033[K'/}")
+        [ "$(printf "%s" "$line" | LC_ALL=C.UTF-8 wc -m)" -le "$(_content_width)" ] || {
+            echo "too wide: [$line]"
+            return 1
+        }
+    done < <(render_list 1)
+}
+
+@test "jump: a cut row keeps its colours and the selection's reverse video" {
+    source "$NAV"
+    _fixture
+    local long out
+    long=$(printf 'x%.0s' {1..200})
+    SESSION_DISPLAYS[1]=$(_compose_row "${NAV_C_DORMANT}○${NAV_C_NORMAL}" "$long" "")
+    _jump_assign_labels
+    NAV_JUMP_ACTIVE=1
+    NAV_JUMP_PREFIX=""
+    out=$(render_list 1 | grep "xxx")
+    [[ "$out" == *"${NAV_C_SELECTED}"* ]]
+    [[ "$out" == *"${NAV_C_DORMANT}○"* ]]
 }
 
 @test "jump: f c b lands on the third project's first session and clears the labels" {

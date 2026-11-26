@@ -346,7 +346,6 @@ _ids() { printf '%s ' "${SESSION_IDS[@]}"; }
     list_live_claude_processes() { :; }
     _session_label() { echo "$1"; }
     _compose_row() { printf '%s %s' "$1" "$2"; }
-    _row_marks() { :; }
     build_session_list
     [ "$(_ids)" = "dir:/p/one tower_a tower_b " ]
     # And the seat lands where that order puts it: after tower_a, before tower_b.

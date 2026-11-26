@@ -88,8 +88,19 @@ highlighted session (resuming it first if it is dormant), `Escape` comes back.
 | `◐` | Starting | Just launched; no transcript to read yet |
 | `⌫` | Deleting | A delete is running against this row |
 
-`⚙N` counts active subagents. Busy is inferred from transcript activity in a
-45-second window, so a long tool call looks idle.
+Busy is read from Claude's pane: the token counter of a running turn, a
+background agent still in flight, or a background shell
+(`run_in_background`) still running. A busy row says which, right after the
+spinner:
+
+| | |
+|---|---|
+| `✦N` | N background agents running |
+| `⚙N` | N background shells running (a dev server, a poll) |
+
+A session whose pane cannot be read falls back to transcript activity in a
+45-second window. While Claude shows a permission prompt it hides the shell
+count, so a session waiting on you there is not counted busy for its shells.
 
 The last two are transient, and they exist so an action never looks like it
 did nothing. `◐` appears the instant you add, copy or resume a session — before
