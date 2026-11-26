@@ -138,13 +138,16 @@ _run_nav() {
         read() { :; }
         show_help 2>/dev/null
     '
-    local text line n=0
+    local text line w n=0
     text=$(printf "%s\n" "$output" | sed -E $'s/\033\\[[0-9;?]*[a-zA-Z]//g')
     [[ "$text" == *"✦N agents"* ]]
     [[ "$text" == *"⚙N shells"* ]]
     while IFS= read -r line; do
         n=$((n + 1))
-        [ "${#line}" -le 80 ] || { echo "too wide (${#line}): $line"; return 1; }
+        # Characters, not bytes: under the C locale (Docker) ${#line} counts
+        # each ✦ as three. Every glyph in the help is one cell in tmux.
+        w=$(printf "%s" "$line" | LC_ALL=C.UTF-8 wc -m)
+        [ "$w" -le 80 ] || { echo "too wide ($w): $line"; return 1; }
     done <<<"$text"
     [ "$n" -le 24 ]
 }
