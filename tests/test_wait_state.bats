@@ -126,3 +126,33 @@ _no_tmux() {
     run wait_since "tower_${UUID}"
     [ "$output" = "0" ]
 }
+
+# --- managed sessions busy only for background shells (#133) ----------------
+# A shell keeps the row busy, but Claude itself sits at its prompt: that is
+# waiting on the user, so the Queue view must still list it.
+
+_managed_pane() {
+    PANE_TEXT="$1"
+    session_tmux() {
+        case "$1" in
+            has-session) return 0 ;;
+            capture-pane) printf '%s\n' "$PANE_TEXT" ;;
+        esac
+    }
+    live_claude_id() { echo "$UUID"; }
+    find_session_jsonl() { echo "$JSONL"; }
+    JSONL=$(create_mock_jsonl "-home-user-proj" "$UUID" "/home/user/proj")
+    touch -d "2020-01-01 00:00:00" "$JSONL"
+}
+
+@test "get_wait_state: at the prompt with only a background shell running is an input wait" {
+    _managed_pane "$(cat "${BATS_TEST_DIRNAME}/fixtures/panes/background-shell-only.txt" | sed 's/ · ← 5 agents//')"
+    run get_wait_state "tower_${UUID}"
+    [ "$output" = "input" ]
+}
+
+@test "get_wait_state: a working turn with a shell running is not waiting" {
+    _managed_pane "$(cat "${BATS_TEST_DIRNAME}/fixtures/panes/main-working-no-agent.txt")"
+    run get_wait_state "tower_${UUID}"
+    [ "$output" = "" ]
+}

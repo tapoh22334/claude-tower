@@ -78,27 +78,44 @@ _jump_cell() {
     printf -v NAV_JUMP_CELL '%s%-2s%s ' "$NAV_C_ACCENT" "$l" "$NAV_C_NORMAL"
 }
 
-# Fit body line $1 into $2 cells, in NAV_JUMP_FIT. Rows are composed to the
-# full content width, so the 3-cell label column would push a row with
-# right-aligned marks one cell row down and scroll the frame. The overflow
-# comes out of the padding run before the marks; a line without one is cut.
+# Fit body line $1 into $2 cells, in NAV_JUMP_FIT. A title is cut to the
+# full content width, so the 3-cell label column would push a long row one
+# cell row down and scroll the frame. Such a line is cut to the budget with
+# its escapes kept, so colours and the selected row's reverse video survive.
 NAV_JUMP_FIT=""
 _jump_fit() {
-    local line="$1" budget="$2" over run head tail
+    local line="$1" budget="$2" s out="" chunk esc rest w used=0
     _strip_ansi_into "$line"
-    over=$(($(str_display_width "$NAV_STRIPPED") - budget))
-    if ((over <= 0)); then
+    if (($(str_display_width "$NAV_STRIPPED") <= budget)); then
         NAV_JUMP_FIT="$line"
         return 0
     fi
-    printf -v run '%*s' $((over + 1)) ''
-    if [[ "$line" == *"$run"* ]]; then
-        head="${line%"$run"*}"
-        tail="${line#"$head"}"
-        NAV_JUMP_FIT="${head}${tail:over}"
-        return 0
-    fi
-    NAV_JUMP_FIT="$(truncate_display "$NAV_STRIPPED" "$budget")"
+    s="$line"
+    while [[ -n "$s" ]]; do
+        if [[ "$s" == $'\033['* ]]; then
+            # A CSI sequence ends at its first letter; copy it whole.
+            esc=$'\033['
+            rest="${s:2}"
+            while [[ -n "$rest" && "$rest" != [a-zA-Z]* ]]; do
+                esc+="${rest:0:1}"
+                rest="${rest:1}"
+            done
+            out+="${esc}${rest:0:1}"
+            s="${rest:1}"
+            continue
+        fi
+        chunk="${s%%$'\033['*}"
+        s="${s:${#chunk}}"
+        ((used >= budget)) && continue
+        w=$(str_display_width "$chunk")
+        if ((used + w > budget)); then
+            chunk=$(truncate_display "$chunk" $((budget - used)))
+            w=$((budget - used))
+        fi
+        out+="$chunk"
+        used=$((used + w))
+    done
+    NAV_JUMP_FIT="$out"
 }
 
 _jump_end() {

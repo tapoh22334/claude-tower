@@ -59,22 +59,22 @@ _visible_width() {
     [ "$output" = "50" ]
 }
 
-@test "_compose_row: marks land in the fixed right column (rows align)" {
+@test "_compose_row: badges pad to the badge column, so titles start in one column" {
     _run_nav 80 '
-        a=$(_compose_row "●" "short" "$(printf "\033[32m✱\033[0m")")
-        b=$(_compose_row "▶" "a much longer title here" "$(printf "\033[32m✱\033[0m")")
+        # 5 cells: tmux draws ✦ and ⚙ one cell wide.
+        NAV_BADGE_W=5
         strip() { sed -E "s/\x1b\[[0-9;?]*[a-zA-Z]//g"; }
-        wa=$(printf "%s" "$a" | strip | awk "{print length}")
-        wb=$(printf "%s" "$b" | strip | awk "{print length}")
-        echo "$wa $wb"
+        _compose_row "●" "one" "$(printf "\033[2m✦2 ⚙1\033[0m")" | strip; echo
+        _compose_row "▶" "two" "$(printf "\033[2m⚙1\033[0m")" | strip; echo
+        _compose_row "▶" "three" "" | strip; echo
     '
     [ "$status" -eq 0 ]
-    # Both rows end at the same column, so the ✱ lines up
-    local wa="${output% *}" wb="${output#* }"
-    [ "$wa" = "$wb" ]
+    [ "${lines[0]}" = "● ✦2 ⚙1 one" ]
+    [ "${lines[1]}" = "▶ ⚙1    two" ]
+    [ "${lines[2]}" = "▶       three" ]
 }
 
-@test "_compose_row: a row without marks gets no trailing padding" {
+@test "_compose_row: with no badge column a row is icon, space, title" {
     _run_nav 80 '
         r=$(_compose_row "●" "short" "")
         printf "%s" "$r" | sed -E "s/\x1b\[[0-9;?]*[a-zA-Z]//g"
@@ -87,7 +87,8 @@ _visible_width() {
     # cols 100 clamps to the 80-cell cap, so the composed row (which excludes
     # the renderer's 2-space indent) must fit within 78 cells.
     _run_nav 100 '
-        r=$(_compose_row "●" "a fairly long session title that keeps going and going" "$(printf "\033[2m⚙3\033[0m")")
+        NAV_BADGE_W=2
+        r=$(_compose_row "●" "a fairly long session title that keeps going and going and going on" "$(printf "\033[2m⚙3\033[0m")")
         plain=$(printf "%s" "$r" | sed -E "s/\x1b\[[0-9;?]*[a-zA-Z]//g")
         str_display_width "$plain"
     '
@@ -227,8 +228,10 @@ _visible_width() {
             [[ "${SESSION_IDS[$i]}" == "tower_a1" ]] && break
         done
         plain=$(printf "%s" "${SESSION_DISPLAYS[$i]}" | sed -E "s/\x1b\[[0-9;?]*[a-zA-Z]//g")
-        # The renderer adds the two-space indent; measure the row as drawn.
-        str_display_width "  $plain"
+        # The renderer adds the two-space indent; measure the row as tmux
+        # draws it. The title is ASCII, and the cut adds a "…" that
+        # str_display_width counts as two cells but tmux draws in one.
+        printf "  %s" "$plain" | LC_ALL=C.UTF-8 wc -m
     ' </dev/zero
     [ "$status" -eq 0 ]
     local measured="${lines[${#lines[@]}-1]}"

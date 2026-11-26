@@ -35,12 +35,15 @@ _session_label() {
     label=$(get_session_title "$claude_id" 2>/dev/null) || label=""
     [[ -z "$label" ]] && label="${claude_id:0:7}"
 
-    # Budget: content width minus the indent (2), state icon (2) and the
-    # fixed right status column. Cut by display cells — a Japanese title
-    # counted in characters overflows the row and wraps onto a second line.
+    # Budget: content width minus the indent (2), the state icon and its
+    # space (2), the selected row's trailing space (1) and the badge column
+    # with its space, when the list has one.
+    # Cut by display cells — a Japanese title counted in characters
+    # overflows the row and wraps onto a second line.
     local width budget
     width=$(_content_width)
-    budget=$((width - 4 - NAV_RIGHT_COL))
+    budget=$((width - 5))
+    ((NAV_BADGE_W > 0)) && budget=$((budget - NAV_BADGE_W - 1))
     ((budget < 20)) && budget=20
 
     if [[ -n "$name" ]]; then
@@ -55,6 +58,24 @@ _session_label() {
         return 0
     fi
     truncate_display "$label" "$budget"
+}
+
+# Badges for a busy row, shown right after the state icon: "✦N" for running
+# agents, "⚙N" for background shells (#133), "" for neither. One capture of
+# Claude's pane serves both counts.
+_session_badges() {
+    local sid="$1" jsonl text agents out=""
+    jsonl=$(find_session_jsonl "$(live_claude_id "$sid")" 2>/dev/null) || return 0
+    text=$(session_tmux capture-pane -t "${sid}:^" -p 2>/dev/null) || text=""
+    agents=$(count_active_subagents "$jsonl" "$sid" "$text")
+    # Bare call: PANE_SHELLS is read right below.
+    _pane_scan "$text"
+    ((agents > 0)) && out="${NAV_C_DIM}✦${agents}${NAV_C_NORMAL}"
+    if ((PANE_SHELLS > 0)); then
+        [[ -n "$out" ]] && out+=" "
+        out+="${NAV_C_DIM}⚙${PANE_SHELLS}${NAV_C_NORMAL}"
+    fi
+    printf '%s' "$out"
 }
 
 # Project dir of a session ("" when unknown).
@@ -129,7 +150,7 @@ build_session_list() {
 
     local -a raw_ids=() raw_displays=() raw_dirs=()
     local -a broken_ids=() broken_displays=()
-    local session_id state label selected dir jsonl agents badge
+    local session_id state label selected
 
     # Re-read the terminal width once for this pass.
     _reset_width_cache
@@ -149,7 +170,13 @@ build_session_list() {
     # later busy->stop transition can be flagged as unread.
     selected=$(get_nav_selected)
 
-    local icon marks
+    # Two passes. The first settles each row's state, icon and badges; the
+    # second composes the rows, once the badge column's width (the widest
+    # badge in the list) is known, so every title starts in one column.
+    local icon badges i
+    local -a raw_icons=() raw_badges=() raw_starting=()
+    local -a broken_icons=()
+    NAV_BADGE_W=0
     while IFS=: read -r session_id state; do
         [[ -z "$session_id" ]] && continue
         if [[ "$session_id" == "$selected" ]]; then
@@ -158,10 +185,7 @@ build_session_list() {
             init_session_seen "$session_id"
         fi
 
-        # Unread is a STATE, not a right-column mark: a stopped session that
-        # produced output since it was last viewed becomes newmsg, shown by
-        # the • left icon like any other state. The right column is left to
-        # the subagent count alone.
+        # Unread is a state, shown by the • left icon like any other.
         #
         # busy and starting are deliberately not on this list. Neither can
         # have unread output to report: busy is still producing it, and
@@ -171,47 +195,52 @@ build_session_list() {
             is_session_unread "$session_id"; then
             state="newmsg"
         fi
-        badge=""
-        if [[ "$state" == "busy" ]] &&
-            jsonl=$(find_session_jsonl "$(live_claude_id "$session_id")" 2>/dev/null); then
-            agents=$(count_active_subagents "$jsonl" "$session_id")
-            if [[ "$agents" -gt 0 ]]; then
-                badge="${NAV_C_DIM}⚙${agents}${NAV_C_NORMAL}"
-            fi
-        fi
-        marks="$badge"
+        badges=""
+        [[ "$state" == "busy" ]] && badges=$(_session_badges "$session_id")
 
-        label=$(_session_label "$session_id")
-        dir=$(_session_dir "$session_id")
         case "$state" in
             busy)    icon="${NAV_C_ACCENT}${SPIN_PLACEHOLDER}${NAV_C_NORMAL}" ;;
-            starting)
-                # Claude is launching and has written nothing yet, so there is
-                # no title to show. Say so rather than showing a bare short id
-                # that looks like an ordinary row.
-                icon="${NAV_C_DIM}${ICON_STATE_STARTING}${NAV_C_NORMAL}"
-                label="${NAV_C_DIM}${label} — starting…${NAV_C_NORMAL}"
-                ;;
+            starting) icon="${NAV_C_DIM}${ICON_STATE_STARTING}${NAV_C_NORMAL}" ;;
             newmsg)  icon="${NAV_C_ACTIVE}${ICON_STATE_NEWMSG}${NAV_C_NORMAL}" ;;
             active)  icon="${ICON_STATE_ACTIVE}" ;;
             external) icon="${NAV_C_EXTERNAL}◇${NAV_C_NORMAL}" ;;
             dormant) icon="${NAV_C_DORMANT}○${NAV_C_NORMAL}" ;;
             dead)
                 broken_ids+=("$session_id")
-                broken_displays+=("$(_compose_row "${NAV_C_ERROR}✗${NAV_C_NORMAL}" "$label" "")")
+                broken_icons+=("${NAV_C_ERROR}✗${NAV_C_NORMAL}")
                 continue
                 ;;
             lost)
                 broken_ids+=("$session_id")
-                broken_displays+=("$(_compose_row "${NAV_C_ERROR}?${NAV_C_NORMAL}" "$label" "")")
+                broken_icons+=("${NAV_C_ERROR}?${NAV_C_NORMAL}")
                 continue
                 ;;
             *) continue ;;
         esac
         raw_ids+=("$session_id")
-        raw_dirs+=("$dir")
-        raw_displays+=("$(_compose_row "$icon" "$label" "$marks")")
+        raw_dirs+=("$(_session_dir "$session_id")")
+        raw_icons+=("$icon")
+        raw_badges+=("$badges")
+        if [[ "$state" == "starting" ]]; then raw_starting+=(1); else raw_starting+=(""); fi
+        if [[ -n "$badges" ]]; then
+            _badge_cells "$badges"
+            ((NAV_BADGE_CELLS > NAV_BADGE_W)) && NAV_BADGE_W=$NAV_BADGE_CELLS
+        fi
     done < <(list_all_sessions)
+
+    for ((i = 0; i < ${#raw_ids[@]}; i++)); do
+        label=$(_session_label "${raw_ids[$i]}")
+        if [[ -n "${raw_starting[$i]}" ]]; then
+            # Claude is launching and has written nothing yet, so there is
+            # no title to show. Say so rather than showing a bare short id
+            # that looks like an ordinary row.
+            label="${NAV_C_DIM}${label} — starting…${NAV_C_NORMAL}"
+        fi
+        raw_displays+=("$(_compose_row "${raw_icons[$i]}" "$label" "${raw_badges[$i]}")")
+    done
+    for ((i = 0; i < ${#broken_ids[@]}; i++)); do
+        broken_displays+=("$(_compose_row "${broken_icons[$i]}" "$(_session_label "${broken_ids[$i]}")" "")")
+    done
     # The table is this build's. Actions run later in this shell (resume's
     # "already running elsewhere?" check) must see a fresh one.
     LIVE_PROCS_READY=""

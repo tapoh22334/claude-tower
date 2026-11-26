@@ -319,8 +319,9 @@ _agent_stopped() {
     _agent_launched "$f" a1111111111111111
     _agent_stopped "$f" a1111111111111111
     touch -d "2020-01-01 00:00:00" "$f"
+    # The fixture's "· 1 shell" removed: a shell is work on its own (#133).
     PANE_FIXTURE="${BATS_TEST_DIRNAME}/fixtures/panes/main-idle-agent-running.txt"
-    session_tmux() { [[ "$1" == capture-pane ]] && cat "$PANE_FIXTURE"; }
+    session_tmux() { [[ "$1" == capture-pane ]] && sed 's/ · 1 shell//' "$PANE_FIXTURE"; }
     run is_session_busy "$f" "tower_${UUID_A}"
     [ "$status" -eq 1 ]
 }
@@ -344,7 +345,7 @@ _agent_stopped() {
     _agent_launched "$f" a1111111111111111
     _agent_stopped "$f" a1111111111111111
     touch -d "2020-01-01 00:00:00" "$f"
-    run is_session_busy "$f" "tower_${UUID_A}" "$(_pane main-idle-agent-running)"
+    run is_session_busy "$f" "tower_${UUID_A}" "$(_pane main-idle-agent-running | sed 's/ · 1 shell//')"
     [ "$status" -eq 1 ]
 }
 
@@ -365,14 +366,31 @@ _agent_stopped() {
     [ "$status" -eq 0 ]
 }
 
-@test "pane_shows_working: only a background shell left running is not work (#85)" {
+@test "pane_shows_working: a background shell left running is work (#133)" {
     run pane_shows_working "tower_${UUID_A}" "$(_pane background-shell-only)"
-    [ "$status" -eq 1 ]
+    [ "$status" -eq 0 ]
+}
+
+@test "_pane_scan: reads the shell count, singular and plural" {
+    _pane_scan "$(_pane background-shell-only)"
+    [ "$PANE_SHELLS" = "1" ]
+    _pane_scan "$(_pane background-shell-only | sed 's/· 1 shell/· 12 shells/')"
+    [ "$PANE_SHELLS" = "12" ]
+    _pane_scan "$(_pane main-idle-agent-running | sed 's/· 1 shell/· 3 shells/')"
+    [ "$PANE_SHELLS" = "3" ]
+}
+
+@test "_pane_scan: no shell count without the mode line saying so" {
+    _pane_scan "$(_pane main-working-with-agent)"
+    [ "$PANE_SHELLS" = "0" ]
+    # Quoted in the transcript above the prompt box, it is not the mode line.
+    _pane_scan "$(_pane background-shell-only | sed 's/ · 1 shell//' | sed '1i ⏵⏵ auto mode on · 4 shells')"
+    [ "$PANE_SHELLS" = "0" ]
 }
 
 @test "pane_shows_working: a finished agent's 'Waiting for' line in scrollback is not work" {
     local text
-    text=$(_pane background-shell-only | sed '1i ✻ Waiting for 1 background agent to finish')
+    text=$(_pane background-shell-only | sed 's/ · 1 shell//' | sed '1i ✻ Waiting for 1 background agent to finish')
     run pane_shows_working "tower_${UUID_A}" "$text"
     [ "$status" -eq 1 ]
 }
@@ -418,7 +436,7 @@ _agent_stopped() {
     f=$(create_mock_jsonl "-home-user-proj" "$UUID_A" "/home/user/proj")
     _agent_launched "$f" a1111111111111111
     touch -d "2020-01-01 00:00:00" "$f"
-    run is_session_busy "$f" "tower_${UUID_A}" "$(_pane main-idle-agent-running)"
+    run is_session_busy "$f" "tower_${UUID_A}" "$(_pane main-idle-agent-running | sed 's/ · 1 shell//')"
     [ "$status" -eq 0 ]
 }
 

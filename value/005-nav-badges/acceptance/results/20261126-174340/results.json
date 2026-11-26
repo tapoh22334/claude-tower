@@ -1,0 +1,64 @@
+{
+ "run": "20261126-174340",
+ "runner": "bats tests/test_acceptance_005.bats",
+ "scenarios": [
+  {
+   "name": "プロンプト待ちでもバックグラウンドでシェルが動いていれば、作業中になり ⚙ が付く",
+   "status": "pass",
+   "requirements": [
+    "REQ-005-001",
+    "REQ-005-002"
+   ],
+   "userflow": "UF-005-001"
+  },
+  {
+   "name": "Claude が終了して残った画面のシェルは数えない",
+   "status": "pass",
+   "requirements": [
+    "REQ-005-010"
+   ],
+   "userflow": "UF-005-001"
+  },
+  {
+   "name": "バッジのない一覧はバッジ欄を設けない",
+   "status": "pass",
+   "requirements": [
+    "REQ-005-005"
+   ],
+   "userflow": "UF-005-001"
+  },
+  {
+   "name": "エージェントとシェルのバッジが並び、タイトルの桁がそろう",
+   "status": "pass",
+   "requirements": [
+    "REQ-005-003",
+    "REQ-005-004"
+   ],
+   "userflow": "UF-005-002"
+  },
+  {
+   "name": "行の右端に記号用の幅を予約しない",
+   "status": "pass",
+   "requirements": [
+    "REQ-005-006"
+   ],
+   "userflow": "UF-005-002"
+  },
+  {
+   "name": "ヘルプが ✦ と ⚙ の意味を示し、80×24 に収まる",
+   "status": "pass",
+   "requirements": [
+    "REQ-005-007"
+   ],
+   "userflow": "UF-005-002"
+  },
+  {
+   "name": "起動中と削除中の行も、ほかの行と同じ桁からタイトルが始まる",
+   "status": "pass",
+   "requirements": [
+    "REQ-005-011"
+   ],
+   "userflow": "UF-005-002"
+  }
+ ]
+}

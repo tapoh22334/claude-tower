@@ -77,7 +77,7 @@ _run_nav() {
     [[ "$output" == *"@@SPIN@@"* ]]
 }
 
-@test "build_session_list: subagent count still lands in the right column, unread aside" {
+@test "build_session_list: a busy row's agent badge sits right after the icon" {
     _run_nav '
         list_all_sessions() { echo "tower_x:busy"; }
         is_session_unread() { return 1; }
@@ -87,7 +87,7 @@ _run_nav() {
         printf "%s\n" "${SESSION_DISPLAYS[1]}" | sed -E "s/\x1b\[[0-9;?]*[a-zA-Z]//g"
     '
     [ "$status" -eq 0 ]
-    [[ "$output" == *"⚙3"* ]]
+    [[ "$output" == "@@SPIN@@ ✦3 "* ]]
 }
 
 @test "build_session_list: the process snapshot does not outlive the build" {

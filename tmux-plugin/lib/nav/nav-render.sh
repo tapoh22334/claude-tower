@@ -40,9 +40,6 @@ readonly NAV_MAX_WIDTH="${TOWER_LIST_MAX_WIDTH:-80}"
 # Floor so a narrow pane still leaves room for a readable label; below this
 # the content simply overflows the pane rather than collapsing to nothing.
 readonly NAV_MIN_WIDTH="${TOWER_LIST_MIN_WIDTH:-50}"
-# Right-hand status column (subagent ⚙N), fixed so the marks
-# line up down the list instead of floating after each title.
-readonly NAV_RIGHT_COL=6
 
 # Terminal geometry, in one place.
 #
@@ -75,46 +72,58 @@ _content_width() {
     echo "$w"
 }
 
-# Compose a list row: "  <icon> <label><padding><marks>", with marks
-# right-aligned into the fixed NAV_RIGHT_COL so they line up down the list.
-# $1 icon (may contain ANSI), $2 plain label, $3 marks (may contain ANSI).
-# Label width is measured on the plain text; marks width is measured with
-# ANSI stripped so color codes don't count toward the column.
+# Width of the badge column (✦N agents, ⚙N shells) right after the state
+# icon: the widest badge in the list, 0 when no row has one. Set by
+# build_session_list and carried in the cache, so a row composed later (a
+# starting or deleting row) lines up with the rest.
+NAV_BADGE_W=0
+
+# Cells a badge string takes on screen, in NAV_BADGE_CELLS (no fork: the
+# build calls it per row). Measured by hand, not by str_display_width: that
+# counts every 3-byte glyph as two cells, while tmux draws ✦ and ⚙ in one,
+# and an over-count here would push the titles of the rows with fewer
+# glyphs one cell right.
+NAV_BADGE_CELLS=0
+_badge_cells() {
+    local LC_ALL=C p
+    _strip_ansi_into "$1"
+    p="${NAV_STRIPPED//✦/x}"
+    p="${p//⚙/x}"
+    NAV_BADGE_CELLS=${#p}
+}
+
+# Compose a list row: "<icon> <badges> <label>", the badges padded to
+# NAV_BADGE_W so every title starts in the same column. With no badge
+# column the row is "<icon> <label>". The renderer adds the 2-space indent.
+# $1 icon (may contain ANSI, or the spinner placeholder drawn as one cell),
+# $2 label, $3 badges (may contain ANSI).
 _compose_row() {
-    local icon="$1" label="$2" marks="$3"
-    local width icon_w label_w marks_plain marks_w pad_w pad=""
+    local icon="$1" label="$2" badges="$3"
+    local width icon_plain icon_w left col="" pad=""
     width=$(_content_width)
 
-    # Fixed left overhead: 2-space indent (added by the renderer) + the
-    # state icon's own display width + one separating space. Measured, not
-    # assumed: some state glyphs (●, ◇) are two cells wide.
-    icon_w=$(str_display_width "$(_strip_ansi_str "$icon")")
-    local left=$((2 + icon_w + 1))
+    # Measured, not assumed: some state glyphs (●, ◇) are two cells wide.
+    icon_plain=$(_strip_ansi_str "$icon")
+    icon_plain="${icon_plain//$SPIN_PLACEHOLDER/x}"
+    icon_w=$(str_display_width "$icon_plain")
+    left=$((2 + icon_w + 1))
+
+    if ((NAV_BADGE_W > 0)); then
+        _badge_cells "$badges"
+        ((NAV_BADGE_CELLS < NAV_BADGE_W)) && printf -v pad '%*s' $((NAV_BADGE_W - NAV_BADGE_CELLS)) ''
+        col="${badges}${pad} "
+        left=$((left + NAV_BADGE_W + 1))
+    fi
 
     # Hard cap the label to the row budget. _session_label already sizes to
     # this, but defend the invariant here too so no caller overflows the row.
-    local budget=$((width - left - NAV_RIGHT_COL))
+    # One cell more stays free: the renderer pads the selected row with a
+    # trailing space, and a row one cell too wide wraps and scrolls the frame.
+    local budget=$((width - left - 1))
     ((budget < 10)) && budget=10
     label=$(truncate_display "$label" "$budget")
 
-    label_w=$(str_display_width "$label")
-    marks_plain=$(_strip_ansi_str "$marks")
-    marks_w=$(str_display_width "$marks_plain")
-
-    # Pad the label out so the marks sit in the fixed right column.
-    pad_w=$((width - left - label_w - NAV_RIGHT_COL))
-    ((pad_w < 1)) && pad_w=1
-    printf -v pad '%*s' "$pad_w" ''
-
-    if [[ -n "$marks" ]]; then
-        local gap=$((NAV_RIGHT_COL - marks_w))
-        ((gap < 0)) && gap=0
-        local rpad=""
-        printf -v rpad '%*s' "$gap" ''
-        printf '%s %s%s%s%s\n' "$icon" "$label" "$pad" "$rpad" "$marks"
-    else
-        printf '%s %s\n' "$icon" "$label"
-    fi
+    printf '%s %s%s\n' "$icon" "$col" "$label"
 }
 
 # Strip ANSI CSI sequences (color, cursor) so display width can be measured.
@@ -373,7 +382,7 @@ show_help() {
     # Keep it within 80 columns: a wrapped line pushes the title off a 24-row
     # screen. Blank (no icon) is an idle session with nothing unread (#130).
     echo "  States:  ${SPINNER_FRAMES[0]} working  • new output  ○ dormant  ◇ external  ✗/? gone  blank idle"
-    echo "  Marks:     ⚙N active subagents (right)   ⚡N unmanaged claude in dir (header)"
+    echo "  Badges:  ✦N agents  ⚙N shells (after the icon)  ⚡N unmanaged claude in dir"
     echo ""
     echo -e "${NAV_C_DIM}Press any key to continue...${NAV_C_NORMAL}"
     read -rsn1

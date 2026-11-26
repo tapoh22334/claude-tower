@@ -93,10 +93,13 @@ _publish_rebuild() {
 }
 
 # Serialize the current arrays to stdout. One row per line, fields quoted with
-# printf %q so ANSI escapes, spaces and the em-dash survive a round-trip. A
-# leading meta line carries BROKEN_START; each row line is idx-agnostic.
+# printf %q so ANSI escapes, spaces and the em-dash survive a round-trip.
+# Leading meta lines carry BROKEN_START and NAV_BADGE_W (so a row the loop
+# composes later lines up with the cached ones); each row line is
+# idx-agnostic.
 _serialize_session_state() {
     printf 'BROKEN_START %s\n' "$BROKEN_START"
+    printf 'BADGE_W %s\n' "$NAV_BADGE_W"
     local i
     for ((i = 0; i < ${#SESSION_IDS[@]}; i++)); do
         printf 'ROW %q %q %q %q\n' \
@@ -115,11 +118,12 @@ _load_session_state() {
     [[ -s "$cache" ]] || return 1
 
     local -a ids=() disp=() dirs=() heads=()
-    local broken=-1
+    local broken=-1 badge_w=0
     local tag a b c d
     while read -r tag rest; do
         case "$tag" in
             BROKEN_START) broken="$rest" ;;
+            BADGE_W) [[ "$rest" =~ ^[0-9]+$ ]] && badge_w="$rest" ;;
             ROW)
                 # Re-split the four %q-quoted fields safely via eval into an
                 # array — %q output is valid shell word syntax by construction.
@@ -137,6 +141,7 @@ _load_session_state() {
     SESSION_DIRS=("${dirs[@]}")
     SESSION_HEADERS=("${heads[@]}")
     BROKEN_START=$broken
+    NAV_BADGE_W=$badge_w
     return 0
 }
 
